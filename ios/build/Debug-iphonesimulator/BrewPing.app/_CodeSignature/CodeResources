@@ -6,7 +6,7 @@
 	<dict>
 		<key>BrewPing.debug.dylib</key>
 		<data>
-		vhoZA6KzOa1tyuEME5fqDiWWkwo=
+		l3DcE5AQZkoEag80q02j96thICU=
 		</data>
 		<key>Info.plist</key>
 		<data>
@@ -18,15 +18,15 @@
 		</data>
 		<key>Watch/BrewPing Watch App.app/BrewPing Watch App</key>
 		<data>
-		z6ObKuP5NxtFyi1GKFoekkTomw4=
+		YBbsKBnxL3V7gEEiPRhdsHu61RY=
 		</data>
 		<key>Watch/BrewPing Watch App.app/BrewPing Watch App.debug.dylib</key>
 		<data>
-		BKSDK2EAMnJ6XVDsLaYVAH0hieE=
+		oq2uSyACMU472t3xYGbrCABZ6hw=
 		</data>
 		<key>Watch/BrewPing Watch App.app/Info.plist</key>
 		<data>
-		LqliKVh5VHfRi2hp9fNZKv352eg=
+		n1iBZVyxldxQ+bcvXlxMZ8oOls8=
 		</data>
 		<key>Watch/BrewPing Watch App.app/PkgInfo</key>
 		<data>
@@ -34,7 +34,7 @@
 		</data>
 		<key>Watch/BrewPing Watch App.app/_CodeSignature/CodeResources</key>
 		<data>
-		BjIIGcMIsIdc6f+jLs3NUXe65+k=
+		r5QjyP1/ZiP4Mv8EkgfAFMPrY2g=
 		</data>
 		<key>Watch/BrewPing Watch App.app/__preview.dylib</key>
 		<data>
@@ -51,28 +51,28 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			miTFgJ8Nsl2u8Wl/1p3aqGdSnccmkGSYkb7dzkLHf+Y=
+			HSAXBREpjS4Xwa55th5/7QTxeEItYltRpNipyBGrxHs=
 			</data>
 		</dict>
 		<key>Watch/BrewPing Watch App.app/BrewPing Watch App</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			MW/j42dN/JczuhVcfoXN44SRShvbJAmWa0wQ2o2NXG8=
+			lTV+6p7QqyLaGrYDgasedTu+6VjfB16ueusn/+B4ksc=
 			</data>
 		</dict>
 		<key>Watch/BrewPing Watch App.app/BrewPing Watch App.debug.dylib</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			oeIAWvvruvfYshqEg2sYnpWRK1LMUXIWNyGIB5uAXCA=
+			fS3Qc5VYegsMQe4f+0OHlbV8EHBsRn0xeHme5Gm2eog=
 			</data>
 		</dict>
 		<key>Watch/BrewPing Watch App.app/Info.plist</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			DIJcfhG/HFY7mQusYsQ8eEjmvamePC4KBieugEYIMjw=
+			dglkratlwZCE7A3FUQIzWsmQyP4i/zhfrka16C9VUwM=
 			</data>
 		</dict>
 		<key>Watch/BrewPing Watch App.app/PkgInfo</key>
@@ -86,7 +86,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			sIAXUWvLmv6dAyVbizZdLsDIijDdBr/dBG05lnRU/Tc=
+			3uSD/7otGSQdW2Sx+YMzOShySz5vT5V3M7FHVUEsQBw=
 			</data>
 		</dict>
 		<key>Watch/BrewPing Watch App.app/__preview.dylib</key>

@@ -24,5 +24,9 @@
 	<true/>
 	<key>WKCompanionAppBundleIdentifier</key>
 	<string>local.brewping.app</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>BrewPing uses the microphone to turn your voice into commands for your coding agent.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>BrewPing uses speech recognition to transcribe your voice commands.</string>
 </dict>
 </plist>

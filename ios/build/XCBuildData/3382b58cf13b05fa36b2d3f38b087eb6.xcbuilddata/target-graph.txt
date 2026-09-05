@@ -1,0 +1,2 @@
+Target dependency graph (1 target)
+Target 'BrewPing Watch App' in project 'BrewPing' (no dependencies)

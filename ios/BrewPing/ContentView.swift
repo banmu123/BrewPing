@@ -73,6 +73,7 @@ struct ContentView: View {
     @AppStorage("brewping.macAddress") private var macAddress = ""
     @AppStorage("brewping.port") private var port = "8787"
     @StateObject private var watchBridge = WatchConnectivityManager.shared
+    @StateObject private var commandReceiver = CommandReceiver.shared
     @State private var messageText = ""
     @State private var online = false
     @State private var hostName = ""
@@ -126,6 +127,14 @@ struct ContentView: View {
             .task {
                 await refreshStatus()
                 await refreshAgents()
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    await refreshStatus()
+                }
+            }
+            .onChange(of: commandReceiver.lastCommandID) { _ in
+                guard let text = commandReceiver.lastCommandText, !text.isEmpty else { return }
+                submitWatchCommand(text)
             }
             .onDisappear { pollTask?.cancel() }
         }
@@ -353,6 +362,9 @@ struct ContentView: View {
             if !lifecycleBusy {
                 sessionState = (serverStatus == "running") ? .running : .offline
             }
+            watchBridge.currentOnline = online
+            watchBridge.currentSessionState = serverStatus
+            watchBridge.pushStatus(online: online, sessionStateRaw: serverStatus)
         } catch {
             online = false
             hostName = ""
@@ -360,6 +372,9 @@ struct ContentView: View {
                 sessionState = .offline
                 sessionID = ""
             }
+            watchBridge.currentOnline = false
+            watchBridge.currentSessionState = ""
+            watchBridge.pushStatus(online: false, sessionStateRaw: "")
         }
     }
 
@@ -444,7 +459,25 @@ struct ContentView: View {
         }
     }
 
-    private func submit(_ text: String, url: URL) async {
+    private func submitWatchCommand(_ text: String) {
+        guard let url = baseURL?.appendingPathComponent("api/message") else {
+            phase = .failed("No Mac address configured on iPhone.")
+            watchBridge.sendCommandResult(status: "failed", text: "iPhone has no Mac address configured")
+            return
+        }
+        guard sessionState == .running else {
+            phase = .failed("OpenCode session is unavailable.")
+            watchBridge.sendCommandResult(status: "failed", text: "OpenCode session is unavailable")
+            return
+        }
+        pollTask?.cancel()
+        phase = .sending
+        Task {
+            await submit(text, url: url, clearsDraft: false, fromWatch: true)
+        }
+    }
+
+    private func submit(_ text: String, url: URL, clearsDraft: Bool = true, fromWatch: Bool = false) async {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -455,18 +488,24 @@ struct ContentView: View {
             let decoded = try? JSONDecoder().decode(SubmitResponse.self, from: data)
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             if statusCode == 200, let commandId = decoded?.commandId, !commandId.isEmpty {
-                messageText = ""
+                if clearsDraft { messageText = "" }
                 phase = .delivered
-                pollTask = Task { await poll(commandId: commandId) }
+                pollTask = Task { await poll(commandId: commandId, fromWatch: fromWatch) }
                 return
             }
             phase = .failed(decoded?.error ?? "HTTP \(statusCode)")
+            if fromWatch {
+                watchBridge.sendCommandResult(status: "failed", text: decoded?.error ?? "HTTP \(statusCode)")
+            }
         } catch {
             phase = .failed(error.localizedDescription)
+            if fromWatch {
+                watchBridge.sendCommandResult(status: "failed", text: error.localizedDescription)
+            }
         }
     }
 
-    private func poll(commandId: String) async {
+    private func poll(commandId: String, fromWatch: Bool = false) async {
         guard let base = baseURL else { return }
         let url = base.appendingPathComponent("api/message/\(commandId)")
         var consecutiveErrors = 0
@@ -490,13 +529,25 @@ struct ContentView: View {
                 case "working":
                     phase = .working
                 case "completed":
-                    phase = .completed(decoded.response ?? "(empty response)")
+                    let text = decoded.response ?? "(empty response)"
+                    phase = .completed(text)
+                    if fromWatch {
+                        watchBridge.sendCommandResult(status: "completed", text: text)
+                    }
                     return
                 case "completed_with_raw":
-                    phase = .completedRaw(decoded.rawOutput ?? "(empty raw output)")
+                    let text = decoded.rawOutput ?? "(empty raw output)"
+                    phase = .completedRaw(text)
+                    if fromWatch {
+                        watchBridge.sendCommandResult(status: "completed_with_raw", text: text)
+                    }
                     return
                 case "failed":
-                    phase = .failed(decoded.error ?? "Unknown error.")
+                    let text = decoded.error ?? "Unknown error."
+                    phase = .failed(text)
+                    if fromWatch {
+                        watchBridge.sendCommandResult(status: "failed", text: text)
+                    }
                     return
                 default:
                     continue

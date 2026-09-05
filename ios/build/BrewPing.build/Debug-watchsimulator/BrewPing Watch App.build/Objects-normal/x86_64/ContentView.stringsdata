@@ -12,10 +12,18 @@
       },
       {
         "comment": "",
+        "key": "Session: %@",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 39
+        }
+      },
+      {
+        "comment": "",
         "key": "Send Test",
         "location": {
           "startingColumn": 26,
-          "startingLine": 37
+          "startingLine": 53
         }
       },
       {
@@ -23,7 +31,7 @@
         "key": "Last:",
         "location": {
           "startingColumn": 30,
-          "startingLine": 43
+          "startingLine": 60
         }
       }
     ]
