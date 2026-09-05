@@ -89,18 +89,36 @@ enum BrewPingAgent {
         }
 
         var stopRequested = false
+        var sessionDownReported = false
         while !stopRequested {
-            if !agent.isRunning {
-                info.status = .exited
-                info.exitCode = agent.currentExitCode
-                store.save(info)
-                server.closeServer()
-                http?.stop()
-                exit(0)
+            if let current = store.activeAgent, !current.isRunning {
+                if !sessionDownReported {
+                    var latest = store.load() ?? info
+                    latest.status = .exited
+                    latest.exitCode = (current as? OpenCodeAgent)?.currentExitCode
+                    store.save(latest)
+                    info = latest
+                    sessionDownReported = true
+                    print("OpenCode session exited (code \(latest.exitCode.map(String.init) ?? "?")); agent standing by")
+                }
+            } else if store.activeAgent?.isRunning == true {
+                sessionDownReported = false
             }
             guard let conn = server.acceptConnection(timeoutSeconds: 1) else { continue }
+            guard let requestData = UnixSocketIO.recvLine(fd: conn, timeoutSeconds: 120) else {
+                close(conn)
+                continue
+            }
+            if AttachService.isAttachRequest(requestData) {
+                if let current = store.activeAgent as? OpenCodeAgent {
+                    AttachService.spawn(fd: conn, agent: current)
+                } else {
+                    _ = UnixSocketIO.sendAll(fd: conn, Data("{\"ok\":false,\"error\":\"OpenCode session is unavailable.\"}\n".utf8))
+                    close(conn)
+                }
+                continue
+            }
             defer { close(conn) }
-            guard let requestData = UnixSocketIO.recvLine(fd: conn, timeoutSeconds: 120) else { continue }
             let response = handle(requestData: requestData, router: router, stopRequested: &stopRequested)
             guard let responseData = try? JSONEncoder().encode(response) else { continue }
             var line = responseData
@@ -108,10 +126,13 @@ enum BrewPingAgent {
             UnixSocketIO.sendAll(fd: conn, line)
         }
 
-        try? agent.stop()
-        info.status = .exited
-        info.exitCode = agent.lastExitCode
-        store.save(info)
+        if let current = store.activeAgent as? OpenCodeAgent {
+            try? current.stop()
+        }
+        var latest = store.load() ?? info
+        latest.status = .exited
+        latest.exitCode = (store.activeAgent as? OpenCodeAgent)?.lastExitCode
+        store.save(latest)
         server.closeServer()
         http?.stop()
         exit(0)
@@ -133,6 +154,8 @@ enum BrewPingAgent {
                 return .failure("missing message text")
             }
             return router.route(.send(text: text))
+        case "start":
+            return router.route(.startSession)
         case "stop":
             stopRequested = true
             return .success("stopping")

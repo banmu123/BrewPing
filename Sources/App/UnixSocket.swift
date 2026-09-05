@@ -86,6 +86,28 @@ enum UnixSocketIO {
 }
 
 enum UnixSocketClient {
+    static func connect(path: String) -> Int32? {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return nil }
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8.prefix(103))
+        let offset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 2
+        withUnsafeMutableBytes(of: &addr) { raw in
+            raw.baseAddress!.advanced(by: offset).copyMemory(from: bytes, byteCount: bytes.count)
+        }
+        let connectResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                Darwin.connect(fd, sa, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard connectResult == 0 else {
+            close(fd)
+            return nil
+        }
+        return fd
+    }
+
     static func request(path: String, payload: Data, timeoutSeconds: TimeInterval = 30) -> Data? {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return nil }

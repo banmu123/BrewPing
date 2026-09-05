@@ -1,0 +1,272 @@
+{
+  "source": "/Users/banmu/BrewPing/ios/BrewPing/ContentView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "BrewPing",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 125
+        }
+      },
+      {
+        "comment": "",
+        "key": "Message",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 100
+        }
+      },
+      {
+        "comment": "",
+        "key": "Result",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 116
+        }
+      },
+      {
+        "comment": "",
+        "key": "Mac",
+        "location": {
+          "startingColumn": 17,
+          "startingLine": 161
+        }
+      },
+      {
+        "comment": "",
+        "key": "Available AI Agents",
+        "location": {
+          "startingColumn": 17,
+          "startingLine": 135
+        }
+      },
+      {
+        "comment": "",
+        "key": "Current Session",
+        "location": {
+          "startingColumn": 17,
+          "startingLine": 195
+        }
+      },
+      {
+        "comment": "",
+        "key": "Hello from iPhone",
+        "location": {
+          "startingColumn": 31,
+          "startingLine": 101
+        }
+      },
+      {
+        "comment": "",
+        "key": "Send",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 111
+        }
+      },
+      {
+        "comment": "",
+        "key": "Sending...",
+        "location": {
+          "startingColumn": 59,
+          "startingLine": 109
+        }
+      },
+      {
+        "comment": "",
+        "key": "No message sent yet.",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 278
+        }
+      },
+      {
+        "comment": "",
+        "key": "Dev use only: the Mac Agent must run on the same local network. This API has no authentication.",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 120
+        }
+      },
+      {
+        "comment": "",
+        "key": "Detecting agents...",
+        "location": {
+          "startingColumn": 31,
+          "startingLine": 137
+        }
+      },
+      {
+        "comment": "",
+        "key": "Connect to the Mac to detect agents.",
+        "location": {
+          "startingColumn": 55,
+          "startingLine": 137
+        }
+      },
+      {
+        "comment": "",
+        "key": "Watch: %@",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 187
+        }
+      },
+      {
+        "comment": "",
+        "key": "Mac Address (e.g. 192.168.3.94)",
+        "location": {
+          "startingColumn": 23,
+          "startingLine": 162
+        }
+      },
+      {
+        "comment": "",
+        "key": "Port",
+        "location": {
+          "startingColumn": 23,
+          "startingLine": 165
+        }
+      },
+      {
+        "comment": "",
+        "key": "Connected",
+        "location": {
+          "startingColumn": 31,
+          "startingLine": 171
+        }
+      },
+      {
+        "comment": "",
+        "key": "Offline",
+        "location": {
+          "startingColumn": 45,
+          "startingLine": 171
+        }
+      },
+      {
+        "comment": "",
+        "key": "Check",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 174
+        }
+      },
+      {
+        "comment": "",
+        "key": "OpenCode",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 197
+        }
+      },
+      {
+        "comment": "",
+        "key": "Session ID",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 211
+        }
+      },
+      {
+        "comment": "",
+        "key": "Stop Session",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 240
+        }
+      },
+      {
+        "comment": "",
+        "key": "Start Session",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 242
+        }
+      },
+      {
+        "comment": "",
+        "key": "Starting...",
+        "location": {
+          "startingColumn": 63,
+          "startingLine": 244
+        }
+      },
+      {
+        "comment": "",
+        "key": "Stopping...",
+        "location": {
+          "startingColumn": 63,
+          "startingLine": 246
+        }
+      },
+      {
+        "comment": "",
+        "key": "Sending...",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 284
+        }
+      },
+      {
+        "comment": "",
+        "key": "Delivered",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 290
+        }
+      },
+      {
+        "comment": "",
+        "key": "Working",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 298
+        }
+      },
+      {
+        "comment": "",
+        "key": "OpenCode",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 309
+        }
+      },
+      {
+        "comment": "",
+        "key": "Completed",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 307
+        }
+      },
+      {
+        "comment": "",
+        "key": "OpenCode (raw screen output)",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 322
+        }
+      },
+      {
+        "comment": "",
+        "key": "Completed",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 320
+        }
+      },
+      {
+        "comment": "",
+        "key": "Failed",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 334
+        }
+      }
+    ]
+  },
+  "version": 1
+}

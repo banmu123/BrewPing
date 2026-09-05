@@ -5,8 +5,14 @@ enum HTTPAPI {
         switch (request.method, request.path) {
         case ("GET", "/api/status"):
             return statusResponse(router.route(.status))
+        case ("GET", "/api/agents"):
+            return agentsResponse()
         case ("POST", "/api/message"):
             return messageResponse(request, router: router)
+        case ("POST", "/api/session/stop"):
+            return lifecycleResponse(router.route(.stopSession))
+        case ("POST", "/api/session/start"):
+            return lifecycleResponse(router.route(.startSession))
         case ("GET", "/api/message"):
             return .json(405, "Method Not Allowed", ["success": false, "error": "use POST /api/message or GET /api/message/:id"])
         case let ("GET", path) where path.hasPrefix("/api/message/"):
@@ -19,6 +25,20 @@ enum HTTPAPI {
         }
     }
 
+    private static func agentsResponse() -> HTTPResponse {
+        let agents = AgentDiscovery.shared.discover().map { agent -> [String: Any] in
+            var object: [String: Any] = [
+                "id": agent.id,
+                "name": agent.name,
+                "command": agent.command,
+                "installed": agent.installed
+            ]
+            if let version = agent.version { object["version"] = version }
+            return object
+        }
+        return .json(200, "OK", ["agents": agents])
+    }
+
     private static func statusResponse(_ resp: AgentResponse) -> HTTPResponse {
         let session: Any = resp.ok
             ? [
@@ -27,7 +47,21 @@ enum HTTPAPI {
                 "status": resp.status ?? "unknown"
             ]
             : NSNull()
-        return .json(200, "OK", ["status": "online", "session": session])
+        return .json(200, "OK", [
+            "status": "online",
+            "host": Host.current().localizedName ?? ProcessInfo.processInfo.hostName,
+            "session": session
+        ])
+    }
+
+    private static func lifecycleResponse(_ resp: AgentResponse) -> HTTPResponse {
+        if resp.ok {
+            var object: [String: Any] = ["success": true]
+            if let sessionID = resp.sessionID { object["sessionId"] = sessionID }
+            if let status = resp.status { object["status"] = status }
+            return .json(200, "OK", object)
+        }
+        return .json(409, "Conflict", ["success": false, "error": resp.error ?? "request failed"])
     }
 
     private static func messageResponse(_ request: HTTPRequest, router: CommandRouter) -> HTTPResponse {
@@ -62,6 +96,7 @@ enum HTTPAPI {
             "createdAt": ISO8601DateFormatter().string(from: info.createdAt)
         ]
         if let response = info.response { object["response"] = response }
+        if let rawOutput = info.rawOutput { object["rawOutput"] = rawOutput }
         if let error = info.error { object["error"] = error }
         if let completedAt = info.completedAt {
             object["completedAt"] = ISO8601DateFormatter().string(from: completedAt)

@@ -1,7 +1,7 @@
 import Foundation
 
 enum CommandStatus: String, Codable {
-    case queued, sent, working, completed, failed
+    case queued, sent, working, completed, completedWithRaw = "completed_with_raw", failed
 }
 
 struct CommandInfo: Codable {
@@ -11,6 +11,7 @@ struct CommandInfo: Codable {
     var createdAt: Date
     var status: CommandStatus
     var response: String?
+    var rawOutput: String?
     var error: String?
     var completedAt: Date?
 }
@@ -54,6 +55,7 @@ final class CommandStore {
             createdAt: Date(),
             status: .queued,
             response: nil,
+            rawOutput: nil,
             error: nil,
             completedAt: nil
         )

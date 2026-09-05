@@ -1,5 +1,9 @@
+/Users/banmu/BrewPing/Sources/Agents/AgentDiscovery.swift
+/Users/banmu/BrewPing/Sources/Agents/DetectedAgent.swift
 /Users/banmu/BrewPing/Sources/Agents/OpenCodeAgent.swift
 /Users/banmu/BrewPing/Sources/Agents/TerminalAgent.swift
+/Users/banmu/BrewPing/Sources/App/AttachCLI.swift
+/Users/banmu/BrewPing/Sources/App/AttachService.swift
 /Users/banmu/BrewPing/Sources/App/BrewPingAgent.swift
 /Users/banmu/BrewPing/Sources/App/BrewPingCLI.swift
 /Users/banmu/BrewPing/Sources/App/CommandRouter.swift

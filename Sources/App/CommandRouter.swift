@@ -4,6 +4,8 @@ enum AgentCommand {
     case status
     case send(text: String)
     case submit(text: String)
+    case stopSession
+    case startSession
 }
 
 final class CommandRouter {
@@ -24,6 +26,10 @@ final class CommandRouter {
             return workQueue.sync { sessionManager.sendMessage(text) }
         case .submit(let text):
             return runner.submit(text)
+        case .stopSession:
+            return sessionManager.stopSession()
+        case .startSession:
+            return sessionManager.startSession()
         }
     }
 }

@@ -1,0 +1,32 @@
+{
+  "source": "/Users/banmu/BrewPing/ios/Watch/ContentView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "BrewPing",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 19
+        }
+      },
+      {
+        "comment": "",
+        "key": "Send Test",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 37
+        }
+      },
+      {
+        "comment": "",
+        "key": "Last:",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 43
+        }
+      }
+    ]
+  },
+  "version": 1
+}

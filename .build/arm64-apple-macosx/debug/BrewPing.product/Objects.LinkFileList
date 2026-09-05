@@ -1,8 +1,12 @@
+/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AgentDiscovery.swift.o
+/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachCLI.swift.o
+/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachService.swift.o
 /Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/BrewPingAgent.swift.o
 /Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/BrewPingCLI.swift.o
 /Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandRouter.swift.o
 /Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandRunner.swift.o
 /Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandStore.swift.o
+/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/DetectedAgent.swift.o
 /Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/HTTPAPI.swift.o
 /Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/HTTPServer.swift.o
 /Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/LANAddress.swift.o

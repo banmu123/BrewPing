@@ -1,17 +1,18 @@
 import Foundation
 
 enum ResponseExtractor {
-    static func extract(rows: [String], sentText: String) -> (text: String, complete: Bool)? {
+    static let fallbackMaxLines = 14
+    static let maxMatchWindow = 6
+
+    static func extract(rows: [String], sentText: String, cwd: String? = nil) -> (text: String, complete: Bool)? {
         let sentKey = PTYText.normalized(sentText)
         guard !sentKey.isEmpty, rows.count > 0 else { return nil }
 
         let bottomLimit = bottomContentLimit(rows)
 
         var candidates: [Int] = []
-        for (i, row) in rows.enumerated() where i < bottomLimit {
-            if PTYText.normalized(row).contains(sentKey) {
-                candidates.append(i)
-            }
+        for i in 0..<bottomLimit where matchWindow(rows: rows, start: i, limit: bottomLimit, sentKey: sentKey) != nil {
+            candidates.append(i)
         }
         let bubbleCandidates = candidates.filter { isBubbleLine(rows[$0]) }
         guard let userRow = (bubbleCandidates.last ?? candidates.last) else { return nil }
@@ -31,7 +32,7 @@ enum ResponseExtractor {
             if isMetaLine(trimmed) {
                 return (finalize(collected), true)
             }
-            if isActivityLine(trimmed) {
+            if isActivityLine(trimmed) || isChromeLine(trimmed, cwd: cwd) {
                 i += 1
                 continue
             }
@@ -55,6 +56,67 @@ enum ResponseExtractor {
         return (finalize(collected), false)
     }
 
+    private static func matchWindow(rows: [String], start: Int, limit: Int, sentKey: String) -> Int? {
+        guard start < limit else { return nil }
+        let first = normalizedContent(rows[start])
+        guard !first.isEmpty else { return nil }
+        if first.contains(sentKey) { return 1 }
+        var joined = first
+        var size = 2
+        while size <= maxMatchWindow && start + size - 1 < limit {
+            let next = rows[start + size - 1]
+            guard isBubbleLine(next) else { break }
+            joined += normalizedContent(next)
+            if joined.contains(sentKey) { return size }
+            size += 1
+        }
+        return nil
+    }
+
+    private static func normalizedContent(_ row: String) -> String {
+        PTYText.normalized(row.replacingOccurrences(of: "┃", with: ""))
+    }
+
+    static func fallbackRaw(rows: [String], cwd: String? = nil) -> String? {
+        guard !rows.isEmpty else { return nil }
+        let limit = bottomContentLimit(rows)
+        var collected: [String] = []
+        var sawContent = false
+        var i = min(limit, rows.count) - 1
+        while i >= 0 {
+            let raw = rows[i]
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            i -= 1
+            if isBubbleLine(raw) {
+                if sawContent { break }
+                continue
+            }
+            if trimmed.isEmpty {
+                if sawContent { collected.append("") }
+                continue
+            }
+            if isSpinnerLine(trimmed) { continue }
+            if isActivityLine(trimmed) { continue }
+            if isMetaLine(trimmed) { continue }
+            if isChromeLine(trimmed, cwd: cwd) { continue }
+            sawContent = true
+            collected.append(sanitize(removeWideCharGaps(trimmed)))
+            if collected.count >= ResponseExtractor.fallbackMaxLines { break }
+        }
+        collected.reverse()
+        while let first = collected.first, first.isEmpty { collected.removeFirst() }
+        while let last = collected.last, last.isEmpty { collected.removeLast() }
+        guard !collected.isEmpty else { return nil }
+        return collected.joined(separator: "\n")
+    }
+
+    private static func sanitize(_ line: String) -> String {
+        let filtered = line.unicodeScalars.filter { scalar in
+            scalar.value >= 0x20 && scalar != "\u{7f}" && scalar != "\u{fffd}"
+        }
+        return String(String.UnicodeScalarView(filtered))
+    }
+
     private static func bottomContentLimit(_ rows: [String]) -> Int {
         if let idx = rows.lastIndex(where: { $0.contains("╹") || $0.contains("▀▀") }) {
             return idx
@@ -73,6 +135,25 @@ enum ResponseExtractor {
 
     private static func isActivityLine(_ trimmed: String) -> Bool {
         trimmed.hasPrefix("+ ") || isSpinnerLine(trimmed)
+    }
+
+    private static func isChromeLine(_ trimmed: String, cwd: String? = nil) -> Bool {
+        if trimmed.contains("ctrl+p") { return true }
+        if trimmed.contains("╹") || trimmed.contains("▀▀") { return true }
+        if trimmed.hasPrefix("·") { return true }
+        if let cwd, !cwd.isEmpty, trimmed.hasPrefix(cwd) { return true }
+        if isPurePath(trimmed) { return true }
+        return false
+    }
+
+    private static func isPurePath(_ trimmed: String) -> Bool {
+        guard trimmed.hasPrefix("/"), !trimmed.contains(" ") else { return false }
+        var scalars = trimmed.unicodeScalars
+        scalars.removeFirst()
+        return !scalars.isEmpty && scalars.allSatisfy { scalar in
+            CharacterSet.alphanumerics.contains(scalar)
+                || scalar == "/" || scalar == "_" || scalar == "-" || scalar == "."
+        }
     }
 
     private static func isSpinnerLine(_ trimmed: String) -> Bool {

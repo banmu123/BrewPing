@@ -38,6 +38,10 @@ final class OpenCodeAgent: TerminalAgent {
         manager.session?.text(from: offset)
     }
 
+    var ptySessionRef: PTYSession? {
+        manager.session
+    }
+
     func start() throws {
         let session = try manager.startProcess(
             path: Self.executablePath,

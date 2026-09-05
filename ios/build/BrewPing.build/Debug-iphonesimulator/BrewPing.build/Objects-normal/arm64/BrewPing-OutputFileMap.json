@@ -1,0 +1,39 @@
+{
+  "" : {
+    "diagnostics" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/BrewPing-primary.dia",
+    "emit-module-dependencies" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/BrewPing-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/BrewPing-primary-emit-module.dia",
+    "pch" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/BrewPing-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/BrewPing-primary.swiftdeps"
+  },
+  "/Users/banmu/BrewPing/ios/BrewPing/BrewPingApp.swift" : {
+    "const-values" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/BrewPingApp.swiftconstvalues",
+    "dependencies" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/BrewPingApp.d",
+    "diagnostics" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/BrewPingApp.dia",
+    "index-unit-output-path" : "/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/BrewPingApp.o",
+    "llvm-bc" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/BrewPingApp.bc",
+    "object" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/BrewPingApp.o",
+    "swift-dependencies" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/BrewPingApp.swiftdeps",
+    "swiftmodule" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/BrewPingApp~partial.swiftmodule"
+  },
+  "/Users/banmu/BrewPing/ios/BrewPing/ContentView.swift" : {
+    "const-values" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/ContentView.swiftconstvalues",
+    "dependencies" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/ContentView.d",
+    "diagnostics" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/ContentView.dia",
+    "index-unit-output-path" : "/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/ContentView.o",
+    "llvm-bc" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/ContentView.bc",
+    "object" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/ContentView.o",
+    "swift-dependencies" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/ContentView.swiftdeps",
+    "swiftmodule" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/ContentView~partial.swiftmodule"
+  },
+  "/Users/banmu/BrewPing/ios/BrewPing/WatchConnectivityManager.swift" : {
+    "const-values" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/WatchConnectivityManager.swiftconstvalues",
+    "dependencies" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/WatchConnectivityManager.d",
+    "diagnostics" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/WatchConnectivityManager.dia",
+    "index-unit-output-path" : "/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/WatchConnectivityManager.o",
+    "llvm-bc" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/WatchConnectivityManager.bc",
+    "object" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/WatchConnectivityManager.o",
+    "swift-dependencies" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/WatchConnectivityManager.swiftdeps",
+    "swiftmodule" : "/Users/banmu/BrewPing/ios/build/BrewPing.build/Debug-iphonesimulator/BrewPing.build/Objects-normal/arm64/WatchConnectivityManager~partial.swiftmodule"
+  }
+}

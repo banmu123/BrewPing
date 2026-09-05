@@ -2,7 +2,7 @@ import Foundation
 import Darwin
 
 final class CommandRunner {
-    static let idleSeconds: TimeInterval = 2.5
+    static let idleSeconds: TimeInterval = 4.5
     static let minResponseSeconds: TimeInterval = 3.0
     static let maxWaitSeconds: TimeInterval = 600
     static let pollIntervalMicros: useconds_t = 250_000
@@ -81,35 +81,40 @@ final class CommandRunner {
                 sawChange = true
             }
 
-            let extracted = ResponseExtractor.extract(rows: renderer.lines, sentText: text)
+            let extracted = ResponseExtractor.extract(rows: renderer.lines, sentText: text, cwd: agent.cwd)
             if sawChange,
                Date().timeIntervalSince(lastChange) >= CommandRunner.idleSeconds,
                Date().timeIntervalSince(sentAt) >= CommandRunner.minResponseSeconds {
-                if let result = extracted, !result.text.isEmpty {
-                    finish(commandId, status: .completed, response: result.text)
-                } else {
-                    finish(commandId, status: .failed, error: "No readable OpenCode response was captured for this command.")
-                }
+                finishAfterWait(commandId: commandId, extracted: extracted, renderer: renderer, cwd: agent.cwd)
                 return
             }
             if Date().timeIntervalSince(sentAt) > CommandRunner.maxWaitSeconds {
-                if let result = extracted, !result.text.isEmpty {
-                    finish(commandId, status: .completed, response: result.text)
-                } else {
-                    finish(commandId, status: .failed, error: "Timed out waiting for OpenCode to finish.")
-                }
+                finishAfterWait(commandId: commandId, extracted: extracted, renderer: renderer, cwd: agent.cwd)
                 return
             }
             usleep(CommandRunner.pollIntervalMicros)
         }
     }
 
-    private func finish(_ commandId: String, status: CommandStatus, response: String? = nil, error: String? = nil) {
+    private func finishAfterWait(commandId: String, extracted: (text: String, complete: Bool)?, renderer: ScreenRenderer, cwd: String) {
+        if let result = extracted, !result.text.isEmpty {
+            finish(commandId, status: .completed, response: result.text)
+            return
+        }
+        if let raw = ResponseExtractor.fallbackRaw(rows: renderer.lines, cwd: cwd), !raw.isEmpty {
+            finish(commandId, status: .completedWithRaw, rawOutput: raw)
+            return
+        }
+        finish(commandId, status: .failed, error: "No readable OpenCode response was captured for this command.")
+    }
+
+    private func finish(_ commandId: String, status: CommandStatus, response: String? = nil, rawOutput: String? = nil, error: String? = nil) {
         store.update(commandId) { info in
             info.status = status
             info.response = response
+            info.rawOutput = rawOutput
             info.error = error
-            info.completedAt = (status == .completed || status == .failed) ? Date() : nil
+            info.completedAt = (status == .completed || status == .completedWithRaw || status == .failed) ? Date() : nil
         }
     }
 

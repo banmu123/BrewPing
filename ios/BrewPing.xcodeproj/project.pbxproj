@@ -9,17 +9,57 @@
 /* Begin PBXBuildFile section */
 		AA0000010000000000000001 /* BrewPingApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000002 /* BrewPingApp.swift */; };
 		AA0000010000000000000003 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000004 /* ContentView.swift */; };
+		AA0000010000000000000006 /* WatchConnectivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000007 /* WatchConnectivityManager.swift */; };
+		BB0000010000000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000010000000000000002 /* ContentView.swift */; };
+		BB0000010000000000000003 /* WatchSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000010000000000000004 /* WatchSessionManager.swift */; };
+		BB00000100000000000000C3 /* BrewPing Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = BB0000010000000000000010 /* BrewPing Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		BB00000100000000000000C0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AA0000010000000000000090 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BB0000010000000000000050;
+			remoteInfo = "BrewPing Watch App";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		BB00000100000000000000C2 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				BB00000100000000000000C3 /* BrewPing Watch App.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		AA0000010000000000000002 /* BrewPingApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrewPingApp.swift; sourceTree = "<group>"; };
 		AA0000010000000000000004 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		AA0000010000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA0000010000000000000007 /* WatchConnectivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConnectivityManager.swift; sourceTree = "<group>"; };
 		AA0000010000000000000010 /* BrewPing.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BrewPing.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB0000010000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		BB0000010000000000000004 /* WatchSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionManager.swift; sourceTree = "<group>"; };
+		BB0000010000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		BB0000010000000000000010 /* BrewPing Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "BrewPing Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		AA0000010000000000000020 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB0000010000000000000020 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +73,7 @@
 			isa = PBXGroup;
 			children = (
 				AA0000010000000000000031 /* BrewPing */,
+				BB0000010000000000000031 /* Watch */,
 				AA0000010000000000000040 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -42,6 +83,7 @@
 			children = (
 				AA0000010000000000000002 /* BrewPingApp.swift */,
 				AA0000010000000000000004 /* ContentView.swift */,
+				AA0000010000000000000007 /* WatchConnectivityManager.swift */,
 				AA0000010000000000000005 /* Info.plist */,
 			);
 			path = BrewPing;
@@ -51,8 +93,19 @@
 			isa = PBXGroup;
 			children = (
 				AA0000010000000000000010 /* BrewPing.app */,
+				BB0000010000000000000010 /* BrewPing Watch App.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		BB0000010000000000000031 /* Watch */ = {
+			isa = PBXGroup;
+			children = (
+				BB0000010000000000000002 /* ContentView.swift */,
+				BB0000010000000000000004 /* WatchSessionManager.swift */,
+				BB0000010000000000000005 /* Info.plist */,
+			);
+			path = Watch;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -65,14 +118,33 @@
 				AA0000010000000000000070 /* Sources */,
 				AA0000010000000000000020 /* Frameworks */,
 				AA0000010000000000000080 /* Resources */,
+				BB00000100000000000000C2 /* Embed Watch Content */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BB00000100000000000000C1 /* PBXTargetDependency */,
+			);
+			name = BrewPing;
+			productName = BrewPing;
+			productReference = AA0000010000000000000010 /* BrewPing.app */;
+			productType = "com.apple.product-type.application";
+		};
+		BB0000010000000000000050 /* BrewPing Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BB0000010000000000000060 /* Build configuration list for PBXNativeTarget "BrewPing Watch App" */;
+			buildPhases = (
+				BB0000010000000000000070 /* Sources */,
+				BB0000010000000000000020 /* Frameworks */,
+				BB0000010000000000000080 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
-			name = BrewPing;
-			productName = BrewPing;
-			productReference = AA0000010000000000000010 /* BrewPing.app */;
+			name = "BrewPing Watch App";
+			productName = "BrewPing Watch App";
+			productReference = BB0000010000000000000010 /* BrewPing Watch App.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -86,6 +158,9 @@
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
 					AA0000010000000000000050 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+					BB0000010000000000000050 = {
 						CreatedOnToolsVersion = 15.0;
 					};
 				};
@@ -104,12 +179,20 @@
 			projectRoot = "";
 			targets = (
 				AA0000010000000000000050 /* BrewPing */,
+				BB0000010000000000000050 /* BrewPing Watch App */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		AA0000010000000000000080 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB0000010000000000000080 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -125,10 +208,28 @@
 			files = (
 				AA0000010000000000000001 /* BrewPingApp.swift in Sources */,
 				AA0000010000000000000003 /* ContentView.swift in Sources */,
+				AA0000010000000000000006 /* WatchConnectivityManager.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB0000010000000000000070 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB0000010000000000000001 /* ContentView.swift in Sources */,
+				BB0000010000000000000003 /* WatchSessionManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		BB00000100000000000000C1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BB0000010000000000000050 /* BrewPing Watch App */;
+			targetProxy = BB00000100000000000000C0 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		AA00000100000000000000A1 /* Debug */ = {
@@ -217,6 +318,53 @@
 			};
 			name = Release;
 		};
+		BB00000100000000000000B1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TGA82PM3DZ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Watch/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = local.brewping.app.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 11.6;
+			};
+			name = Debug;
+		};
+		BB00000100000000000000B2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TGA82PM3DZ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Watch/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = local.brewping.app.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 11.6;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -234,6 +382,15 @@
 			buildConfigurations = (
 				AA00000100000000000000A1 /* Debug */,
 				AA00000100000000000000A2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BB0000010000000000000060 /* Build configuration list for PBXNativeTarget "BrewPing Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BB00000100000000000000B1 /* Debug */,
+				BB00000100000000000000B2 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

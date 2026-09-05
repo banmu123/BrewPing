@@ -24,11 +24,27 @@
       "inputs" : [
         {
           "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/Sources/Agents/AgentDiscovery.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/Sources/Agents/DetectedAgent.swift"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/banmu/BrewPing/Sources/Agents/OpenCodeAgent.swift"
         },
         {
           "kind" : "file",
           "name" : "/Users/banmu/BrewPing/Sources/Agents/TerminalAgent.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/Sources/App/AttachCLI.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/Sources/App/AttachService.swift"
         },
         {
           "kind" : "file",
@@ -107,8 +123,12 @@
       "moduleName" : "BrewPing",
       "moduleOutputPath" : "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/Modules/BrewPing.swiftmodule",
       "objects" : [
+        "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AgentDiscovery.swift.o",
+        "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/DetectedAgent.swift.o",
         "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/OpenCodeAgent.swift.o",
         "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/TerminalAgent.swift.o",
+        "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachCLI.swift.o",
+        "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachService.swift.o",
         "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/BrewPingAgent.swift.o",
         "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/BrewPingCLI.swift.o",
         "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandRouter.swift.o",
@@ -173,11 +193,27 @@
       "outputs" : [
         {
           "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AgentDiscovery.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/DetectedAgent.swift.o"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/OpenCodeAgent.swift.o"
         },
         {
           "kind" : "file",
           "name" : "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/TerminalAgent.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachCLI.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachService.swift.o"
         },
         {
           "kind" : "file",
@@ -250,8 +286,12 @@
       ],
       "prepareForIndexing" : false,
       "sources" : [
+        "/Users/banmu/BrewPing/Sources/Agents/AgentDiscovery.swift",
+        "/Users/banmu/BrewPing/Sources/Agents/DetectedAgent.swift",
         "/Users/banmu/BrewPing/Sources/Agents/OpenCodeAgent.swift",
         "/Users/banmu/BrewPing/Sources/Agents/TerminalAgent.swift",
+        "/Users/banmu/BrewPing/Sources/App/AttachCLI.swift",
+        "/Users/banmu/BrewPing/Sources/App/AttachService.swift",
         "/Users/banmu/BrewPing/Sources/App/BrewPingAgent.swift",
         "/Users/banmu/BrewPing/Sources/App/BrewPingCLI.swift",
         "/Users/banmu/BrewPing/Sources/App/CommandRouter.swift",
@@ -284,8 +324,12 @@
       "-package-name",
       "brewping",
       "-c",
+      "/Users/banmu/BrewPing/Sources/Agents/AgentDiscovery.swift",
+      "/Users/banmu/BrewPing/Sources/Agents/DetectedAgent.swift",
       "/Users/banmu/BrewPing/Sources/Agents/OpenCodeAgent.swift",
       "/Users/banmu/BrewPing/Sources/Agents/TerminalAgent.swift",
+      "/Users/banmu/BrewPing/Sources/App/AttachCLI.swift",
+      "/Users/banmu/BrewPing/Sources/App/AttachService.swift",
       "/Users/banmu/BrewPing/Sources/App/BrewPingAgent.swift",
       "/Users/banmu/BrewPing/Sources/App/BrewPingCLI.swift",
       "/Users/banmu/BrewPing/Sources/App/CommandRouter.swift",
@@ -389,11 +433,27 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/Sources/Agents/AgentDiscovery.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/Sources/Agents/DetectedAgent.swift"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/banmu/BrewPing/Sources/Agents/OpenCodeAgent.swift"
         },
         {
           "kind" : "file",
           "name" : "/Users/banmu/BrewPing/Sources/Agents/TerminalAgent.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/Sources/App/AttachCLI.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/Sources/App/AttachService.swift"
         },
         {
           "kind" : "file",
@@ -471,6 +531,18 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AgentDiscovery.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachCLI.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachService.swift.o"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/BrewPingAgent.swift.o"
         },
         {
@@ -488,6 +560,10 @@
         {
           "kind" : "file",
           "name" : "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandStore.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/DetectedAgent.swift.o"
         },
         {
           "kind" : "file",

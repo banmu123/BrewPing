@@ -2,6 +2,20 @@
   "": {
     "swift-dependencies": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/master.swiftdeps"
   },
+  "/Users/banmu/BrewPing/Sources/Agents/AgentDiscovery.swift": {
+    "dependencies": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AgentDiscovery.d",
+    "object": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AgentDiscovery.swift.o",
+    "swiftmodule": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AgentDiscovery~partial.swiftmodule",
+    "swift-dependencies": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AgentDiscovery.swiftdeps",
+    "diagnostics": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AgentDiscovery.dia"
+  },
+  "/Users/banmu/BrewPing/Sources/Agents/DetectedAgent.swift": {
+    "dependencies": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/DetectedAgent.d",
+    "object": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/DetectedAgent.swift.o",
+    "swiftmodule": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/DetectedAgent~partial.swiftmodule",
+    "swift-dependencies": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/DetectedAgent.swiftdeps",
+    "diagnostics": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/DetectedAgent.dia"
+  },
   "/Users/banmu/BrewPing/Sources/Agents/OpenCodeAgent.swift": {
     "dependencies": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/OpenCodeAgent.d",
     "object": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/OpenCodeAgent.swift.o",
@@ -15,6 +29,20 @@
     "swiftmodule": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/TerminalAgent~partial.swiftmodule",
     "swift-dependencies": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/TerminalAgent.swiftdeps",
     "diagnostics": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/TerminalAgent.dia"
+  },
+  "/Users/banmu/BrewPing/Sources/App/AttachCLI.swift": {
+    "dependencies": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachCLI.d",
+    "object": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachCLI.swift.o",
+    "swiftmodule": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachCLI~partial.swiftmodule",
+    "swift-dependencies": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachCLI.swiftdeps",
+    "diagnostics": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachCLI.dia"
+  },
+  "/Users/banmu/BrewPing/Sources/App/AttachService.swift": {
+    "dependencies": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachService.d",
+    "object": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachService.swift.o",
+    "swiftmodule": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachService~partial.swiftmodule",
+    "swift-dependencies": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachService.swiftdeps",
+    "diagnostics": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/AttachService.dia"
   },
   "/Users/banmu/BrewPing/Sources/App/BrewPingAgent.swift": {
     "dependencies": "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/BrewPingAgent.d",

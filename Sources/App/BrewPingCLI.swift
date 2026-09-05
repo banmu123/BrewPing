@@ -19,6 +19,8 @@ enum BrewPingCLI {
             return cmdSend(text)
         case "stop":
             return cmdStop()
+        case "attach":
+            return AttachCLI.run()
         case "agent":
             BrewPingAgent.run()
         default:
@@ -34,6 +36,7 @@ enum BrewPingCLI {
           status        Show current session status
           send <text>   Send a message to the current OpenCode session
           stop          Stop the current OpenCode session
+          attach        Attach to the running OpenCode session (Ctrl+D to detach)
         """)
         return 1
     }
@@ -46,7 +49,7 @@ enum BrewPingCLI {
         try? JSONDecoder().decode(AgentResponse.self, from: data)
     }
 
-    private static func requestStatus() -> AgentResponse? {
+    static func requestStatus() -> AgentResponse? {
         guard let payload = encodeRequest(AgentRequest(cmd: "status", text: nil)) else { return nil }
         guard let data = UnixSocketClient.request(
             path: SessionManager.shared.socketPath,
@@ -66,10 +69,32 @@ enum BrewPingCLI {
                 print("PID: \(resp.pid ?? 0)")
                 return 0
             }
-            let deadline = Date().addingTimeInterval(3)
-            while requestStatus() != nil && Date() < deadline {
+            print("Agent is standing by; restarting OpenCode session...")
+            guard let payload = encodeRequest(AgentRequest(cmd: "start", text: nil)),
+                  let data = UnixSocketClient.request(
+                      path: SessionManager.shared.socketPath,
+                      payload: payload,
+                      timeoutSeconds: 90
+                  ),
+                  let startResp = decodeResponse(data), startResp.ok else {
+                print("ERROR: failed to restart OpenCode session in existing agent, see \(store.agentLogURL.path)")
+                return 1
+            }
+            let deadline = Date().addingTimeInterval(60)
+            while Date() < deadline {
+                if let status = requestStatus(), status.status == SessionStatus.running.rawValue {
+                    print("OpenCode started")
+                    print("Session: \(status.sessionID ?? "?")")
+                    print("PID: \(status.pid ?? 0)")
+                    if let info = store.load(), let port = info.httpPort {
+                        print("HTTP API: http://\(info.httpIP ?? "127.0.0.1"):\(port) (dev use only)")
+                    }
+                    return 0
+                }
                 usleep(200_000)
             }
+            print("ERROR: OpenCode did not report a running session in time, see \(store.agentLogURL.path)")
+            return 1
         }
 
         if let info = store.load(), info.status == .starting, store.isAlive(info.agentPID) {

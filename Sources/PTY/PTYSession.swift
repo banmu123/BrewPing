@@ -71,6 +71,12 @@ final class PTYSession {
         return String(decoding: acc[offset...], as: UTF8.self)
     }
 
+    func bytes(from offset: Int) -> [UInt8] {
+        lock.lock(); defer { lock.unlock() }
+        guard offset < acc.count else { return [] }
+        return Array(acc[offset...])
+    }
+
     func spawn(path: String, argvName: String, environment: [String: String]) throws {
         var ws = winsize(ws_row: Self.rows, ws_col: Self.columns, ws_xpixel: 0, ws_ypixel: 0)
         let pid = brewping_forkpty(&masterFD, nil, nil, &ws)
@@ -94,7 +100,17 @@ final class PTYSession {
     func isChildAlive() -> Bool {
         if didExit { return false }
         var st: Int32 = 0
-        return waitpid(childPID, &st, WNOHANG) == 0
+        let result = waitpid(childPID, &st, WNOHANG)
+        if result == childPID {
+            lock.lock()
+            if !didExitFlag {
+                exitStatusFlag = st
+                didExitFlag = true
+            }
+            lock.unlock()
+            return false
+        }
+        return result == 0
     }
 
     @discardableResult
@@ -154,10 +170,17 @@ final class PTYSession {
             }
         }
         var st: Int32 = 0
-        waitpid(childPID, &st, 0)
-        lock.lock()
-        exitStatusFlag = st
-        didExitFlag = true
-        lock.unlock()
+        if waitpid(childPID, &st, 0) >= 0 || errno != ECHILD {
+            lock.lock()
+            if !didExitFlag {
+                exitStatusFlag = st
+                didExitFlag = true
+            }
+            lock.unlock()
+        } else {
+            lock.lock()
+            didExitFlag = true
+            lock.unlock()
+        }
     }
 }
