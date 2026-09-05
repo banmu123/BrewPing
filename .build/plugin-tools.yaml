@@ -1,0 +1,81 @@
+client:
+  name: basic
+  file-system: device-agnostic
+tools: {}
+targets:
+  "BrewPing-arm64-apple-macosx15.0-debug.exe": ["<BrewPing-arm64-apple-macosx15.0-debug.exe>"]
+  "BrewPing-arm64-apple-macosx15.0-debug.module": ["<BrewPing-arm64-apple-macosx15.0-debug.module>"]
+  "PackageStructure": ["<PackageStructure>"]
+  "main": ["<BrewPing-arm64-apple-macosx15.0-debug.exe>","<BrewPing-arm64-apple-macosx15.0-debug.module>"]
+  "test": ["<BrewPing-arm64-apple-macosx15.0-debug.exe>","<BrewPing-arm64-apple-macosx15.0-debug.module>"]
+default: "main"
+nodes:
+  "/Users/banmu/BrewPing/Sources/":
+    is-directory-structure: true
+    content-exclusion-patterns: [".git",".build"]
+  "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing":
+    is-mutated: true
+commands:
+  "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing-entitlement.plist":
+    tool: write-auxiliary-file
+    inputs: ["<entitlement-plist>","<com.apple.security.get-task-allow>"]
+    outputs: ["/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing-entitlement.plist"]
+    description: "Write auxiliary file /Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing-entitlement.plist"
+
+  "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/Users/banmu/BrewPing/Sources/Agents/OpenCodeAgent.swift","/Users/banmu/BrewPing/Sources/Agents/TerminalAgent.swift","/Users/banmu/BrewPing/Sources/App/BrewPingAgent.swift","/Users/banmu/BrewPing/Sources/App/BrewPingCLI.swift","/Users/banmu/BrewPing/Sources/App/CommandRouter.swift","/Users/banmu/BrewPing/Sources/App/CommandRunner.swift","/Users/banmu/BrewPing/Sources/App/CommandStore.swift","/Users/banmu/BrewPing/Sources/App/HTTPAPI.swift","/Users/banmu/BrewPing/Sources/App/HTTPServer.swift","/Users/banmu/BrewPing/Sources/App/LANAddress.swift","/Users/banmu/BrewPing/Sources/App/ResponseExtractor.swift","/Users/banmu/BrewPing/Sources/App/UnixSocket.swift","/Users/banmu/BrewPing/Sources/BrewPing/main.swift","/Users/banmu/BrewPing/Sources/PTY/PTYManager.swift","/Users/banmu/BrewPing/Sources/PTY/PTYSession.swift","/Users/banmu/BrewPing/Sources/PTY/PTYText.swift","/Users/banmu/BrewPing/Sources/PTY/ScreenRenderer.swift","/Users/banmu/BrewPing/Sources/Session/SessionManager.swift"]
+    outputs: ["/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/sources"]
+    description: "Write auxiliary file /Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/sources"
+
+  "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.product/Objects.LinkFileList":
+    tool: write-auxiliary-file
+    inputs: ["<link-file-list>","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/BrewPingAgent.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/BrewPingCLI.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandRouter.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandRunner.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandStore.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/HTTPAPI.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/HTTPServer.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/LANAddress.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/OpenCodeAgent.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/PTYManager.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/PTYSession.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/PTYText.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/ResponseExtractor.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/ScreenRenderer.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/SessionManager.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/TerminalAgent.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/UnixSocket.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/main.swift.o"]
+    outputs: ["/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.product/Objects.LinkFileList"]
+    description: "Write auxiliary file /Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.product/Objects.LinkFileList"
+
+  "/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/swift-version--1AB21518FC5DEDBE.txt":
+    tool: write-auxiliary-file
+    inputs: ["<swift-get-version>","/Library/Developer/CommandLineTools/usr/bin/swiftc"]
+    outputs: ["/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/swift-version--1AB21518FC5DEDBE.txt"]
+    always-out-of-date: "true"
+    description: "Write auxiliary file /Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/swift-version--1AB21518FC5DEDBE.txt"
+
+  "<BrewPing-arm64-apple-macosx15.0-debug.exe>":
+    tool: phony
+    inputs: ["<BrewPing-arm64-apple-macosx15.0-debug.exe-CodeSigning>"]
+    outputs: ["<BrewPing-arm64-apple-macosx15.0-debug.exe>"]
+
+  "<BrewPing-arm64-apple-macosx15.0-debug.module>":
+    tool: phony
+    inputs: ["/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/OpenCodeAgent.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/TerminalAgent.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/BrewPingAgent.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/BrewPingCLI.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandRouter.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandRunner.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandStore.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/HTTPAPI.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/HTTPServer.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/LANAddress.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/ResponseExtractor.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/UnixSocket.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/main.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/PTYManager.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/PTYSession.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/PTYText.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/ScreenRenderer.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/SessionManager.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/Modules/BrewPing.swiftmodule"]
+    outputs: ["<BrewPing-arm64-apple-macosx15.0-debug.module>"]
+
+  "C.BrewPing-arm64-apple-macosx15.0-debug.exe":
+    tool: shell
+    inputs: ["/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/BrewPingAgent.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/BrewPingCLI.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandRouter.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandRunner.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandStore.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/HTTPAPI.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/HTTPServer.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/LANAddress.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/OpenCodeAgent.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/PTYManager.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/PTYSession.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/PTYText.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/ResponseExtractor.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/ScreenRenderer.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/SessionManager.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/TerminalAgent.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/UnixSocket.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/main.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.product/Objects.LinkFileList"]
+    outputs: ["/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing"]
+    description: "Linking ./.build/arm64-apple-macosx/debug/BrewPing"
+    args: ["/Library/Developer/CommandLineTools/usr/bin/swiftc","-L","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug","-o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing","-module-name","BrewPing","-Xlinker","-no_warn_duplicate_libraries","-emit-executable","-Xlinker","-alias","-Xlinker","_BrewPing_main","-Xlinker","_main","-Xlinker","-rpath","-Xlinker","@loader_path","@/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.product/Objects.LinkFileList","-Xlinker","-rpath","-Xlinker","/Library/Developer/CommandLineTools/usr/lib/swift-6.2/macosx","-target","arm64-apple-macosx13.0","-Xlinker","-add_ast_path","-Xlinker","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/Modules/BrewPing.swiftmodule","-I","/Library/Developer/CommandLineTools/Library/Developer/Frameworks","-L","/Library/Developer/CommandLineTools/Library/Developer/Frameworks","-plugin-path","/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing","-sdk","/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk","-g"]
+
+  "C.BrewPing-arm64-apple-macosx15.0-debug.exe-entitlements":
+    tool: shell
+    inputs: ["/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing-entitlement.plist"]
+    outputs: ["<BrewPing-arm64-apple-macosx15.0-debug.exe-CodeSigning>"]
+    description: "Applying debug entitlements to ./.build/arm64-apple-macosx/debug/BrewPing"
+    args: ["codesign","--force","--sign","-","--entitlements","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing-entitlement.plist","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing"]
+
+  "C.BrewPing-arm64-apple-macosx15.0-debug.module":
+    tool: shell
+    inputs: ["/Users/banmu/BrewPing/Sources/Agents/OpenCodeAgent.swift","/Users/banmu/BrewPing/Sources/Agents/TerminalAgent.swift","/Users/banmu/BrewPing/Sources/App/BrewPingAgent.swift","/Users/banmu/BrewPing/Sources/App/BrewPingCLI.swift","/Users/banmu/BrewPing/Sources/App/CommandRouter.swift","/Users/banmu/BrewPing/Sources/App/CommandRunner.swift","/Users/banmu/BrewPing/Sources/App/CommandStore.swift","/Users/banmu/BrewPing/Sources/App/HTTPAPI.swift","/Users/banmu/BrewPing/Sources/App/HTTPServer.swift","/Users/banmu/BrewPing/Sources/App/LANAddress.swift","/Users/banmu/BrewPing/Sources/App/ResponseExtractor.swift","/Users/banmu/BrewPing/Sources/App/UnixSocket.swift","/Users/banmu/BrewPing/Sources/BrewPing/main.swift","/Users/banmu/BrewPing/Sources/PTY/PTYManager.swift","/Users/banmu/BrewPing/Sources/PTY/PTYSession.swift","/Users/banmu/BrewPing/Sources/PTY/PTYText.swift","/Users/banmu/BrewPing/Sources/PTY/ScreenRenderer.swift","/Users/banmu/BrewPing/Sources/Session/SessionManager.swift","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/swift-version--1AB21518FC5DEDBE.txt","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/sources"]
+    outputs: ["/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/OpenCodeAgent.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/TerminalAgent.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/BrewPingAgent.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/BrewPingCLI.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandRouter.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandRunner.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/CommandStore.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/HTTPAPI.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/HTTPServer.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/LANAddress.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/ResponseExtractor.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/UnixSocket.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/main.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/PTYManager.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/PTYSession.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/PTYText.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/ScreenRenderer.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/SessionManager.swift.o","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/Modules/BrewPing.swiftmodule"]
+    description: "Compiling Swift Module 'BrewPing' (18 sources)"
+    args: ["/Library/Developer/CommandLineTools/usr/bin/swiftc","-module-name","BrewPing","-emit-dependencies","-emit-module","-emit-module-path","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/Modules/BrewPing.swiftmodule","-output-file-map","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/output-file-map.json","-incremental","-c","@/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/BrewPing.build/sources","-I","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/Modules","-target","arm64-apple-macosx13.0","-incremental","-enable-batch-mode","-serialize-diagnostics","-index-store-path","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/index/store","-Onone","-enable-testing","-j8","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE","-module-cache-path","/Users/banmu/BrewPing/.build/arm64-apple-macosx/debug/ModuleCache","-parseable-output","-Xfrontend","-entry-point-function-name","-Xfrontend","BrewPing_main","-swift-version","5","-I","/Library/Developer/CommandLineTools/Library/Developer/Frameworks","-L","/Library/Developer/CommandLineTools/Library/Developer/Frameworks","-plugin-path","/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing","-sdk","/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk","-g","-Xcc","-isysroot","-Xcc","/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk","-Xcc","-fPIC","-Xcc","-g","-package-name","brewping"]
+
+  "PackageStructure":
+    tool: package-structure-tool
+    inputs: ["/Users/banmu/BrewPing/Sources/","/Users/banmu/BrewPing/Package.swift","/Users/banmu/BrewPing/Package.resolved"]
+    outputs: ["<PackageStructure>"]
+    description: "Planning build"
+    allow-missing-inputs: true
+
