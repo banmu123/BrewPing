@@ -7,6 +7,18 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AA000001000000000000000A /* BrewPingProtocol.swift in Protocol Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001A /* BrewPingProtocol.swift */; };
+		BB000001000000000000002A /* BrewPingProtocol.swift in Protocol Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001A /* BrewPingProtocol.swift */; };
+		AA000001000000000000000B /* Device.swift in Protocol Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001B /* Device.swift */; };
+		BB000001000000000000002B /* Device.swift in Protocol Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001B /* Device.swift */; };
+		AA000001000000000000000C /* Agent.swift in Protocol Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001C /* Agent.swift */; };
+		BB000001000000000000002C /* Agent.swift in Protocol Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001C /* Agent.swift */; };
+		AA000001000000000000000D /* Session.swift in Protocol Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001D /* Session.swift */; };
+		BB000001000000000000002D /* Session.swift in Protocol Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001D /* Session.swift */; };
+		AA000001000000000000000E /* Conversation.swift in Protocol Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001E /* Conversation.swift */; };
+		BB000001000000000000002E /* Conversation.swift in Protocol Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001E /* Conversation.swift */; };
+		AA000001000000000000000F /* Event.swift in Protocol Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001F /* Event.swift */; };
+		BB000001000000000000002F /* Event.swift in Protocol Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001F /* Event.swift */; };
 		AA0000010000000000000001 /* BrewPingApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000002 /* BrewPingApp.swift */; };
 		AA0000010000000000000003 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000004 /* ContentView.swift */; };
 		AA0000010000000000000006 /* WatchConnectivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000007 /* WatchConnectivityManager.swift */; };
@@ -42,6 +54,12 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		BB000001000000000000001A /* BrewPingProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrewPingProtocol.swift"; sourceTree = "<group>"; };
+		BB000001000000000000001B /* Device.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Device.swift"; sourceTree = "<group>"; };
+		BB000001000000000000001C /* Agent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Agent.swift"; sourceTree = "<group>"; };
+		BB000001000000000000001D /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Session.swift"; sourceTree = "<group>"; };
+		BB000001000000000000001E /* Conversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Conversation.swift"; sourceTree = "<group>"; };
+		BB000001000000000000001F /* Event.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Event.swift"; sourceTree = "<group>"; };
 		AA0000010000000000000002 /* BrewPingApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrewPingApp.swift; sourceTree = "<group>"; };
 		AA0000010000000000000004 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		AA0000010000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -78,6 +96,7 @@
 			children = (
 				AA0000010000000000000031 /* BrewPing */,
 				BB0000010000000000000031 /* Watch */,
+				BB0000010000000000000032 /* Protocol */,
 				AA0000010000000000000040 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -112,6 +131,19 @@
 				BB0000010000000000000005 /* Info.plist */,
 			);
 			path = Watch;
+			sourceTree = "<group>";
+		};
+		BB0000010000000000000032 /* Protocol */ = {
+			isa = PBXGroup;
+			children = (
+				BB000001000000000000001A /* BrewPingProtocol.swift */,
+				BB000001000000000000001B /* Device.swift */,
+				BB000001000000000000001C /* Agent.swift */,
+				BB000001000000000000001D /* Session.swift */,
+				BB000001000000000000001E /* Conversation.swift */,
+				BB000001000000000000001F /* Event.swift */,
+			);
+			path = ../Sources/Protocol;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -216,6 +248,12 @@
 				AA0000010000000000000003 /* ContentView.swift in Sources */,
 				AA0000010000000000000006 /* WatchConnectivityManager.swift in Sources */,
 				AA0000010000000000000008 /* CommandReceiver.swift in Sources */,
+				AA000001000000000000000A /* BrewPingProtocol.swift in Protocol Sources */,
+				AA000001000000000000000B /* Device.swift in Protocol Sources */,
+				AA000001000000000000000C /* Agent.swift in Protocol Sources */,
+				AA000001000000000000000D /* Session.swift in Protocol Sources */,
+				AA000001000000000000000E /* Conversation.swift in Protocol Sources */,
+				AA000001000000000000000F /* Event.swift in Protocol Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

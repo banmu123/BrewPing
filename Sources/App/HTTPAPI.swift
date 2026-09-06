@@ -5,6 +5,8 @@ enum HTTPAPI {
         switch (request.method, request.path) {
         case ("GET", "/api/status"):
             return statusResponse(router.route(.status))
+        case ("GET", "/api/protocol/state"):
+            return protocolStateResponse()
         case ("GET", "/api/agents"):
             return agentsResponse()
         case ("POST", "/api/agents/default"):
@@ -25,6 +27,15 @@ enum HTTPAPI {
         default:
             return .json(404, "Not Found", ["success": false, "error": "not found"])
         }
+    }
+
+    private static func protocolStateResponse() -> HTTPResponse {
+        let snapshot = ProtocolStateService.snapshot(deviceOnline: true)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = (try? encoder.encode(snapshot)) ?? Data("{}".utf8)
+        return HTTPResponse(status: 200, reason: "OK", body: data)
     }
 
     private static func agentsResponse() -> HTTPResponse {

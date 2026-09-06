@@ -74,6 +74,13 @@ final class CommandStore {
         return commands[id]
     }
 
+    /// 只读快照（按创建时间升序）。供 ProtocolStateService 投影使用。
+    func all() -> [CommandInfo] {
+        lock.lock()
+        defer { lock.unlock() }
+        return commands.values.sorted { $0.createdAt < $1.createdAt }
+    }
+
     func update(_ id: String, _ mutate: (inout CommandInfo) -> Void) {
         var updated: CommandInfo?
         lock.lock()
