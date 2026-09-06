@@ -13,6 +13,7 @@ struct CommandInfo: Codable {
     var response: String?
     var rawOutput: String?
     var error: String?
+    var duration: TimeInterval?
     var completedAt: Date?
 }
 
@@ -57,6 +58,7 @@ final class CommandStore {
             response: nil,
             rawOutput: nil,
             error: nil,
+            duration: nil,
             completedAt: nil
         )
         lock.lock()

@@ -121,6 +121,7 @@ enum HTTPAPI {
         if let response = info.response { object["response"] = response }
         if let rawOutput = info.rawOutput { object["rawOutput"] = rawOutput }
         if let error = info.error { object["error"] = error }
+        if let duration = info.duration { object["duration"] = (duration * 10).rounded() / 10 }
         if let completedAt = info.completedAt {
             object["completedAt"] = ISO8601DateFormatter().string(from: completedAt)
         }

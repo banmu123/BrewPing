@@ -20,6 +20,7 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     @Published var agentName: String = "OpenCode"
     @Published var agentMode: String = "session"
     @Published var commandState: CommandSendState = .idle
+    @Published var lastCommandDuration: Double?
 
     private var session: WCSession? {
         WCSession.isSupported() ? WCSession.default : nil
@@ -216,8 +217,10 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
         guard message["type"] as? String == "commandResult" else { return }
         let status = message["status"] as? String ?? ""
         let text = message["text"] as? String ?? ""
-        print("BrewPing watch: command result received status=\(status) text=\(text)")
+        let duration = message["duration"] as? Double
+        print("BrewPing watch: command result received status=\(status) duration=\(duration.map { String($0) } ?? "-") text=\(text)")
         DispatchQueue.main.async {
+            self.lastCommandDuration = duration
             if status == "completed" || status == "completed_with_raw" {
                 self.commandState = .completed(text)
             } else {

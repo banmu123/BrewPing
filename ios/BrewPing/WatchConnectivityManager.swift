@@ -40,18 +40,20 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         }
     }
 
-    func sendCommandResult(status: String, text: String) {
+    func sendCommandResult(status: String, text: String, duration: Double? = nil) {
         guard WCSession.isSupported() else { return }
         let session = WCSession.default
         guard session.activationState == .activated, session.isReachable else {
             print("BrewPing iPhone: watch not reachable, command result kept for context only")
             return
         }
-        session.sendMessage([
+        var message: [String: Any] = [
             "type": "commandResult",
             "status": status,
             "text": text
-        ], replyHandler: nil) { error in
+        ]
+        if let duration { message["duration"] = duration }
+        session.sendMessage(message, replyHandler: nil) { error in
             print("BrewPing iPhone: command result push failed: \(error.localizedDescription)")
         }
     }

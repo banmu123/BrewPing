@@ -40,7 +40,7 @@ struct VoiceCommandView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)
-                        Text("Completed")
+                        Text(durationSuffix("Completed"))
                             .font(.caption)
                             .fontWeight(.medium)
                     }
@@ -55,7 +55,7 @@ struct VoiceCommandView: View {
                 }
             case .failed(let message):
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Send failed")
+                    Text(durationSuffix("Send failed"))
                         .font(.caption)
                         .foregroundStyle(.red)
                     Text(message)
@@ -68,6 +68,13 @@ struct VoiceCommandView: View {
                 }
             }
         }
+    }
+
+    private func durationSuffix(_ base: String) -> String {
+        if let d = sessionManager.lastCommandDuration {
+            return String(format: "%@ · %.1fs", base, d)
+        }
+        return base
     }
 
     @ViewBuilder

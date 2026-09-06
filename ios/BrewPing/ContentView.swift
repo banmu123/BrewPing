@@ -25,6 +25,7 @@ struct CommandStatusResponse: Decodable {
     let status: String?
     let response: String?
     let rawOutput: String?
+    let duration: Double?
     let error: String?
 }
 
@@ -87,6 +88,7 @@ struct ContentView: View {
     @State private var sessionAgentNameFromStatus = "OpenCode"
     @State private var sessionMessage = ""
     @State private var phase: CommandPhase = .idle
+    @State private var lastDuration: Double?
     @State private var lifecycleBusy = false
     @State private var agents: [AgentEntry] = []
     @State private var pollTask: Task<Void, Never>?
@@ -374,7 +376,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    Text("Completed").font(.callout).fontWeight(.medium)
+                    Text(durationSuffix("Completed")).font(.callout).fontWeight(.medium)
                 }
                 Text("OpenCode")
                     .font(.caption)
@@ -387,7 +389,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    Text("Completed").font(.callout).fontWeight(.medium)
+                    Text(durationSuffix("Completed")).font(.callout).fontWeight(.medium)
                 }
                 Text("OpenCode (raw screen output)")
                     .font(.caption)
@@ -401,7 +403,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
-                    Text("Failed").font(.callout).fontWeight(.medium)
+                    Text(durationSuffix("Failed")).font(.callout).fontWeight(.medium)
                 }
                 Text(error)
                     .font(.callout)
@@ -409,6 +411,13 @@ struct ContentView: View {
                     .textSelection(.enabled)
             }
         }
+    }
+
+    private func durationSuffix(_ base: String) -> String {
+        if let d = lastDuration {
+            return String(format: "%@ · %.1fs", base, d)
+        }
+        return base
     }
 
     private func refreshStatus() async {
@@ -522,6 +531,7 @@ struct ContentView: View {
               sessionState == .running else { return }
         pollTask?.cancel()
         phase = .sending
+        lastDuration = nil
         Task {
             await refreshStatus()
             await submit(text, url: url)
@@ -541,6 +551,7 @@ struct ContentView: View {
         }
         pollTask?.cancel()
         phase = .sending
+        lastDuration = nil
         Task {
             await submit(text, url: url, clearsDraft: false, fromWatch: true)
         }
@@ -599,23 +610,26 @@ struct ContentView: View {
                     phase = .working
                 case "completed":
                     let text = decoded.response ?? "(empty response)"
+                    lastDuration = decoded.duration
                     phase = .completed(text)
                     if fromWatch {
-                        watchBridge.sendCommandResult(status: "completed", text: text)
+                        watchBridge.sendCommandResult(status: "completed", text: text, duration: decoded.duration)
                     }
                     return
                 case "completed_with_raw":
                     let text = decoded.rawOutput ?? "(empty raw output)"
+                    lastDuration = decoded.duration
                     phase = .completedRaw(text)
                     if fromWatch {
-                        watchBridge.sendCommandResult(status: "completed_with_raw", text: text)
+                        watchBridge.sendCommandResult(status: "completed_with_raw", text: text, duration: decoded.duration)
                     }
                     return
                 case "failed":
                     let text = decoded.error ?? "Unknown error."
+                    lastDuration = decoded.duration
                     phase = .failed(text)
                     if fromWatch {
-                        watchBridge.sendCommandResult(status: "failed", text: text)
+                        watchBridge.sendCommandResult(status: "failed", text: text, duration: decoded.duration)
                     }
                     return
                 default:

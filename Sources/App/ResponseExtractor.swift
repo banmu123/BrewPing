@@ -117,6 +117,19 @@ enum ResponseExtractor {
         return String(String.UnicodeScalarView(filtered))
     }
 
+    static func extractDuration(rows: [String]) -> TimeInterval? {
+        for row in rows {
+            let trimmed = row.trimmingCharacters(in: .whitespaces)
+            guard isMetaLine(trimmed) else { continue }
+            let parts = trimmed.split(separator: "·").map { $0.trimmingCharacters(in: .whitespaces) }
+            guard let last = parts.last, last.hasSuffix("s"), last.count > 1 else { continue }
+            if let seconds = Double(last.dropLast()) {
+                return seconds
+            }
+        }
+        return nil
+    }
+
     private static func bottomContentLimit(_ rows: [String]) -> Int {
         if let idx = rows.lastIndex(where: { $0.contains("╹") || $0.contains("▀▀") }) {
             return idx

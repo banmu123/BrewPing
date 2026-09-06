@@ -66,12 +66,14 @@ final class CommandRunner {
             store.update(info.commandId) { update in
                 update.status = .completed
                 update.response = result.output
+                update.duration = result.durationSeconds
                 update.completedAt = Date()
             }
         default:
             store.update(info.commandId) { update in
                 update.status = .failed
                 update.error = result.output.isEmpty ? "Agent execution failed." : String(result.output.prefix(2000))
+                update.duration = result.durationSeconds
                 update.completedAt = Date()
             }
         }
@@ -106,8 +108,9 @@ final class CommandRunner {
         let sentAt = Date()
 
         while true {
+            let sessionDuration = ResponseExtractor.extractDuration(rows: renderer.lines)
             guard agent.isRunning else {
-                finish(commandId, status: .failed, error: "OpenCode session exited.")
+                finish(commandId, status: .failed, error: "OpenCode session exited.", duration: sessionDuration)
                 return
             }
             let newLength = agent.ptyOutputLength ?? fed
@@ -143,23 +146,25 @@ final class CommandRunner {
     }
 
     private func finishAfterWait(commandId: String, extracted: (text: String, complete: Bool)?, renderer: ScreenRenderer, cwd: String) {
+        let duration = ResponseExtractor.extractDuration(rows: renderer.lines)
         if let result = extracted, !result.text.isEmpty {
-            finish(commandId, status: .completed, response: result.text)
+            finish(commandId, status: .completed, response: result.text, duration: duration)
             return
         }
         if let raw = ResponseExtractor.fallbackRaw(rows: renderer.lines, cwd: cwd), !raw.isEmpty {
-            finish(commandId, status: .completedWithRaw, rawOutput: raw)
+            finish(commandId, status: .completedWithRaw, rawOutput: raw, duration: duration)
             return
         }
-        finish(commandId, status: .failed, error: "No readable OpenCode response was captured for this command.")
+        finish(commandId, status: .failed, error: "No readable OpenCode response was captured for this command.", duration: duration)
     }
 
-    private func finish(_ commandId: String, status: CommandStatus, response: String? = nil, rawOutput: String? = nil, error: String? = nil) {
+    private func finish(_ commandId: String, status: CommandStatus, response: String? = nil, rawOutput: String? = nil, error: String? = nil, duration: TimeInterval? = nil) {
         store.update(commandId) { info in
             info.status = status
             info.response = response
             info.rawOutput = rawOutput
             info.error = error
+            if let duration { info.duration = duration }
             info.completedAt = (status == .completed || status == .completedWithRaw || status == .failed) ? Date() : nil
         }
     }
