@@ -1,10 +1,33 @@
 import Foundation
 
 enum SystemCommand {
-    static func run(executablePath: String, arguments: [String], timeoutSeconds: TimeInterval) -> (exitCode: Int32, output: String)? {
+    static let conventionalSearchPaths = [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "\(FileManager.default.homeDirectoryForCurrentUser.path)/.local/bin"
+    ]
+
+    static func extendedPATH() -> String {
+        let current = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
+        let existing = Set(current.split(separator: ":").map(String.init))
+        let additions = conventionalSearchPaths.filter { !existing.contains($0) }
+        return additions.isEmpty ? current : ([current] + additions).joined(separator: ":")
+    }
+
+    static func run(executablePath: String, arguments: [String], timeoutSeconds: TimeInterval, additionalPATHEntries: [String] = []) -> (exitCode: Int32, output: String)? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
+        if !additionalPATHEntries.isEmpty {
+            var environment = ProcessInfo.processInfo.environment
+            let current = environment["PATH"] ?? "/usr/bin:/bin"
+            let existing = Set(current.split(separator: ":").map(String.init))
+            let additions = additionalPATHEntries.filter { !existing.contains($0) }
+            if !additions.isEmpty {
+                environment["PATH"] = ([current] + additions).joined(separator: ":")
+            }
+            process.environment = environment
+        }
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
@@ -31,7 +54,11 @@ enum SystemCommand {
     }
 
     static func locate(command: String) -> String? {
-        guard let result = run(executablePath: "/usr/bin/which", arguments: [command], timeoutSeconds: 5),
+        let which = ProcessInfo.processInfo.environment["PATH"].map { _ in "/usr/bin/which" } ?? "/usr/bin/which"
+        guard let result = run(executablePath: which,
+                               arguments: [command],
+                               timeoutSeconds: 5,
+                               additionalPATHEntries: conventionalSearchPaths),
               result.exitCode == 0 else { return nil }
         let line = result.output
             .split(separator: "\n")
@@ -55,29 +82,31 @@ final class AgentDiscovery {
             id: "opencode",
             name: "OpenCode",
             command: "opencode",
-            versionArguments: ["--version"],
-            fallbackPath: OpenCodeAgent.executablePath
+            versionArguments: ["--version"]
         ),
         AgentDefinition(
             id: "claude-code",
             name: "Claude Code",
             command: "claude",
-            versionArguments: ["--version"],
-            fallbackPath: nil
+            versionArguments: ["--version"]
         ),
         AgentDefinition(
             id: "codex",
             name: "Codex CLI",
             command: "codex",
-            versionArguments: ["--version"],
-            fallbackPath: nil
+            versionArguments: ["--version"]
+        ),
+        AgentDefinition(
+            id: "cursor",
+            name: "Cursor Agent",
+            command: "cursor-agent",
+            versionArguments: ["--version"]
         ),
         AgentDefinition(
             id: "aider",
             name: "Aider",
             command: "aider",
-            versionArguments: ["--version"],
-            fallbackPath: nil
+            versionArguments: ["--version"]
         )
     ]
 
@@ -129,18 +158,14 @@ final class AgentDiscovery {
     }
 
     private static func detect(_ definition: AgentDefinition) -> DetectedAgent {
-        var executablePath = SystemCommand.locate(command: definition.command)
-        if executablePath == nil, let fallback = definition.fallbackPath,
-           FileManager.default.isExecutableFile(atPath: fallback) {
-            executablePath = fallback
-        }
-        guard let path = executablePath else {
+        guard let path = SystemCommand.locate(command: definition.command) else {
             return DetectedAgent(
                 id: definition.id,
                 name: definition.name,
                 command: definition.command,
                 installed: false,
-                version: nil
+                version: nil,
+                path: nil
             )
         }
         let version = SystemCommand.run(
@@ -155,7 +180,8 @@ final class AgentDiscovery {
             name: definition.name,
             command: definition.command,
             installed: true,
-            version: version
+            version: version,
+            path: path
         )
     }
 }

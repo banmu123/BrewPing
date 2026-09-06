@@ -96,8 +96,11 @@ struct ContentView: View {
     }
 
     private var macStatusText: String {
+        if sessionManager.agentMode != "session" {
+            return "Mac: \(sessionManager.agentName) Ready"
+        }
         switch (sessionManager.macConnected, sessionManager.sessionState) {
-        case (true, "running"): return "Mac: OpenCode Running"
+        case (true, "running"): return "Mac: \(sessionManager.agentName) Running"
         case (true, _): return "Mac: Session Stopped"
         case (_, _): return "Mac: Offline"
         }

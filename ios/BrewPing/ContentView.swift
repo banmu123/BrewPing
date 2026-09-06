@@ -9,6 +9,7 @@ struct StatusResponse: Decodable {
 struct SessionBrief: Decodable {
     let id: String?
     let agent: String?
+    let agentName: String?
     let status: String?
 }
 
@@ -36,12 +37,15 @@ struct LifecycleResponse: Decodable {
 
 struct AgentsResponse: Decodable {
     let agents: [AgentEntry]?
+    let defaultAgent: String?
 }
 
 struct AgentEntry: Decodable, Identifiable {
     let id: String
     let name: String
     let installed: Bool
+    let active: Bool?
+    let executable: Bool?
     let version: String?
 }
 
@@ -79,6 +83,8 @@ struct ContentView: View {
     @State private var hostName = ""
     @State private var sessionState: SessionState = .offline
     @State private var sessionID = ""
+    @State private var sessionAgentIDFromStatus = "opencode"
+    @State private var sessionAgentNameFromStatus = "OpenCode"
     @State private var sessionMessage = ""
     @State private var phase: CommandPhase = .idle
     @State private var lifecycleBusy = false
@@ -153,16 +159,57 @@ struct ContentView: View {
                             .fill(agent.installed ? Color.green : Color.gray.opacity(0.5))
                             .frame(width: 10, height: 10)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(agent.name)
-                                .font(.callout)
+                            HStack(spacing: 6) {
+                                Text(agent.name)
+                                    .font(.callout)
+                                if agent.active == true {
+                                    Text("Default")
+                                        .font(.caption2)
+                                        .fontWeight(.semibold)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Capsule().fill(Color.green.opacity(0.15)))
+                                        .foregroundStyle(.green)
+                                }
+                            }
                             Text(agent.installed ? (agent.version ?? "Installed") : "Not Installed")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
+                        if agent.active != true, agent.installed, agent.executable == true {
+                            Button("Set Default") {
+                                setDefaultAgent(agent.id)
+                            }
+                            .font(.caption)
+                            .disabled(lifecycleBusy)
+                        }
                     }
                 }
             }
+        }
+    }
+
+    private func setDefaultAgent(_ id: String) {
+        guard let url = baseURL?.appendingPathComponent("api/agents/default") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 15
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["agent": id])
+        Task {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if statusCode != 200 {
+                    let decoded = try? JSONDecoder().decode(LifecycleResponse.self, from: data)
+                    sessionMessage = decoded?.error ?? "Switch failed (HTTP \(statusCode))"
+                }
+            } catch {
+                sessionMessage = "Switch failed: \(error.localizedDescription)"
+            }
+            await refreshStatus()
+            await refreshAgents()
         }
     }
 
@@ -201,9 +248,9 @@ struct ContentView: View {
     }
 
     private var sessionCard: some View {
-        Section("Current Session") {
+        Section("Active Agent") {
             HStack(spacing: 8) {
-                Text("OpenCode")
+                Text(activeAgentName)
                     .font(.headline)
                 Spacer()
                 HStack(spacing: 6) {
@@ -230,8 +277,22 @@ struct ContentView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            actionButton
+            if activeAgentID == "opencode" {
+                actionButton
+            } else {
+                Text("This agent runs commands on demand — no persistent session to manage.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
+    }
+
+    private var activeAgentID: String {
+        sessionAgentIDFromStatus
+    }
+
+    private var activeAgentName: String {
+        sessionAgentNameFromStatus
     }
 
     private var actionButton: some View {
@@ -358,12 +419,16 @@ struct ContentView: View {
             online = decoded.status == "online"
             hostName = decoded.host ?? ""
             sessionID = decoded.session?.id ?? ""
+            sessionAgentIDFromStatus = decoded.session?.agent ?? "opencode"
+            sessionAgentNameFromStatus = decoded.session?.agentName ?? "OpenCode"
             let serverStatus = decoded.session?.status ?? ""
             if !lifecycleBusy {
                 sessionState = (serverStatus == "running") ? .running : .offline
             }
             watchBridge.currentOnline = online
             watchBridge.currentSessionState = serverStatus
+            watchBridge.currentAgentName = sessionAgentNameFromStatus
+            watchBridge.currentAgentMode = sessionAgentIDFromStatus == "opencode" ? "session" : "headless"
             watchBridge.pushStatus(online: online, sessionStateRaw: serverStatus)
         } catch {
             online = false
@@ -372,8 +437,12 @@ struct ContentView: View {
                 sessionState = .offline
                 sessionID = ""
             }
+            sessionAgentIDFromStatus = "opencode"
+            sessionAgentNameFromStatus = "OpenCode"
             watchBridge.currentOnline = false
             watchBridge.currentSessionState = ""
+            watchBridge.currentAgentName = "OpenCode"
+            watchBridge.currentAgentMode = "session"
             watchBridge.pushStatus(online: false, sessionStateRaw: "")
         }
     }

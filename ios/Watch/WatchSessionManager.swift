@@ -17,6 +17,8 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     @Published var lastError: String?
     @Published var macConnected: Bool?
     @Published var sessionState: String?
+    @Published var agentName: String = "OpenCode"
+    @Published var agentMode: String = "session"
     @Published var commandState: CommandSendState = .idle
 
     private var session: WCSession? {
@@ -42,6 +44,12 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
             }
             if let state = context["sessionState"] as? String, !state.isEmpty {
                 self.sessionState = state
+            }
+            if let name = context["agentName"] as? String, !name.isEmpty {
+                self.agentName = name
+            }
+            if let mode = context["agentMode"] as? String, !mode.isEmpty {
+                self.agentMode = mode
             }
         }
     }
@@ -86,6 +94,8 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
                 print("BrewPing watch: status reply \(reply)")
                 if let mac = reply["macConnected"] as? Bool { self.macConnected = mac }
                 if let state = reply["sessionState"] as? String { self.sessionState = state.isEmpty ? nil : state }
+                if let name = reply["agentName"] as? String, !name.isEmpty { self.agentName = name }
+                if let mode = reply["agentMode"] as? String, !mode.isEmpty { self.agentMode = mode }
             }
         }, errorHandler: { [weak self] error in
             DispatchQueue.main.async {

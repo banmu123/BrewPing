@@ -9,6 +9,8 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
     @Published var lastReceivedType: String?
     var currentOnline: Bool?
     var currentSessionState: String?
+    var currentAgentName: String = "OpenCode"
+    var currentAgentMode: String = "session"
 
     private override init() {
         super.init()
@@ -18,19 +20,21 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         session.activate()
     }
 
-    func pushStatus(online: Bool, sessionStateRaw: String) {
+    func pushStatus(online: Bool, sessionStateRaw: String, agentName: String? = nil, agentMode: String? = nil) {
         guard WCSession.isSupported() else { return }
         let session = WCSession.default
         let activated = session.activationState == .activated
         let paired = session.isPaired
-        print("BrewPing iPhone: pushStatus online=\(online) state=\(sessionStateRaw) activated=\(activated) paired=\(paired)")
+        let name = agentName ?? currentAgentName
+        let mode = agentMode ?? currentAgentMode
         guard activated, paired else { return }
         do {
             try session.updateApplicationContext([
                 "macConnected": online,
-                "sessionState": sessionStateRaw
+                "sessionState": sessionStateRaw,
+                "agentName": name,
+                "agentMode": mode
             ])
-            print("BrewPing iPhone: context pushed")
         } catch {
             print("BrewPing iPhone: status push failed: \(error.localizedDescription)")
         }
@@ -80,7 +84,9 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
             print("BrewPing iPhone: watch requested status -> online=\(currentOnline ?? false) session=\(currentSessionState ?? "")")
             replyHandler?([
                 "macConnected": currentOnline ?? false,
-                "sessionState": currentSessionState ?? ""
+                "sessionState": currentSessionState ?? "",
+                "agentName": currentAgentName,
+                "agentMode": currentAgentMode
             ])
             return
         }

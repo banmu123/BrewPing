@@ -1,0 +1,13 @@
+.DS_Store
+.build/
+ios/build/
+DerivedData/
+
+# Xcode user state
+ios/BrewPing.xcodeproj/project.xcworkspace/xcuserdata/
+ios/BrewPing.xcodeproj/xcuserdata/
+*.xcuserstate
+
+# SwiftPM
+*.xcode.version-*
+.build/**/*.o

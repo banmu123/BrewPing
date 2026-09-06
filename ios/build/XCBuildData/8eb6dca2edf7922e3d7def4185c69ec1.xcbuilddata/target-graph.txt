@@ -1,4 +1,0 @@
-Target dependency graph (2 targets)
-Target 'BrewPing' in project 'BrewPing'
-➜ Explicit dependency on target 'BrewPing Watch App' in project 'BrewPing'
-Target 'BrewPing Watch App' in project 'BrewPing' (no dependencies)

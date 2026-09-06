@@ -10,6 +10,7 @@ final class CommandRunner {
     private let sessionManager: SessionManager
     private let store: CommandStore
     private let queue = DispatchQueue(label: "BrewPing command runner", qos: .userInitiated)
+    private let headlessQueue = DispatchQueue(label: "BrewPing headless agent runner", qos: .userInitiated)
 
     init(sessionManager: SessionManager, store: CommandStore = .shared) {
         self.sessionManager = sessionManager
@@ -17,6 +18,14 @@ final class CommandRunner {
     }
 
     func submit(_ text: String) -> AgentResponse {
+        let defaultID = AgentManager.shared.defaultAgentID
+        if defaultID != AgentManager.sessionAgentID {
+            return submitHeadless(text: text, agentID: defaultID)
+        }
+        return submitOpenCodeSession(text: text)
+    }
+
+    private func submitOpenCodeSession(text: String) -> AgentResponse {
         guard let agent = sessionManager.activeAgent, agent.isRunning, let oc = agent as? OpenCodeAgent else {
             return AgentResponse.failure("OpenCode session is unavailable.")
         }
@@ -29,6 +38,43 @@ final class CommandRunner {
         response.sessionID = agent.sessionID.uuidString
         response.commandId = info.commandId
         return response
+    }
+
+    private func submitHeadless(text: String, agentID: String) -> AgentResponse {
+        guard let provider = AgentManager.shared.provider(for: agentID) else {
+            return AgentResponse.failure("Unknown agent: \(agentID)")
+        }
+        guard provider.detect() != nil else {
+            return AgentResponse.failure("Agent \(provider.name) is not installed on this Mac.")
+        }
+        let info = store.create(text: text, sessionId: "headless-\(agentID)")
+        headlessQueue.async { [weak self] in
+            self?.runHeadless(info, provider: provider)
+        }
+        var response = AgentResponse.success()
+        response.status = CommandStatus.queued.rawValue
+        response.sessionID = info.sessionId
+        response.commandId = info.commandId
+        return response
+    }
+
+    private func runHeadless(_ info: CommandInfo, provider: CodingAgent) {
+        store.update(info.commandId) { $0.status = .working }
+        let result = provider.execute(info.text)
+        switch result.status {
+        case .completed:
+            store.update(info.commandId) { update in
+                update.status = .completed
+                update.response = result.output
+                update.completedAt = Date()
+            }
+        default:
+            store.update(info.commandId) { update in
+                update.status = .failed
+                update.error = result.output.isEmpty ? "Agent execution failed." : String(result.output.prefix(2000))
+                update.completedAt = Date()
+            }
+        }
     }
 
     private func run(_ info: CommandInfo, agent: OpenCodeAgent) {
