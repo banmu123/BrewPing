@@ -16,7 +16,7 @@ final class CodexAgent: HeadlessCLIAgent {
     }
 
     override func executionArguments(_ command: String) -> [String] {
-        ["exec", command]
+        ["exec", "--skip-git-repo-check", "-s", "workspace-write", command]
     }
 }
 

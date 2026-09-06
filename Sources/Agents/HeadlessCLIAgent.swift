@@ -39,10 +39,14 @@ class HeadlessCLIAgent: CodingAgent {
         }
 
         let arguments = executionArguments(command)
+        // 关键：把检测到的可执行文件目录注入子进程 PATH，
+        // 让 `#!/usr/bin/env node` 类 shim 解析到与该 Agent 匹配的运行时。
+        let executableDir = (path as NSString).deletingLastPathComponent
         guard let run = SystemCommand.run(
             executablePath: path,
             arguments: arguments,
-            timeoutSeconds: executionTimeoutSeconds
+            timeoutSeconds: executionTimeoutSeconds,
+            additionalPATHEntries: [executableDir]
         ) else {
             return result(.failed, "Failed to launch \(name) (\(path)).")
         }

@@ -1,17 +1,23 @@
 import Foundation
 
 enum SystemCommand {
-    static let conventionalSearchPaths = [
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-        "\(FileManager.default.homeDirectoryForCurrentUser.path)/.local/bin"
-    ]
-
-    static func extendedPATH() -> String {
-        let current = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
-        let existing = Set(current.split(separator: ":").map(String.init))
-        let additions = conventionalSearchPaths.filter { !existing.contains($0) }
-        return additions.isEmpty ? current : ([current] + additions).joined(separator: ":")
+    static func conventionalSearchPaths() -> [String] {
+        var paths = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "\(FileManager.default.homeDirectoryForCurrentUser.path)/.local/bin"
+        ]
+        let nvmVersions = "\(FileManager.default.homeDirectoryForCurrentUser.path)/.nvm/versions/node"
+        if let contents = try? FileManager.default.contentsOfDirectory(atPath: nvmVersions) {
+            for version in contents {
+                let bin = "\(nvmVersions)/\(version)/bin"
+                var isDirectory: ObjCBool = false
+                if FileManager.default.fileExists(atPath: bin, isDirectory: &isDirectory), isDirectory.boolValue {
+                    paths.append(bin)
+                }
+            }
+        }
+        return paths
     }
 
     static func run(executablePath: String, arguments: [String], timeoutSeconds: TimeInterval, additionalPATHEntries: [String] = []) -> (exitCode: Int32, output: String)? {
@@ -24,7 +30,8 @@ enum SystemCommand {
             let existing = Set(current.split(separator: ":").map(String.init))
             let additions = additionalPATHEntries.filter { !existing.contains($0) }
             if !additions.isEmpty {
-                environment["PATH"] = ([current] + additions).joined(separator: ":")
+                // 前置注入：`#!/usr/bin/env node` 类 shim 必须优先解析到匹配的运行时
+                environment["PATH"] = (additions + [current]).joined(separator: ":")
             }
             process.environment = environment
         }
@@ -54,11 +61,10 @@ enum SystemCommand {
     }
 
     static func locate(command: String) -> String? {
-        let which = ProcessInfo.processInfo.environment["PATH"].map { _ in "/usr/bin/which" } ?? "/usr/bin/which"
-        guard let result = run(executablePath: which,
+        guard let result = run(executablePath: "/usr/bin/which",
                                arguments: [command],
                                timeoutSeconds: 5,
-                               additionalPATHEntries: conventionalSearchPaths),
+                               additionalPATHEntries: conventionalSearchPaths()),
               result.exitCode == 0 else { return nil }
         let line = result.output
             .split(separator: "\n")
@@ -171,7 +177,8 @@ final class AgentDiscovery {
         let version = SystemCommand.run(
             executablePath: path,
             arguments: definition.versionArguments,
-            timeoutSeconds: 8
+            timeoutSeconds: 8,
+            additionalPATHEntries: [(path as NSString).deletingLastPathComponent]
         ).flatMap { result in
             SystemCommand.firstLine(result.output)
         }
