@@ -11,7 +11,17 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [],
+    "windows": [
+      {
+        "label": "main",
+        "title": "BrewPing Desktop",
+        "width": 480,
+        "height": 640,
+        "resizable": true,
+        "visible": true,
+        "center": true
+      }
+    ],
     "security": {
       "csp": null
     }
