@@ -71,9 +71,11 @@ enum BrewPingAgent {
             info.httpPort = Int(result.port)
             info.httpIP = result.boundToLAN ? lan?.ip : nil
             store.save(info)
+            let identity = DeviceIdentity.loadOrCreate()
+            let deviceName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
             print("HTTP API: http://\(lan?.ip ?? "0.0.0.0"):\(result.port) (dev use only, bound: \(result.boundToLAN ? "LAN interface \(lan?.interfaceName ?? "?")" : "all interfaces"))")
             http = server
-            BonjourAdvertiser.start(port: result.port)
+            BonjourAdvertiser.start(port: result.port, deviceId: identity.deviceId, deviceName: deviceName)
         } catch {
             print("WARNING: HTTP API unavailable: \(error)")
             http = nil

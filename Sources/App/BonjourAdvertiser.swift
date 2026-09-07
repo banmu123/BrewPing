@@ -5,21 +5,25 @@ import Foundation
 enum BonjourAdvertiser {
     private static var service: NetService?
 
-    static func start(port: UInt16) {
+    static func start(port: UInt16, deviceId: String? = nil, deviceName: String? = nil) {
         stop()
         let svc = NetService(
             domain: "local.",
             type: "_brewping._tcp.",
-            name: "BrewPing Agent",
+            name: deviceName ?? "BrewPing Agent",
             port: Int32(port)
         )
         var txtDict: [String: Data] = [:]
         txtDict["version"] = "0.1".data(using: .utf8)
         txtDict["agent"] = "opencode".data(using: .utf8)
+        txtDict["platform"] = "macOS".data(using: .utf8)
+        txtDict["protocolVersion"] = "1".data(using: .utf8)
+        if let deviceId { txtDict["deviceId"] = deviceId.data(using: .utf8) }
+        if let deviceName { txtDict["deviceName"] = deviceName.data(using: .utf8) }
         svc.setTXTRecord(NetService.data(fromTXTRecord: txtDict))
         svc.publish()
         service = svc
-        print("Bonjour: advertising _brewping._tcp on port \(port)")
+        print("Bonjour: advertising _brewping._tcp on port \(port) deviceId=\(deviceId ?? "?")")
     }
 
     static func stop() {

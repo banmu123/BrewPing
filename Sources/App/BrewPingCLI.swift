@@ -1,8 +1,8 @@
 import Foundation
 import Darwin
 
-enum BrewPingCLI {
-    static func run(_ args: [String]) -> Int32 {
+public enum BrewPingCLI {
+    public static func run(_ args: [String]) -> Int32 {
         signal(SIGPIPE, SIG_IGN)
         guard let cmd = args.first else { return usage() }
         switch cmd {
