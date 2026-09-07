@@ -47,23 +47,6 @@ struct ContentView: View {
                         .font(.caption2)
                         .foregroundStyle(.red)
                 }
-                Button {
-                    sessionManager.sendTest()
-                } label: {
-                    Text("Send Test")
-                        .font(.caption2)
-                        .frame(maxWidth: .infinity)
-                }
-                .disabled(!sessionManager.reachable)
-                if let sent = sessionManager.lastSentText {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Last:")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Text(sent)
-                            .font(.caption)
-                    }
-                }
             }
             .padding(.horizontal, 4)
         }
