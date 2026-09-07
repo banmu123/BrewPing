@@ -4,10 +4,12 @@ import Foundation
 class HeadlessCLIAgent: CodingAgent {
     let id: String
     let name: String
+    let modelId: String?
 
-    init(id: String, name: String) {
+    init(id: String, name: String, modelId: String? = nil) {
         self.id = id
         self.name = name
+        self.modelId = modelId
     }
 
     /// 子类覆写：把自然语言 command 转成 CLI 参数。
@@ -52,14 +54,16 @@ class HeadlessCLIAgent: CodingAgent {
         }
 
         let output = AgentOutputCleaner.clean(run.output)
-        guard run.exitCode == 0 else {
-            let message = output.isEmpty ? "\(name) exited with code \(run.exitCode)." : output
-            return result(.failed, message)
+        if run.exitCode == 0, !output.isEmpty {
+            return result(.completed, output)
         }
-        guard !output.isEmpty else {
+        if run.exitCode == 0, output.isEmpty {
             return result(.completed, "(no output)", "(no output)")
         }
-        return result(.completed, output)
+        // 非零退出码：用 ErrorClassifier 识别真实失败原因
+        let failureReason = ErrorClassifier.classify(output: output, exitCode: run.exitCode) ?? .processExited
+        let summary = ErrorClassifier.summarize(output: output, reason: failureReason)
+        return result(.failed, output.isEmpty ? "\(name) exited with code \(run.exitCode)." : output, summary)
     }
 
     private static func executablePath(_ detected: DetectedAgent) -> String? {

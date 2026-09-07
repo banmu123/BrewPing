@@ -41,13 +41,14 @@ final class CommandRunner {
     }
 
     private func submitHeadless(text: String, agentID: String) -> AgentResponse {
-        guard let provider = AgentManager.shared.provider(for: agentID) else {
+        let modelId = AgentManager.shared.resolvedModel(for: agentID)
+        guard let provider = AgentManager.shared.provider(for: agentID, modelId: modelId) else {
             return AgentResponse.failure("Unknown agent: \(agentID)")
         }
         guard provider.detect() != nil else {
             return AgentResponse.failure("Agent \(provider.name) is not installed on this Mac.")
         }
-        let info = store.create(text: text, sessionId: "headless-\(agentID)")
+        let info = store.create(text: text, sessionId: "headless-\(agentID)", modelId: modelId)
         headlessQueue.async { [weak self] in
             self?.runHeadless(info, provider: provider)
         }
@@ -70,9 +71,12 @@ final class CommandRunner {
                 update.completedAt = Date()
             }
         default:
+            let failureReason = ErrorClassifier.classify(output: result.output, exitCode: nil) ?? .unknown
+            let errorMessage = ErrorClassifier.summarize(output: result.output, reason: failureReason)
             store.update(info.commandId) { update in
                 update.status = .failed
-                update.error = result.output.isEmpty ? "Agent execution failed." : String(result.output.prefix(2000))
+                update.error = errorMessage
+                update.failureReason = failureReason.rawValue
                 update.duration = result.durationSeconds
                 update.completedAt = Date()
             }

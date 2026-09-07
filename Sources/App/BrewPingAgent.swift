@@ -73,6 +73,7 @@ enum BrewPingAgent {
             store.save(info)
             print("HTTP API: http://\(lan?.ip ?? "0.0.0.0"):\(result.port) (dev use only, bound: \(result.boundToLAN ? "LAN interface \(lan?.interfaceName ?? "?")" : "all interfaces"))")
             http = server
+            BonjourAdvertiser.start(port: result.port)
         } catch {
             print("WARNING: HTTP API unavailable: \(error)")
             http = nil
@@ -129,6 +130,7 @@ enum BrewPingAgent {
         if let current = store.activeAgent as? OpenCodeAgent {
             try? current.stop()
         }
+        BonjourAdvertiser.stop()
         var latest = store.load() ?? info
         latest.status = .exited
         latest.exitCode = (store.activeAgent as? OpenCodeAgent)?.lastExitCode

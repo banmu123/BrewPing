@@ -121,6 +121,8 @@ final class AgentDiscovery {
     private let lock = NSLock()
     private var cached: [DetectedAgent] = []
     private var cachedAt: Date?
+    /// 上次成功扫描的结果，用于失败时保留已知配置。
+    private var lastSuccessful: [DetectedAgent] = []
 
     static let shared = AgentDiscovery()
 
@@ -128,7 +130,9 @@ final class AgentDiscovery {
 
     func discover(force: Bool = false) -> [DetectedAgent] {
         lock.lock()
-        if !force, let cachedAt = cachedAt, Date().timeIntervalSince(cachedAt) < AgentDiscovery.cacheInterval, !cached.isEmpty {
+        if !force, let cachedAt = cachedAt,
+           Date().timeIntervalSince(cachedAt) < AgentDiscovery.cacheInterval,
+           !cached.isEmpty {
             let result = cached
             lock.unlock()
             return result
@@ -157,10 +161,25 @@ final class AgentDiscovery {
         }
 
         lock.lock()
-        cached = sorted
-        cachedAt = Date()
-        lock.unlock()
-        return sorted
+        // 有至少一个已安装的 Agent → 视为成功扫描，保留为基准
+        if sorted.contains(where: { $0.installed }) {
+            lastSuccessful = sorted
+            cached = sorted
+            cachedAt = Date()
+            lock.unlock()
+            return sorted
+        } else if !lastSuccessful.isEmpty {
+            // 扫描全部返回未安装（可能是 PATH/环境瞬时问题）→ 保留上一次已知配置
+            cached = lastSuccessful
+            cachedAt = Date()
+            lock.unlock()
+            return lastSuccessful
+        } else {
+            cached = sorted
+            cachedAt = Date()
+            lock.unlock()
+            return sorted
+        }
     }
 
     private static func detect(_ definition: AgentDefinition) -> DetectedAgent {

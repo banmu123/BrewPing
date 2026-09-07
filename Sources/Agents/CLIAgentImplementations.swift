@@ -1,31 +1,37 @@
 import Foundation
 
 final class ClaudeCodeAgent: HeadlessCLIAgent {
-    init() {
-        super.init(id: "claude-code", name: "Claude Code")
+    init(modelId: String? = nil) {
+        super.init(id: "claude-code", name: "Claude Code", modelId: modelId)
     }
 
     override func executionArguments(_ command: String) -> [String] {
-        ["-p", command, "--output-format", "text"]
+        var args = ["-p", command, "--output-format", "text"]
+        if let modelId { args += ["--model", modelId] }
+        return args
     }
 }
 
 final class CodexAgent: HeadlessCLIAgent {
-    init() {
-        super.init(id: "codex", name: "Codex CLI")
+    init(modelId: String? = nil) {
+        super.init(id: "codex", name: "Codex CLI", modelId: modelId)
     }
 
     override func executionArguments(_ command: String) -> [String] {
-        ["exec", "--skip-git-repo-check", "-s", "workspace-write", command]
+        var args = ["exec", "--skip-git-repo-check", "-s", "workspace-write", command]
+        if let modelId { args += ["--model", modelId] }
+        return args
     }
 }
 
 final class AiderAgent: HeadlessCLIAgent {
-    init() {
-        super.init(id: "aider", name: "Aider")
+    init(modelId: String? = nil) {
+        super.init(id: "aider", name: "Aider", modelId: modelId)
     }
 
     override func executionArguments(_ command: String) -> [String] {
-        ["--message", command, "--yes-always", "--no-auto-commits"]
+        var args = ["--message", command, "--yes-always", "--no-auto-commits"]
+        if let modelId { args += ["--model", modelId] }
+        return args
     }
 }

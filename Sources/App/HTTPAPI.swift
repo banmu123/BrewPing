@@ -17,8 +17,15 @@ enum HTTPAPI {
             return lifecycleResponse(router.route(.stopSession))
         case ("POST", "/api/session/start"):
             return lifecycleResponse(router.route(.startSession))
+        case ("POST", "/api/discovery/refresh"):
+            return discoveryRefreshResponse()
         case ("GET", "/api/message"):
             return .json(405, "Method Not Allowed", ["success": false, "error": "use POST /api/message or GET /api/message/:id"])
+        case let ("GET", path) where path.hasPrefix("/api/agents/") && path.hasSuffix("/models"):
+            let agentID = String(path.dropFirst("/api/agents/".count).dropLast("/models".count))
+            return agentModelsResponse(agentID)
+        case ("POST", "/api/agents/models/default"):
+            return setDefaultModelResponse(request)
         case let ("GET", path) where path.hasPrefix("/api/message/"):
             let id = String(path.dropFirst("/api/message/".count))
             return commandResponse(id)
@@ -27,6 +34,85 @@ enum HTTPAPI {
         default:
             return .json(404, "Not Found", ["success": false, "error": "not found"])
         }
+    }
+
+    private static func discoveryRefreshResponse() -> HTTPResponse {
+        // 强制重新扫描：重新读取各 Agent 真实配置（PATH + 版本 + 本机 Provider/Model）。
+        // AgentDiscovery 缓存 60s，force=true 绕过缓存。
+        // AgentConfigDiscovery 每次直接读文件，无缓存。
+        // 失败时保留上次已知配置（AgentDiscovery 内部 lastSuccessful 保护）。
+        let discovered = AgentDiscovery.shared.discover(force: true)
+        let defaultID = AgentManager.shared.defaultAgentID
+
+        var agents: [[String: Any]] = []
+        var errors: [String] = []
+
+        for detected in discovered where detected.id != "cursor" {
+            var entry: [String: Any] = [
+                "id": detected.id,
+                "name": detected.name,
+                "installed": detected.installed,
+                "version": detected.version ?? ""
+            ]
+            if detected.installed {
+                let config = AgentConfigDiscovery.discover(agentId: detected.id)
+                entry["providers"] = config.providers.map { p -> [String: Any] in
+                    ["id": p.id, "name": p.name, "modelCount": p.models.count]
+                }
+                entry["activeModelId"] = config.activeModelId ?? NSNull()
+                if let err = config.error { errors.append("\(detected.name): \(err)") }
+            }
+            entry["active"] = detected.id == defaultID
+            agents.append(entry)
+        }
+
+        var object: [String: Any] = [
+            "success": true,
+            "status": errors.isEmpty ? "updated" : "updated_with_warnings",
+            "agents": agents
+        ]
+        if !errors.isEmpty { object["errors"] = errors }
+        return .json(200, "OK", object)
+    }
+
+    private static func agentModelsResponse(_ agentID: String) -> HTTPResponse {
+        guard !agentID.isEmpty,
+              AgentDiscovery.catalog.contains(where: { $0.id == agentID }) else {
+            return .json(404, "Not Found", ["success": false, "error": "unknown agent"])
+        }
+        let config = AgentConfigDiscovery.discover(agentId: agentID)
+        let defaultModelId = AgentManager.shared.defaultModel(for: agentID)
+        let providers = config.providers.map { provider -> [String: Any] in
+            var p: [String: Any] = ["id": provider.id, "name": provider.name]
+            if let base = provider.baseURL { p["baseURL"] = base }
+            p["models"] = provider.models.map { model -> [String: Any] in
+                [
+                    "id": model.id,
+                    "name": model.name,
+                    "available": model.available,
+                    "isActive": model.isActive,
+                    "isDefault": model.id == defaultModelId
+                ]
+            }
+            return p
+        }
+        return .json(200, "OK", [
+            "agentId": agentID,
+            "providers": providers,
+            "activeModelId": config.activeModelId ?? NSNull(),
+            "preferredModelId": defaultModelId ?? NSNull()
+        ] as [String: Any])
+    }
+
+    private static func setDefaultModelResponse(_ request: HTTPRequest) -> HTTPResponse {
+        guard let object = try? JSONSerialization.jsonObject(with: request.body, options: []),
+              let body = object as? [String: Any],
+              let agentID = body["agentId"] as? String, !agentID.isEmpty else {
+            return .json(400, "Bad Request", ["success": false, "error": "expected JSON body {\"agentId\": \"...\", \"modelId\": \"...\"}"])
+        }
+        let modelId = body["modelId"] as? String
+        AgentManager.shared.setDefaultModel(modelId, for: agentID)
+        return .json(200, "OK", ["success": true, "agentId": agentID, "modelId": modelId ?? NSNull()] as [String: Any])
     }
 
     private static func protocolStateResponse() -> HTTPResponse {
@@ -132,6 +218,8 @@ enum HTTPAPI {
         if let response = info.response { object["response"] = response }
         if let rawOutput = info.rawOutput { object["rawOutput"] = rawOutput }
         if let error = info.error { object["error"] = error }
+        if let failureReason = info.failureReason { object["failureReason"] = failureReason }
+        if let modelId = info.modelId { object["modelId"] = modelId }
         if let duration = info.duration { object["duration"] = (duration * 10).rounded() / 10 }
         if let completedAt = info.completedAt {
             object["completedAt"] = ISO8601DateFormatter().string(from: completedAt)

@@ -13,6 +13,8 @@ struct CommandInfo: Codable {
     var response: String?
     var rawOutput: String?
     var error: String?
+    var failureReason: String?
+    var modelId: String?
     var duration: TimeInterval?
     var completedAt: Date?
 }
@@ -48,7 +50,7 @@ final class CommandStore {
         }
     }
 
-    func create(text: String, sessionId: String) -> CommandInfo {
+    func create(text: String, sessionId: String, modelId: String? = nil) -> CommandInfo {
         let info = CommandInfo(
             commandId: CommandStore.newID(),
             sessionId: sessionId,
@@ -58,6 +60,8 @@ final class CommandStore {
             response: nil,
             rawOutput: nil,
             error: nil,
+            failureReason: nil,
+            modelId: modelId,
             duration: nil,
             completedAt: nil
         )

@@ -27,6 +27,8 @@ struct CommandStatusResponse: Decodable {
     let rawOutput: String?
     let duration: Double?
     let error: String?
+    let failureReason: String?
+    let modelId: String?
 }
 
 struct LifecycleResponse: Decodable {
@@ -79,6 +81,7 @@ struct ContentView: View {
     @AppStorage("brewping.port") private var port = "8787"
     @StateObject private var watchBridge = WatchConnectivityManager.shared
     @StateObject private var commandReceiver = CommandReceiver.shared
+    @StateObject private var bonjour = BonjourDiscovery()
     @State private var messageText = ""
     @State private var online = false
     @State private var hostName = ""
@@ -89,9 +92,17 @@ struct ContentView: View {
     @State private var sessionMessage = ""
     @State private var phase: CommandPhase = .idle
     @State private var lastDuration: Double?
+    @State private var lastFailureReason: String?
+    @State private var lastModelId: String?
     @State private var lifecycleBusy = false
     @State private var agents: [AgentEntry] = []
     @State private var pollTask: Task<Void, Never>?
+    @State private var discoveryRunning = false
+    @State private var discoveryMessage = ""
+
+    private var discoveryStatusColor: Color {
+        discoveryMessage.contains("failed") || discoveryMessage.contains("Failed") ? .red : .secondary
+    }
 
     private var baseURL: URL? {
         let host = macAddress.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -220,8 +231,16 @@ struct ContentView: View {
             TextField("Mac Address (e.g. 192.168.3.94)", text: $macAddress)
                 .keyboardType(.decimalPad)
                 .autocorrectionDisabled()
-            TextField("Port", text: $port)
-                .keyboardType(.numberPad)
+            HStack {
+                TextField("Port", text: $port)
+                    .keyboardType(.numberPad)
+                Spacer()
+                Button(bonjour.isSearching ? "Searching..." : "Auto") {
+                    Task { await discoverMac() }
+                }
+                .font(.caption)
+                .disabled(bonjour.isSearching)
+            }
             HStack(spacing: 8) {
                 Circle()
                     .fill(online ? Color.green : Color.red)
@@ -229,12 +248,20 @@ struct ContentView: View {
                 Text(online ? "Connected" : "Offline")
                     .font(.callout)
                 Spacer()
-                Button("Check") {
-                    Task {
-                        await refreshStatus()
-                        await refreshAgents()
-                    }
+                Button(discoveryRunning ? "Checking..." : "Check") {
+                    Task { await fullRefresh() }
                 }
+                .disabled(discoveryRunning)
+            }
+            if !hostName.isEmpty && online {
+                Text(hostName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if !discoveryMessage.isEmpty {
+                Text(discoveryMessage)
+                    .font(.caption2)
+                    .foregroundStyle(discoveryStatusColor)
             }
             if !hostName.isEmpty && online {
                 Text(hostName)
@@ -378,9 +405,7 @@ struct ContentView: View {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                     Text(durationSuffix("Completed")).font(.callout).fontWeight(.medium)
                 }
-                Text("OpenCode")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                agentModelLine
                 Text(response)
                     .font(.body)
                     .textSelection(.enabled)
@@ -391,7 +416,8 @@ struct ContentView: View {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                     Text(durationSuffix("Completed")).font(.callout).fontWeight(.medium)
                 }
-                Text("OpenCode (raw screen output)")
+                agentModelLine
+                Text("Raw screen output")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text(raw)
@@ -405,6 +431,13 @@ struct ContentView: View {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
                     Text(durationSuffix("Failed")).font(.callout).fontWeight(.medium)
                 }
+                agentModelLine
+                if let reason = lastFailureReason {
+                    Text(failureReasonLabel(reason))
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.red)
+                }
                 Text(error)
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -414,10 +447,37 @@ struct ContentView: View {
     }
 
     private func durationSuffix(_ base: String) -> String {
-        if let d = lastDuration {
-            return String(format: "%@ · %.1fs", base, d)
+        guard let d = lastDuration else { return base }
+        return String(format: "%@ · %.1fs", base, d)
+    }
+
+    private var agentModelLine: some View {
+        HStack(spacing: 12) {
+            if !sessionAgentNameFromStatus.isEmpty {
+                Text(sessionAgentNameFromStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let model = lastModelId {
+                Text(model)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
-        return base
+    }
+
+    private func failureReasonLabel(_ reason: String) -> String {
+        switch reason {
+        case "quota_exceeded":      return "Quota exceeded"
+        case "authentication_failed": return "Authentication failed"
+        case "rate_limited":        return "Rate limited"
+        case "network_error":       return "Network error"
+        case "model_unavailable":   return "Model unavailable"
+        case "provider_error":      return "Provider error"
+        case "timeout":             return "Timeout"
+        case "process_exited":      return "Process exited"
+        default:                    return reason
+        }
     }
 
     private func refreshStatus() async {
@@ -456,6 +516,31 @@ struct ContentView: View {
         }
     }
 
+    /// Bonjour 自动发现：扫描局域网上的 BrewPing Mac Agent，找到后自动填充地址。
+    private func discoverMac() async {
+        bonjour.startSearching()
+        // 等待搜索完成（最多 5 秒，由 BonjourDiscovery 内部计时器控制）
+        for _ in 0..<10 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if !bonjour.discoveredHosts.isEmpty || !bonjour.isSearching { break }
+        }
+        if let host = bonjour.discoveredHosts.first {
+            let resolvedHost = host.name.components(separatedBy: ".").first ?? host.name
+            let resolved = resolvedHost + ".local"
+            macAddress = resolved
+            port = host.port > 0 ? String(host.port) : "8787"
+            // 验证连接
+            await refreshStatus()
+            if online {
+                discoveryMessage = "Found: \(host.name)"
+            } else {
+                discoveryMessage = "Found host but connection failed"
+            }
+        } else if !bonjour.isSearching {
+            discoveryMessage = "No BrewPing agent found on this network"
+        }
+    }
+
     private func refreshAgents() async {
         guard let url = baseURL?.appendingPathComponent("api/agents") else { return }
         do {
@@ -464,6 +549,42 @@ struct ContentView: View {
             agents = decoded.agents ?? []
         } catch {
             agents = []
+        }
+    }
+
+    private func fullRefresh() async {
+        guard let url = baseURL else { return }
+        discoveryRunning = true
+        discoveryMessage = "Checking agents..."
+        // 1. 触发 Mac 端完整重新发现（force refresh，读取真实配置文件）
+        do {
+            var request = URLRequest(url: url.appendingPathComponent("api/discovery/refresh"))
+            request.httpMethod = "POST"
+            request.timeoutInterval = 30
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let success = json?["success"] as? Bool ?? false
+            let status = json?["status"] as? String ?? ""
+            if success {
+                if let errors = json?["errors"] as? [String], !errors.isEmpty {
+                    discoveryMessage = "Updated (\(errors.count) warning)"
+                } else {
+                    discoveryMessage = "Updated"
+                }
+            } else {
+                discoveryMessage = "Discovery failed"
+            }
+        } catch {
+            discoveryMessage = "Check failed: \(error.localizedDescription)"
+        }
+        // 2. 拉取最新状态和 Agent 列表
+        await refreshStatus()
+        await refreshAgents()
+        discoveryRunning = false
+        // 5 秒后清除提示
+        Task {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if !discoveryRunning { discoveryMessage = "" }
         }
     }
 
@@ -532,6 +653,8 @@ struct ContentView: View {
         pollTask?.cancel()
         phase = .sending
         lastDuration = nil
+        lastFailureReason = nil
+        lastModelId = nil
         Task {
             await refreshStatus()
             await submit(text, url: url)
@@ -552,6 +675,8 @@ struct ContentView: View {
         pollTask?.cancel()
         phase = .sending
         lastDuration = nil
+        lastFailureReason = nil
+        lastModelId = nil
         Task {
             await submit(text, url: url, clearsDraft: false, fromWatch: true)
         }
@@ -611,6 +736,7 @@ struct ContentView: View {
                 case "completed":
                     let text = decoded.response ?? "(empty response)"
                     lastDuration = decoded.duration
+                    lastModelId = decoded.modelId
                     phase = .completed(text)
                     if fromWatch {
                         watchBridge.sendCommandResult(status: "completed", text: text, duration: decoded.duration)
@@ -619,6 +745,7 @@ struct ContentView: View {
                 case "completed_with_raw":
                     let text = decoded.rawOutput ?? "(empty raw output)"
                     lastDuration = decoded.duration
+                    lastModelId = decoded.modelId
                     phase = .completedRaw(text)
                     if fromWatch {
                         watchBridge.sendCommandResult(status: "completed_with_raw", text: text, duration: decoded.duration)
@@ -627,6 +754,8 @@ struct ContentView: View {
                 case "failed":
                     let text = decoded.error ?? "Unknown error."
                     lastDuration = decoded.duration
+                    lastFailureReason = decoded.failureReason
+                    lastModelId = decoded.modelId
                     phase = .failed(text)
                     if fromWatch {
                         watchBridge.sendCommandResult(status: "failed", text: text, duration: decoded.duration)

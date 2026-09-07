@@ -14,6 +14,7 @@ enum ProtocolStateService {
     struct Snapshot: Codable {
         let device: BrewPingProtocol.Device
         let agents: [BrewPingProtocol.Agent]
+        let providers: [BrewPingProtocol.Provider]
         let sessions: [BrewPingProtocol.Session]
         let conversations: [BrewPingProtocol.Conversation]
     }
@@ -21,12 +22,26 @@ enum ProtocolStateService {
     static func snapshot(deviceOnline: Bool = true) -> Snapshot {
         let device = deviceProjection(online: deviceOnline)
         let commands = CommandStore.shared.all()
+        let agents = agentProjections(defaultAgentID: AgentManager.shared.defaultAgentID)
+        let providers = providerProjections(agents: agents)
         return Snapshot(
             device: device,
-            agents: agentProjections(defaultAgentID: AgentManager.shared.defaultAgentID),
+            agents: agents,
+            providers: providers,
             sessions: sessionProjections(commands: commands, deviceId: device.id),
             conversations: conversationProjections(commands: commands)
         )
+    }
+
+    // MARK: - Providers
+
+    private static func providerProjections(agents: [BrewPingProtocol.Agent]) -> [BrewPingProtocol.Provider] {
+        var all: [BrewPingProtocol.Provider] = []
+        for agent in agents where agent.status != .unavailable {
+            let config = AgentConfigDiscovery.discover(agentId: agent.id)
+            all.append(contentsOf: config.providers)
+        }
+        return all
     }
 
     // MARK: - Device
@@ -75,6 +90,20 @@ enum ProtocolStateService {
                 }
             }
 
+            var metadata: [String: String] = ["path": detected.path ?? ""]
+            if let modelId = AgentManager.shared.defaultModel(for: detected.id) {
+                metadata["defaultModel"] = modelId
+            }
+            if detected.installed {
+                let config = AgentConfigDiscovery.discover(agentId: detected.id)
+                if let active = config.activeModelId {
+                    metadata["activeModel"] = active
+                }
+                if let err = config.error {
+                    metadata["configError"] = err
+                }
+            }
+
             out.append(BrewPingProtocol.Agent(
                 id: detected.id,
                 name: detected.name,
@@ -82,7 +111,7 @@ enum ProtocolStateService {
                 executionMode: mode,
                 status: status,
                 version: detected.version,
-                metadata: ["path": detected.path ?? ""]
+                metadata: metadata
             ))
         }
         return out

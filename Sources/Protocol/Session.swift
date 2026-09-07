@@ -26,6 +26,34 @@ extension BrewPingProtocol {
         case headless
     }
 
+    /// 失败原因分类。从 CLI 输出中识别，不是猜测。
+    public enum FailureReason: String, Codable, Sendable {
+        case quotaExceeded = "quota_exceeded"
+        case authenticationFailed = "authentication_failed"
+        case rateLimited = "rate_limited"
+        case networkError = "network_error"
+        case providerError = "provider_error"
+        case processExited = "process_exited"
+        case timeout = "timeout"
+        case modelUnavailable = "model_unavailable"
+        case unknown = "unknown"
+
+        /// 人机友好的说明文字。
+        public var message: String {
+            switch self {
+            case .quotaExceeded: return "Model quota has been exceeded."
+            case .authenticationFailed: return "API key authentication failed."
+            case .rateLimited: return "Too many requests. Please wait and retry."
+            case .networkError: return "Network connection to provider failed."
+            case .providerError: return "Provider returned an error."
+            case .processExited: return "Agent process exited unexpectedly."
+            case .timeout: return "Command timed out."
+            case .modelUnavailable: return "Selected model is not available."
+            case .unknown: return "An unknown error occurred."
+            }
+        }
+    }
+
     /// 一次 AI 执行上下文——BrewPing 最核心的数据。
     ///
     /// 例：用户说"修复登录页面"
@@ -40,10 +68,14 @@ extension BrewPingProtocol {
         public var id: String
         public var deviceId: String
         public var agentId: String
+        /// 使用的模型 id（可选，兼容旧命令）。
+        public var modelId: String?
         /// 会话所属工作目录 / 项目名（如 /Users/x/BrewPing → "BrewPing"）。
         public var project: String?
         public var status: SessionLifecycle
         public var mode: SessionMode
+        /// 失败原因（仅当 status == .failed 时有值）。
+        public var failureReason: FailureReason?
         public var createdAt: Date
         public var updatedAt: Date
 
