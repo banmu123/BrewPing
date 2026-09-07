@@ -125,11 +125,19 @@ pub fn run() {
                 lan_ip: Arc::new(RwLock::new(lan_ip.clone())),
             };
 
-            // Start HTTP server in background
-            let state_for_server = app_state.clone();
+            // Clone Arc handles BEFORE app.manage(core) consumes core
             let port_handle = core.http_port.clone();
             let server_handle = core.server_handle.clone();
             let mdns_flag = core.mdns_running.clone();
+
+            app.manage(core);
+
+            // Setup system tray FIRST so TrayHandles are registered before async task
+            services::tray::setup_system_tray(app.handle())?;
+            services::tray::update_tray_status(app.handle(), "正在启动...", DEFAULT_PORT);
+
+            // Start HTTP server in background
+            let state_for_server = app_state.clone();
             let identity_clone = identity.clone();
             let device_name_clone = device_name.clone();
             let lan_ip_clone = lan_ip.clone();
@@ -166,7 +174,6 @@ pub fn run() {
                         let lan_for_mdns = if lan_ip_clone != "0.0.0.0" {
                             lan_ip_clone.clone()
                         } else {
-                            // Use a placeholder if no LAN detected
                             "127.0.0.1".to_string()
                         };
 
@@ -181,17 +188,14 @@ pub fn run() {
                                 let mut flag = mdns_flag.write().await;
                                 *flag = true;
                                 log::info!("mDNS broadcasting started");
-
-                                // Update tray
                                 services::tray::update_tray_status(&handle, "在线", bound_port);
                             }
                             Err(e) => {
                                 log::error!("mDNS start failed: {}", e);
+                                services::tray::update_tray_status(&handle, "mDNS失败", bound_port);
                             }
                         }
 
-                        // Keep mdns alive by leaking it (it will be cleaned up on process exit)
-                        // In production, store it in shared state for proper cleanup
                         std::mem::forget(mdns);
                     }
                     Err(e) => {
@@ -200,11 +204,6 @@ pub fn run() {
                     }
                 }
             });
-
-            app.manage(core);
-
-            // Setup system tray
-            services::tray::setup_system_tray(app.handle())?;
 
             Ok(())
         })

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use tauri::{
+    image::Image,
     menu::{MenuBuilder, MenuItem, MenuItemBuilder},
     tray::{TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
@@ -9,6 +10,49 @@ use tauri::{
 pub struct TrayHandles {
     pub status_item: Arc<MenuItem<tauri::Wry>>,
     pub port_item: Arc<MenuItem<tauri::Wry>>,
+}
+
+/// Generate a 32x32 RGBA coffee cup icon.
+fn create_icon_rgba() -> Vec<u8> {
+    let size = 32;
+    let mut rgba = vec![0u8; size * size * 4];
+    for y in 0..size {
+        for x in 0..size {
+            let idx = (y * size + x) * 4;
+            let (r, g, b, a) = pixel_color(x, y, size);
+            rgba[idx] = r;
+            rgba[idx + 1] = g;
+            rgba[idx + 2] = b;
+            rgba[idx + 3] = a;
+        }
+    }
+    rgba
+}
+
+fn pixel_color(x: usize, y: usize, _size: usize) -> (u8, u8, u8, u8) {
+    // Cup body: x=8..22, y=10..24
+    if x >= 8 && x <= 22 && y >= 10 && y <= 24 {
+        if y == 10 || y == 24 || x == 8 || x == 22 {
+            return (139, 94, 60, 255); // dark brown border
+        }
+        return (180, 130, 80, 255); // light brown fill
+    }
+    // Handle: x=23..25, y=14..20
+    if x >= 23 && x <= 25 && y >= 14 && y <= 20 {
+        if (y == 14 || y == 20) && x <= 24 {
+            return (139, 94, 60, 255);
+        }
+        if x == 25 && y > 14 && y < 20 {
+            return (139, 94, 60, 255);
+        }
+    }
+    // Steam wisps
+    if y >= 3 && y <= 8 {
+        if (x == 13 && y % 3 == 1) || (x == 17 && y % 3 == 2) {
+            return (180, 180, 180, 150);
+        }
+    }
+    (0, 0, 0, 0) // transparent
 }
 
 /// Create and configure the system tray icon with context menu.
@@ -37,11 +81,9 @@ pub fn setup_system_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Erro
         .item(&quit_item)
         .build()?;
 
-    // Use the default window icon (configured in tauri.conf.json)
-    let icon = app
-        .default_window_icon()
-        .cloned()
-        .expect("no default window icon configured in tauri.conf.json");
+    // Create icon from RGBA data (no external file dependency)
+    let icon_rgba = create_icon_rgba();
+    let icon = Image::new_owned(icon_rgba, 32, 32);
 
     let _tray = TrayIconBuilder::new()
         .icon(icon)
