@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- "B" letter -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M36,34h12c6.6,0 12,4.5 12,10s-5.4,10 -12,10H36V34zM42,39.5v5.5h6c3.3,0 6,-1.8 6,-5.5s-2.7,-5.5 -6,-5.5H42v0zM42,50v6h7c3.3,0 6,-2 6,-6s-2.7,-3 -6,-3H42v3z" />
+    <!-- Ping dot -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M62,56m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0" />
+</vector>
