@@ -10,6 +10,11 @@ enum CommandSendState: Equatable {
     case failed(String)
 }
 
+struct WatchAgent: Identifiable, Equatable {
+    let id: String
+    let name: String
+}
+
 final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     @Published var reachable = false
     @Published var activationState: WCSessionActivationState = .notActivated
@@ -21,6 +26,19 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     @Published var agentMode: String = "session"
     @Published var commandState: CommandSendState = .idle
     @Published var lastCommandDuration: Double?
+
+    // MARK: - Multi-Agent
+    @Published var agents: [WatchAgent] = [
+        WatchAgent(id: "opencode", name: "OpenCode"),
+        WatchAgent(id: "claude-code", name: "Claude"),
+        WatchAgent(id: "codex", name: "Codex")
+    ]
+    @Published var activeAgentIndex: Int = 0
+
+    var activeAgentID: String {
+        guard activeAgentIndex < agents.count else { return "opencode" }
+        return agents[activeAgentIndex].id
+    }
 
     private var session: WCSession? {
         WCSession.isSupported() ? WCSession.default : nil
@@ -52,8 +70,52 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
             if let mode = context["agentMode"] as? String, !mode.isEmpty {
                 self.agentMode = mode
             }
+            // 同步 Agent 列表
+            if let agentList = context["agents"] as? [[String: String]] {
+                let parsed = agentList.compactMap { dict -> WatchAgent? in
+                    guard let id = dict["id"], let name = dict["name"] else { return nil }
+                    return WatchAgent(id: id, name: name)
+                }
+                if !parsed.isEmpty {
+                    self.agents = parsed
+                }
+            }
+            if let activeId = context["activeAgent"] as? String,
+               let idx = self.agents.firstIndex(where: { $0.id == activeId }) {
+                self.activeAgentIndex = idx
+            }
         }
     }
+
+    // MARK: - Agent Switching
+
+    func switchToAgent(index: Int) {
+        guard index >= 0, index < agents.count else { return }
+        activeAgentIndex = index
+        let agentId = agents[index].id
+
+        // 通知 iPhone 切换 Agent
+        guard let session, session.activationState == .activated, session.isReachable else { return }
+        session.sendMessage(
+            ["type": "switchAgent", "agentId": agentId],
+            replyHandler: { _ in },
+            errorHandler: { error in
+                print("BrewPing watch: switchAgent failed: \(error.localizedDescription)")
+            }
+        )
+    }
+
+    func nextAgent() {
+        let next = (activeAgentIndex + 1) % agents.count
+        switchToAgent(index: next)
+    }
+
+    func previousAgent() {
+        let prev = (activeAgentIndex - 1 + agents.count) % agents.count
+        switchToAgent(index: prev)
+    }
+
+    // MARK: - State Refresh
 
     private func startStateTimer() {
         guard stateTimer == nil else { return }
@@ -67,7 +129,6 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
         DispatchQueue.main.async {
             let reachable = session.isReachable
             if self.reachable != reachable {
-                print("BrewPing watch: iPhone reachable=\(reachable)")
                 if reachable { self.requestedStatus = false }
             }
             self.reachable = reachable
@@ -88,73 +149,33 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
         }
         guard !requestedStatus else { return }
         requestedStatus = true
-        print("BrewPing watch: requesting status")
         session.sendMessage(["type": "requestStatus"], replyHandler: { [weak self] reply in
             DispatchQueue.main.async {
                 guard let self else { return }
-                print("BrewPing watch: status reply \(reply)")
                 if let mac = reply["macConnected"] as? Bool { self.macConnected = mac }
                 if let state = reply["sessionState"] as? String { self.sessionState = state.isEmpty ? nil : state }
                 if let name = reply["agentName"] as? String, !name.isEmpty { self.agentName = name }
                 if let mode = reply["agentMode"] as? String, !mode.isEmpty { self.agentMode = mode }
+                if let agentList = reply["agents"] as? [[String: String]] {
+                    let parsed = agentList.compactMap { dict -> WatchAgent? in
+                        guard let id = dict["id"], let name = dict["name"] else { return nil }
+                        return WatchAgent(id: id, name: name)
+                    }
+                    if !parsed.isEmpty { self.agents = parsed }
+                }
+                if let activeId = reply["activeAgent"] as? String,
+                   let idx = self.agents.firstIndex(where: { $0.id == activeId }) {
+                    self.activeAgentIndex = idx
+                }
             }
         }, errorHandler: { [weak self] error in
             DispatchQueue.main.async {
-                print("BrewPing watch: status request failed: \(error.localizedDescription)")
                 self?.requestedStatus = false
             }
         })
     }
 
-    func sendTest(text: String = "Hello from Watch") {
-        guard let session else {
-            DispatchQueue.main.async { self.lastError = "WatchConnectivity unsupported" }
-            return
-        }
-        guard session.activationState == .activated, session.isReachable else {
-            DispatchQueue.main.async { self.lastError = "iPhone App Not Connected" }
-            return
-        }
-        let message: [String: Any] = ["type": "test", "text": text]
-        print("BrewPing watch: send requested")
-        session.sendMessage(message, replyHandler: { [weak self] _ in
-            DispatchQueue.main.async {
-                print("BrewPing watch: message delivered")
-                self?.lastError = nil
-            }
-        }, errorHandler: { [weak self] error in
-            DispatchQueue.main.async {
-                print("BrewPing watch: send failed: \(error.localizedDescription)")
-                self?.lastError = "Send failed: \(error.localizedDescription)"
-            }
-        })
-        DispatchQueue.main.async {
-            self.lastSentText = text
-        }
-    }
-
-    func autoSendTest(timeoutSeconds: TimeInterval = 20) async {
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
-        while Date() < deadline {
-            if session?.activationState == .activated, session?.isReachable == true {
-                sendTest()
-                return
-            }
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-        }
-        print("BrewPing watch auto-send timed out waiting for iPhone")
-    }
-
-    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
-        DispatchQueue.main.async {
-            self.activationState = activationState
-            self.reachable = session.isReachable
-            if let error {
-                print("BrewPing watch activation error: \(error.localizedDescription)")
-            }
-        }
-        applyContext(session.receivedApplicationContext)
-    }
+    // MARK: - Commands
 
     func sendCommand(_ text: String) {
         guard let session else {
@@ -170,40 +191,35 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
             DispatchQueue.main.async { self.commandState = .failed("Empty command") }
             return
         }
-        print("BrewPing watch: command send requested: \(trimmed)")
         DispatchQueue.main.async { self.commandState = .sending }
         session.sendMessage([
             "type": "command",
             "text": trimmed,
-            "content": trimmed
+            "content": trimmed,
+            "agentId": activeAgentID
         ], replyHandler: { [weak self] _ in
             DispatchQueue.main.async {
-                print("BrewPing watch: command delivered")
                 self?.commandState = .sent(trimmed)
                 self?.lastError = nil
             }
         }, errorHandler: { [weak self] error in
             DispatchQueue.main.async {
-                print("BrewPing watch: command send failed: \(error.localizedDescription)")
                 self?.commandState = .failed(error.localizedDescription)
             }
         })
     }
 
-    func autoCommandTest(text: String = "修复登录页面", timeoutSeconds: TimeInterval = 25) async {
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
-        while Date() < deadline {
-            if let session, session.activationState == .activated, session.isReachable {
-                sendCommand(text)
-                return
-            }
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+    // MARK: - WCSession Delegate
+
+    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+        DispatchQueue.main.async {
+            self.activationState = activationState
+            self.reachable = session.isReachable
         }
-        print("BrewPing watch auto-command timed out waiting for iPhone")
+        applyContext(session.receivedApplicationContext)
     }
 
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
-        print("BrewPing watch: status synced \(applicationContext)")
         applyContext(applicationContext)
     }
 
@@ -218,7 +234,6 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
         let status = message["status"] as? String ?? ""
         let text = message["text"] as? String ?? ""
         let duration = message["duration"] as? Double
-        print("BrewPing watch: command result received status=\(status) duration=\(duration.map { String($0) } ?? "-") text=\(text)")
         DispatchQueue.main.async {
             self.lastCommandDuration = duration
             if status == "completed" || status == "completed_with_raw" {
@@ -227,5 +242,43 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
                 self.commandState = .failed(text.isEmpty ? "Command failed" : text)
             }
         }
+    }
+
+    // MARK: - Audio Commands
+
+    /// 发送音频到 iPhone 进行语音识别
+    func sendAudioCommand(_ audioData: Data) {
+        guard let session else {
+            DispatchQueue.main.async { self.commandState = .failed("WatchConnectivity unsupported") }
+            return
+        }
+        guard session.activationState == .activated, session.isReachable else {
+            DispatchQueue.main.async { self.commandState = .failed("iPhone App Not Connected") }
+            return
+        }
+        DispatchQueue.main.async { self.commandState = .sending }
+        session.sendMessage(
+            ["type": "audioCommand", "audio": audioData, "agentId": activeAgentID],
+            replyHandler: { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.commandState = .sent("Audio sent")
+                    self?.lastError = nil
+                }
+            },
+            errorHandler: { [weak self] error in
+                DispatchQueue.main.async {
+                    self?.commandState = .failed(error.localizedDescription)
+                }
+            }
+        )
+    }
+
+    // MARK: - Legacy
+
+    func sendTest(text: String = "Hello from Watch") {
+        guard let session else { return }
+        guard session.activationState == .activated, session.isReachable else { return }
+        session.sendMessage(["type": "test", "text": text], replyHandler: nil, errorHandler: nil)
+        DispatchQueue.main.async { self.lastSentText = text }
     }
 }

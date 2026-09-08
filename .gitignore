@@ -12,3 +12,7 @@ ios/BrewPing.xcodeproj/xcuserdata/
 # SwiftPM
 *.xcode.version-*
 .build/**/*.o
+
+# Node
+node_modules/
+

@@ -1,7 +1,7 @@
 import Foundation
 
-enum SystemCommand {
-    static func conventionalSearchPaths() -> [String] {
+public enum SystemCommand {
+    public static func conventionalSearchPaths() -> [String] {
         var paths = [
             "/opt/homebrew/bin",
             "/usr/local/bin",
@@ -20,7 +20,7 @@ enum SystemCommand {
         return paths
     }
 
-    static func run(executablePath: String, arguments: [String], timeoutSeconds: TimeInterval, additionalPATHEntries: [String] = []) -> (exitCode: Int32, output: String)? {
+    public static func run(executablePath: String, arguments: [String], timeoutSeconds: TimeInterval, additionalPATHEntries: [String] = []) -> (exitCode: Int32, output: String)? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
@@ -82,8 +82,8 @@ enum SystemCommand {
     }
 }
 
-final class AgentDiscovery {
-    static let catalog: [AgentDefinition] = [
+public final class AgentDiscovery {
+    public static let catalog: [AgentDefinition] = [
         AgentDefinition(
             id: "opencode",
             name: "OpenCode",
@@ -124,11 +124,11 @@ final class AgentDiscovery {
     /// 上次成功扫描的结果，用于失败时保留已知配置。
     private var lastSuccessful: [DetectedAgent] = []
 
-    static let shared = AgentDiscovery()
+    public static let shared = AgentDiscovery()
 
     private init() {}
 
-    func discover(force: Bool = false) -> [DetectedAgent] {
+    public func discover(force: Bool = false) -> [DetectedAgent] {
         lock.lock()
         if !force, let cachedAt = cachedAt,
            Date().timeIntervalSince(cachedAt) < AgentDiscovery.cacheInterval,

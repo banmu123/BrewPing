@@ -6,21 +6,21 @@ struct AgentRequest: Codable {
     var text: String?
 }
 
-struct AgentResponse: Codable {
-    var ok: Bool
-    var status: String?
-    var pid: Int32?
-    var sessionID: String?
-    var cwd: String?
-    var message: String?
-    var error: String?
-    var commandId: String? = nil
+public struct AgentResponse: Codable {
+    public var ok: Bool
+    public var status: String?
+    public var pid: Int32?
+    public var sessionID: String?
+    public var cwd: String?
+    public var message: String?
+    public var error: String?
+    public var commandId: String? = nil
 
-    static func success(_ message: String? = nil) -> AgentResponse {
+    public static func success(_ message: String? = nil) -> AgentResponse {
         AgentResponse(ok: true, status: nil, pid: nil, sessionID: nil, cwd: nil, message: message, error: nil)
     }
 
-    static func failure(_ error: String) -> AgentResponse {
+    public static func failure(_ error: String) -> AgentResponse {
         AgentResponse(ok: false, status: nil, pid: nil, sessionID: nil, cwd: nil, message: nil, error: error)
     }
 }

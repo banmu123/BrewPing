@@ -1,12 +1,24 @@
 import Foundation
 
-final class AgentManager {
-    static let shared = AgentManager()
+extension Notification.Name {
+    public static let activeAgentDidChange = Notification.Name("BrewPing.activeAgentDidChange")
+}
 
-    static let sessionAgentID = "opencode"
+public final class AgentManager {
+    public static let shared = AgentManager()
+
+    public static let sessionAgentID = "opencode"
 
     private let lock = NSLock()
     private var _defaultAgentID: String = AgentManager.sessionAgentID
+
+    // MARK: - Multi-Agent Terminal State
+
+    /// 各 Agent 的终端状态（线程安全访问）
+    public private(set) var terminalStates: [String: AgentTerminalState] = [:]
+
+    /// 所有已安装 Agent 信息
+    public private(set) var registeredAgents: [AgentInfo] = []
 
     private var configFileURL: URL {
         SessionManager.shared.directory.appendingPathComponent("config.json")
@@ -19,6 +31,7 @@ final class AgentManager {
 
     private init() {
         loadConfig()
+        initializeTerminalStates()
     }
 
     private func loadConfig() {
@@ -37,6 +50,59 @@ final class AgentManager {
 
     private var _defaultModels: [String: String] = [:]
 
+    // MARK: - Multi-Agent State
+
+    /// 初始化所有已安装 Agent 的终端状态
+    private func initializeTerminalStates() {
+        let discovered = AgentDiscovery.shared.discover()
+        let installed = discovered.filter { $0.installed }
+        registeredAgents = installed.map { AgentInfo(id: $0.id, name: $0.name, status: .idle) }
+        for agent in registeredAgents {
+            if terminalStates[agent.id] == nil {
+                terminalStates[agent.id] = AgentTerminalState(agentId: agent.id)
+            }
+        }
+    }
+
+    /// 获取指定 Agent 的终端状态
+    public func terminalState(for agentId: String) -> AgentTerminalState? {
+        lock.lock()
+        defer { lock.unlock() }
+        return terminalStates[agentId]
+    }
+
+    /// 当前活跃 Agent ID
+    public var activeAgentID: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return _defaultAgentID
+    }
+
+    /// 切换活跃 Agent（快速 UI 切换，不校验安装状态）
+    public func switchActiveAgent(_ agentId: String) {
+        lock.lock()
+        _defaultAgentID = agentId
+        saveConfig()
+        lock.unlock()
+
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .activeAgentDidChange,
+                object: nil,
+                userInfo: ["agentId": agentId]
+            )
+        }
+    }
+
+    /// 刷新 Agent 列表（重新扫描安装状态）
+    public func refreshAgents() {
+        lock.lock()
+        initializeTerminalStates()
+        lock.unlock()
+    }
+
+    // MARK: - Legacy API (保持向后兼容)
+
     var defaultAgentID: String {
         lock.lock()
         defer { lock.unlock() }
@@ -48,7 +114,7 @@ final class AgentManager {
     }
 
     /// headless Provider 注册表。OpenCode 是 session 型，由既有链路负责，不在此列。
-    func provider(for id: String, modelId: String? = nil) -> CodingAgent? {
+    public func provider(for id: String, modelId: String? = nil) -> CodingAgent? {
         let resolved = modelId ?? resolvedModel(for: id)
         switch id {
         case "claude-code": return ClaudeCodeAgent(modelId: resolved)
@@ -58,7 +124,7 @@ final class AgentManager {
         }
     }
 
-    func agentName(for id: String) -> String {
+    public func agentName(for id: String) -> String {
         if id == AgentManager.sessionAgentID { return "OpenCode" }
         return AgentDiscovery.catalog.first { $0.id == id }?.name ?? id
     }

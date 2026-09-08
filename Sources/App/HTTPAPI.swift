@@ -24,6 +24,9 @@ enum HTTPAPI {
         case let ("GET", path) where path.hasPrefix("/api/agents/") && path.hasSuffix("/models"):
             let agentID = String(path.dropFirst("/api/agents/".count).dropLast("/models".count))
             return agentModelsResponse(agentID)
+        case let ("POST", path) where path.hasPrefix("/api/agents/") && path.hasSuffix("/switch"):
+            let agentID = String(path.dropFirst("/api/agents/".count).dropLast("/switch".count))
+            return agentSwitchResponse(agentID)
         case ("POST", "/api/agents/models/default"):
             return setDefaultModelResponse(request)
         case let ("GET", path) where path.hasPrefix("/api/message/"):
@@ -166,12 +169,39 @@ enum HTTPAPI {
                 "status": resp.status ?? "unknown"
             ]
             : NSNull()
+
+        // 多 Agent 状态列表
+        let agents: [[String: Any]] = AgentManager.shared.registeredAgents.map { agent in
+            [
+                "id": agent.id,
+                "name": agent.name,
+                "status": agent.status.rawValue
+            ]
+        }
+
         return .json(200, "OK", [
             "status": "online",
             "host": Host.current().localizedName ?? ProcessInfo.processInfo.hostName,
             "defaultAgent": defaultID,
-            "session": session
-        ])
+            "activeAgent": defaultID,
+            "session": session,
+            "agents": agents
+        ] as [String: Any])
+    }
+
+    private static func agentSwitchResponse(_ agentId: String) -> HTTPResponse {
+        guard !agentId.isEmpty else {
+            return .json(400, "Bad Request", ["success": false, "error": "agentId is required"])
+        }
+        guard AgentDiscovery.catalog.contains(where: { $0.id == agentId }) else {
+            return .json(404, "Not Found", ["success": false, "error": "unknown agent: \(agentId)"])
+        }
+
+        AgentManager.shared.switchActiveAgent(agentId)
+        return .json(200, "OK", [
+            "success": true,
+            "activeAgent": agentId
+        ] as [String: Any])
     }
 
     private static func lifecycleResponse(_ resp: AgentResponse) -> HTTPResponse {
@@ -184,6 +214,9 @@ enum HTTPAPI {
         return .json(409, "Conflict", ["success": false, "error": resp.error ?? "request failed"])
     }
 
+    private static var appendedCommandIDs = Set<String>()
+    private static let appendLock = NSLock()
+
     private static func messageResponse(_ request: HTTPRequest, router: CommandRouter) -> HTTPResponse {
         guard let object = try? JSONSerialization.jsonObject(with: request.body, options: []),
               let body = object as? [String: Any],
@@ -193,6 +226,16 @@ enum HTTPAPI {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .json(400, "Bad Request", ["success": false, "error": "text is empty"])
         }
+
+        // 将 iOS 发来的消息写入当前 Agent 的 TerminalState
+        let agentId = AgentManager.shared.activeAgentID
+        if let state = AgentManager.shared.terminalState(for: agentId) {
+            DispatchQueue.main.async {
+                state.appendLine("[iOS] > \(text)", type: .system)
+                state.setStatus(.running)
+            }
+        }
+
         let resp = router.route(.submit(text: text))
         if resp.ok {
             return .json(200, "OK", [
@@ -209,6 +252,29 @@ enum HTTPAPI {
         guard !id.isEmpty, let info = CommandStore.shared.get(id) else {
             return .json(404, "Not Found", ["success": false, "error": "unknown commandId"])
         }
+
+        // 当命令完成时，将输出写入对应 Agent 的 TerminalState（仅一次）
+        if (info.status == .completed || info.status == .completedWithRaw || info.status == .failed) {
+            appendLock.lock()
+            let alreadyAppended = appendedCommandIDs.contains(id)
+            if !alreadyAppended { appendedCommandIDs.insert(id) }
+            appendLock.unlock()
+
+            if !alreadyAppended {
+                let agentId = AgentManager.shared.activeAgentID
+                if let state = AgentManager.shared.terminalState(for: agentId) {
+                    let outputText = info.response ?? info.rawOutput ?? info.error ?? "(no output)"
+                    let outputType: OutputType = info.status == .failed ? .error : .normal
+                    DispatchQueue.main.async {
+                        for line in outputText.split(separator: "\n", omittingEmptySubsequences: false) {
+                            state.appendLine(String(line), type: outputType)
+                        }
+                        state.setStatus(.idle)
+                    }
+                }
+            }
+        }
+
         var object: [String: Any] = [
             "commandId": info.commandId,
             "sessionId": info.sessionId,

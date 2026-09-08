@@ -14,12 +14,23 @@ public final class DesktopCore: ObservableObject {
     @Published public var deviceId: String = ""
     @Published public var agents: [DetectedAgent] = []
     @Published public var sessionStatus: String = ""
+    @Published public var activeAgentID: String = AgentManager.shared.activeAgentID
 
     private var identity: DeviceIdentity?
     private var agentThread: Thread?
     private var statusTimer: Timer?
+    private var cancellables = Set<AnyCancellable>()
 
-    private init() {}
+    private init() {
+        // 监听 Agent 切换通知
+        NotificationCenter.default.publisher(for: .activeAgentDidChange)
+            .compactMap { $0.userInfo?["agentId"] as? String }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] agentId in
+                self?.activeAgentID = agentId
+            }
+            .store(in: &cancellables)
+    }
 
     public func start() {
         let id = DeviceIdentity.loadOrCreate()
@@ -101,6 +112,8 @@ public final class DesktopCore: ObservableObject {
                 sessionStatus = "online"
                 // 刷新 Agent 列表
                 agents = AgentDiscovery.shared.discover()
+                // 同步 activeAgent
+                activeAgentID = AgentManager.shared.activeAgentID
             } else {
                 isRunning = false
                 sessionStatus = "offline"

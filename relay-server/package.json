@@ -1,0 +1,26 @@
+{
+  "name": "brewping-relay-server",
+  "version": "1.0.0",
+  "description": "BrewPing Relay Server - real-time message relay between Desktop and Agent",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "ws": "^8.16.0",
+    "express": "^4.18.2",
+    "dotenv": "^16.4.1"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.10",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3",
+    "tsx": "^4.7.0",
+    "vitest": "^1.2.0"
+  }
+}

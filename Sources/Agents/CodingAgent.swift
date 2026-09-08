@@ -1,6 +1,6 @@
 import Foundation
 
-enum AgentExecutionStatus: String {
+public enum AgentExecutionStatus: String {
     case queued
     case running
     case thinking
@@ -8,21 +8,18 @@ enum AgentExecutionStatus: String {
     case failed
 }
 
-struct AgentResult {
-    let id: String
-    let agentID: String
-    let agentName: String
-    let status: AgentExecutionStatus
-    let summary: String
-    let filesChanged: [String]
-    let durationSeconds: TimeInterval
-    let output: String
+public struct AgentResult {
+    public let id: String
+    public let agentID: String
+    public let agentName: String
+    public let status: AgentExecutionStatus
+    public let summary: String
+    public let filesChanged: [String]
+    public let durationSeconds: TimeInterval
+    public let output: String
 }
 
-/// 统一的 Coding Agent 抽象（Adapter Pattern）。
-/// - session 型 Provider（OpenCode）：常驻 PTY 会话，由 SessionManager/CommandRunner 既有链路负责。
-/// - headless 型 Provider（Claude/Codex/Aider）：一次性 CLI 调用，execute 同步阻塞返回。
-protocol CodingAgent: AnyObject {
+public protocol CodingAgent: AnyObject {
     var id: String { get }
     var name: String { get }
     var isSessionCapable: Bool { get }

@@ -17,8 +17,8 @@ struct SessionInfo: Codable {
     var httpIP: String?
 }
 
-final class SessionManager {
-    static let shared = SessionManager()
+public final class SessionManager {
+    public static let shared = SessionManager()
 
     let directory: URL
     var activeAgent: TerminalAgent?
@@ -64,7 +64,7 @@ final class SessionManager {
         )
     }
 
-    func sendMessage(_ text: String) -> AgentResponse {
+    public func sendMessage(_ text: String) -> AgentResponse {
         guard let agent = activeAgent else {
             return .failure("No active OpenCode session.")
         }

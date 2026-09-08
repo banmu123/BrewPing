@@ -9,9 +9,9 @@ public struct DetectedAgent: Codable {
     public let path: String?
 }
 
-struct AgentDefinition {
-    let id: String
-    let name: String
-    let command: String
-    let versionArguments: [String]
+public struct AgentDefinition {
+    public let id: String
+    public let name: String
+    public let command: String
+    public let versionArguments: [String]
 }
