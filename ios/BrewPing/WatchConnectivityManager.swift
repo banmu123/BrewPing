@@ -18,6 +18,8 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         ["id": "claude-code", "name": "Claude"],
         ["id": "codex", "name": "Codex"]
     ]
+    var knownDevices: [[String: String]] = []
+    var activeDeviceID: String = ""
 
     private override init() {
         super.init()
@@ -42,7 +44,9 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
                 "agentName": name,
                 "agentMode": mode,
                 "agents": knownAgents,
-                "activeAgent": currentAgentID
+                "activeAgent": currentAgentID,
+                "devices": knownDevices,
+                "activeDevice": activeDeviceID
             ])
         } catch {
             print("BrewPing iPhone: status push failed: \(error.localizedDescription)")
@@ -91,6 +95,18 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
 
     private func handleWatchMessage(_ message: [String: Any], replyHandler: (([String: Any]) -> Void)?) {
         let type = message["type"] as? String ?? "unknown"
+        if type == "switchDevice" {
+            guard let deviceId = message["deviceId"] as? String else {
+                replyHandler?(["ok": false, "error": "missing deviceId"])
+                return
+            }
+            print("BrewPing iPhone: watch switching to device: \(deviceId)")
+            DispatchQueue.main.async {
+                DeviceStore.shared.setActive(deviceId)
+            }
+            replyHandler?(["ok": true, "type": "ack"])
+            return
+        }
         if type == "requestStatus" {
             print("BrewPing iPhone: watch requested status -> online=\(currentOnline ?? false) session=\(currentSessionState ?? "")")
             replyHandler?([
@@ -99,7 +115,9 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
                 "agentName": currentAgentName,
                 "agentMode": currentAgentMode,
                 "agents": currentAgentList(),
-                "activeAgent": currentActiveAgentID
+                "activeAgent": currentActiveAgentID,
+                "devices": knownDevices,
+                "activeDevice": activeDeviceID
             ])
             return
         }

@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		AA000001000000000000000E /* BonjourDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001000000000000000D /* BonjourDiscovery.swift */; };
+		AA0000010000000000000016 /* ManagedDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000017 /* ManagedDevice.swift */; };
+		AA0000010000000000000018 /* DeviceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000019 /* DeviceStore.swift */; };
 		AA000001000000000000000A /* BrewPingProtocol.swift in Protocol Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001A /* BrewPingProtocol.swift */; };
 		BB000001000000000000002A /* BrewPingProtocol.swift in Protocol Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001A /* BrewPingProtocol.swift */; };
 		AA000001000000000000000B /* Device.swift in Protocol Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001B /* Device.swift */; };
@@ -57,6 +59,8 @@
 
 /* Begin PBXFileReference section */
 		AA000001000000000000000D /* BonjourDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonjourDiscovery.swift; sourceTree = "<group>"; };
+		AA0000010000000000000017 /* ManagedDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedDevice.swift; sourceTree = "<group>"; };
+		AA0000010000000000000019 /* DeviceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceStore.swift; sourceTree = "<group>"; };
 		BB000001000000000000001A /* BrewPingProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrewPingProtocol.swift"; sourceTree = "<group>"; };
 		BB000001000000000000001B /* Device.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Device.swift"; sourceTree = "<group>"; };
 		BB000001000000000000001C /* Agent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Agent.swift"; sourceTree = "<group>"; };
@@ -113,6 +117,8 @@
 				AA0000010000000000000007 /* WatchConnectivityManager.swift */,
 				AA000001000000000000000D /* BonjourDiscovery.swift */,
 				AA0000010000000000000009 /* CommandReceiver.swift */,
+				AA0000010000000000000017 /* ManagedDevice.swift */,
+				AA0000010000000000000019 /* DeviceStore.swift */,
 				AA0000010000000000000005 /* Info.plist */,
 			);
 			path = BrewPing;
@@ -255,6 +261,8 @@
 				AA0000010000000000000006 /* WatchConnectivityManager.swift in Sources */,
 				AA0000010000000000000008 /* CommandReceiver.swift in Sources */,
 				AA000001000000000000000E /* BonjourDiscovery.swift in Sources */,
+				AA0000010000000000000016 /* ManagedDevice.swift in Sources */,
+				AA0000010000000000000018 /* DeviceStore.swift in Sources */,
 				AA000001000000000000000A /* BrewPingProtocol.swift in Protocol Sources */,
 				AA000001000000000000000B /* Device.swift in Protocol Sources */,
 				AA000001000000000000000C /* Agent.swift in Protocol Sources */,

@@ -15,6 +15,28 @@ struct WatchAgent: Identifiable, Equatable {
     let name: String
 }
 
+struct WatchDevice: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let osType: String  // "mac", "windows", "linux"
+
+    var icon: String {
+        switch osType {
+        case "windows": return "pc"
+        case "linux":   return "terminal"
+        default:        return "desktopcomputer"
+        }
+    }
+
+    var osLabel: String {
+        switch osType {
+        case "windows": return "Win"
+        case "linux":   return "Linux"
+        default:        return "Mac"
+        }
+    }
+}
+
 final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     @Published var reachable = false
     @Published var activationState: WCSessionActivationState = .notActivated
@@ -35,9 +57,18 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     ]
     @Published var activeAgentIndex: Int = 0
 
+    // MARK: - Multi-Device
+    @Published var devices: [WatchDevice] = []
+    @Published var activeDeviceIndex: Int = 0
+
     var activeAgentID: String {
         guard activeAgentIndex < agents.count else { return "opencode" }
         return agents[activeAgentIndex].id
+    }
+
+    var activeDeviceID: String {
+        guard activeDeviceIndex < devices.count else { return "" }
+        return devices[activeDeviceIndex].id
     }
 
     private var session: WCSession? {
@@ -84,6 +115,20 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
                let idx = self.agents.firstIndex(where: { $0.id == activeId }) {
                 self.activeAgentIndex = idx
             }
+            // 同步设备列表
+            if let deviceList = context["devices"] as? [[String: String]] {
+                let parsed = deviceList.compactMap { dict -> WatchDevice? in
+                    guard let id = dict["id"], let name = dict["name"] else { return nil }
+                    return WatchDevice(id: id, name: name, osType: dict["os"] ?? "mac")
+                }
+                if !parsed.isEmpty {
+                    self.devices = parsed
+                }
+            }
+            if let activeDevId = context["activeDevice"] as? String,
+               let idx = self.devices.firstIndex(where: { $0.id == activeDevId }) {
+                self.activeDeviceIndex = idx
+            }
         }
     }
 
@@ -94,15 +139,12 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
         activeAgentIndex = index
         let agent = agents[index]
         let agentId = agent.id
-        // 本地立刻更新显示名称
         agentName = agent.name
 
-        // 通知 iPhone 切换 Agent
         guard let session, session.activationState == .activated, session.isReachable else { return }
         session.sendMessage(
             ["type": "switchAgent", "agentId": agentId],
             replyHandler: { [weak self] reply in
-                // iPhone 回复后刷新状态
                 DispatchQueue.main.async {
                     self?.requestStatusSync()
                 }
@@ -121,6 +163,27 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     func previousAgent() {
         let prev = (activeAgentIndex - 1 + agents.count) % agents.count
         switchToAgent(index: prev)
+    }
+
+    // MARK: - Device Switching
+
+    func switchToDevice(index: Int) {
+        guard index >= 0, index < devices.count else { return }
+        activeDeviceIndex = index
+        let deviceId = devices[index].id
+
+        guard let session, session.activationState == .activated, session.isReachable else { return }
+        session.sendMessage(
+            ["type": "switchDevice", "deviceId": deviceId],
+            replyHandler: { [weak self] reply in
+                DispatchQueue.main.async {
+                    self?.requestStatusSync()
+                }
+            },
+            errorHandler: { error in
+                print("BrewPing watch: switchDevice failed: \(error.localizedDescription)")
+            }
+        )
     }
 
     // MARK: - State Refresh
@@ -174,6 +237,18 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
                 if let activeId = reply["activeAgent"] as? String,
                    let idx = self.agents.firstIndex(where: { $0.id == activeId }) {
                     self.activeAgentIndex = idx
+                }
+                // 同步设备列表
+                if let deviceList = reply["devices"] as? [[String: String]] {
+                    let parsed = deviceList.compactMap { dict -> WatchDevice? in
+                        guard let id = dict["id"], let name = dict["name"] else { return nil }
+                        return WatchDevice(id: id, name: name, osType: dict["os"] ?? "mac")
+                    }
+                    if !parsed.isEmpty { self.devices = parsed }
+                }
+                if let activeDevId = reply["activeDevice"] as? String,
+                   let idx = self.devices.firstIndex(where: { $0.id == activeDevId }) {
+                    self.activeDeviceIndex = idx
                 }
             }
         }, errorHandler: { [weak self] error in

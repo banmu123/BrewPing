@@ -76,9 +76,10 @@ enum CommandPhase: Equatable {
     }
 }
 
+// MARK: - ContentView
+
 struct ContentView: View {
-    @AppStorage("brewping.macAddress") private var macAddress = ""
-    @AppStorage("brewping.port") private var port = "8787"
+    @StateObject private var deviceStore = DeviceStore.shared
     @StateObject private var watchBridge = WatchConnectivityManager.shared
     @StateObject private var commandReceiver = CommandReceiver.shared
     @StateObject private var bonjour = BonjourDiscovery()
@@ -100,55 +101,68 @@ struct ContentView: View {
     @State private var discoveryRunning = false
     @State private var discoveryMessage = ""
 
-    private var discoveryStatusColor: Color {
-        discoveryMessage.contains("failed") || discoveryMessage.contains("Failed") ? .red : .secondary
-    }
+    // 添加设备 Sheet
+    @State private var showAddDevice = false
+    @State private var editingDevice: ManagedDevice?
+    @State private var editName = ""
+    @State private var editHost = ""
+    @State private var editPort = "8787"
+    @State private var editOS: DeviceOSType = .mac
 
     private var baseURL: URL? {
-        let host = macAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-        let portValue = port.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !host.isEmpty, !portValue.isEmpty else { return nil }
-        return URL(string: "http://\(host):\(portValue)")
+        deviceStore.activeDevice?.baseURL
     }
 
     var body: some View {
         NavigationView {
-            Form {
-                deviceCard
-                agentListCard
-                sessionCard
-                Section("Message") {
-                    TextField("Hello from iPhone", text: $messageText, axis: .vertical)
-                        .lineLimit(3...5)
-                        .autocorrectionDisabled()
-                        .disabled(sessionState != .running)
-                    Button {
-                        send()
-                    } label: {
-                        if phase.inFlight {
-                            HStack { ProgressView(); Text("Sending...") }
-                        } else {
-                            Text("Send")
+            VStack(spacing: 0) {
+                // 设备 Tab 栏
+                deviceTabBar
+
+                Form {
+                    agentListCard
+                    sessionCard
+                    Section("Message") {
+                        TextField("Hello from iPhone", text: $messageText, axis: .vertical)
+                            .lineLimit(3...5)
+                            .autocorrectionDisabled()
+                            .disabled(sessionState != .running)
+                        Button {
+                            send()
+                        } label: {
+                            if phase.inFlight {
+                                HStack { ProgressView(); Text("Sending...") }
+                            } else {
+                                Text("Send")
+                            }
                         }
+                        .disabled(sessionState != .running || phase.inFlight || messageText.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
-                    .disabled(sessionState != .running || phase.inFlight || messageText.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-                Section("Result") {
-                    resultView
-                }
-                Section {
-                    Text("Dev use only: the Mac Agent must run on the same local network. This API has no authentication.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    Section("Result") {
+                        resultView
+                    }
                 }
             }
             .navigationTitle("BrewPing")
+            .sheet(isPresented: $showAddDevice) {
+                deviceFormSheet(isNew: true)
+            }
+            .sheet(item: $editingDevice) { device in
+                deviceFormSheet(isNew: false, existing: device)
+            }
             .task {
                 await refreshStatus()
                 await refreshAgents()
                 while !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 5_000_000_000)
                     await refreshStatus()
+                }
+            }
+            .onChange(of: deviceStore.activeDeviceID) { _ in
+                Task {
+                    resetState()
+                    await refreshStatus()
+                    await refreshAgents()
                 }
             }
             .onChange(of: commandReceiver.lastCommandID) { _ in
@@ -159,10 +173,176 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - 设备 Tab 栏
+
+    private var deviceTabBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(deviceStore.devices) { device in
+                    deviceTab(device)
+                }
+
+                // 添加按钮
+                Button {
+                    editName = ""
+                    editHost = ""
+                    editPort = "8787"
+                    editOS = .mac
+                    showAddDevice = true
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.blue)
+                }
+                .padding(.leading, 4)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .background(Color(.systemGroupedBackground))
+    }
+
+    private func deviceTab(_ device: ManagedDevice) -> some View {
+        let isActive = device.id == deviceStore.activeDeviceID
+        return Button {
+            deviceStore.setActive(device.id)
+        } label: {
+            VStack(spacing: 3) {
+                HStack(spacing: 4) {
+                    Image(systemName: device.osType.icon)
+                        .font(.system(size: 11))
+                    Text(device.name.isEmpty ? device.host : device.name)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                }
+                Circle()
+                    .fill(isActive && online ? Color.green : (isActive ? Color.orange : Color.gray))
+                    .frame(width: 5, height: 5)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isActive ? Color.blue.opacity(0.15) : Color(.tertiarySystemGroupedBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isActive ? Color.blue.opacity(0.4) : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                editName = device.name
+                editHost = device.host
+                editPort = device.port
+                editOS = device.osType
+                editingDevice = device
+            } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                deviceStore.removeDevice(id: device.id)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    // MARK: - 添加/编辑设备 Sheet
+
+    private func deviceFormSheet(isNew: Bool, existing: ManagedDevice? = nil) -> some View {
+        NavigationView {
+            Form {
+                Section("Device Info") {
+                    TextField("Name (e.g. Chenzk)", text: $editName)
+                        .autocorrectionDisabled()
+                    TextField("Host (IP or hostname)", text: $editHost)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    TextField("Port", text: $editPort)
+                        .keyboardType(.numberPad)
+                    Picker("System", selection: $editOS) {
+                        ForEach(DeviceOSType.allCases, id: \.self) { os in
+                            Label(os.label, systemImage: os.icon).tag(os)
+                        }
+                    }
+                }
+
+                Section {
+                    Button(bonjour.isSearching ? "Searching..." : "Auto Discover") {
+                        Task { await discoverForSheet() }
+                    }
+                    .disabled(bonjour.isSearching)
+                    if !discoveryMessage.isEmpty {
+                        Text(discoveryMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .navigationTitle(isNew ? "Add Device" : "Edit Device")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showAddDevice = false
+                        editingDevice = nil
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isNew ? "Add" : "Save") {
+                        let trimmedHost = editHost.trimmingCharacters(in: .whitespaces)
+                        let trimmedName = editName.trimmingCharacters(in: .whitespaces)
+                        guard !trimmedHost.isEmpty else { return }
+
+                        if isNew {
+                            let device = ManagedDevice.new(
+                                name: trimmedName.isEmpty ? editOS.label : trimmedName,
+                                host: trimmedHost,
+                                port: editPort,
+                                osType: editOS
+                            )
+                            deviceStore.addDevice(device)
+                        } else if var device = existing {
+                            device.name = trimmedName
+                            device.host = trimmedHost
+                            device.port = editPort
+                            device.osType = editOS
+                            deviceStore.updateDevice(device)
+                        }
+                        showAddDevice = false
+                        editingDevice = nil
+                    }
+                    .disabled(editHost.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+    }
+
+    private func discoverForSheet() async {
+        bonjour.startSearching()
+        for _ in 0..<10 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if !bonjour.discoveredHosts.isEmpty || !bonjour.isSearching { break }
+        }
+        if let host = bonjour.discoveredHosts.first {
+            let resolved = host.name.components(separatedBy: ".").first ?? host.name
+            editHost = resolved.hasSuffix(".local") ? resolved : resolved + ".local"
+            editPort = host.port > 0 ? String(host.port) : "8787"
+            editName = resolved.replacingOccurrences(of: ".local", with: "")
+            discoveryMessage = "Found: \(host.name)"
+        } else {
+            discoveryMessage = "No BrewPing agent found"
+        }
+    }
+
+    // MARK: - Agent List
+
     private var agentListCard: some View {
-        Section("Available AI Agents") {
+        Section("AI Agents") {
             if agents.isEmpty {
-                Text(online ? "Detecting agents..." : "Connect to the Mac to detect agents.")
+                Text(online ? "Detecting agents..." : "Connect to detect agents.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -203,78 +383,7 @@ struct ContentView: View {
         }
     }
 
-    private func setDefaultAgent(_ id: String) {
-        guard let url = baseURL?.appendingPathComponent("api/agents/default") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 15
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["agent": id])
-        Task {
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                if statusCode != 200 {
-                    let decoded = try? JSONDecoder().decode(LifecycleResponse.self, from: data)
-                    sessionMessage = decoded?.error ?? "Switch failed (HTTP \(statusCode))"
-                }
-            } catch {
-                sessionMessage = "Switch failed: \(error.localizedDescription)"
-            }
-            await refreshStatus()
-            await refreshAgents()
-        }
-    }
-
-    private var deviceCard: some View {
-        Section("Mac") {
-            TextField("Mac Address (e.g. 192.168.3.94)", text: $macAddress)
-                .keyboardType(.decimalPad)
-                .autocorrectionDisabled()
-            HStack {
-                TextField("Port", text: $port)
-                    .keyboardType(.numberPad)
-                Spacer()
-                Button(bonjour.isSearching ? "Searching..." : "Auto") {
-                    Task { await discoverMac() }
-                }
-                .font(.caption)
-                .disabled(bonjour.isSearching)
-            }
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(online ? Color.green : Color.red)
-                    .frame(width: 10, height: 10)
-                Text(online ? "Connected" : "Offline")
-                    .font(.callout)
-                Spacer()
-                Button(discoveryRunning ? "Checking..." : "Check") {
-                    Task { await fullRefresh() }
-                }
-                .disabled(discoveryRunning)
-            }
-            if !hostName.isEmpty && online {
-                Text(hostName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if !discoveryMessage.isEmpty {
-                Text(discoveryMessage)
-                    .font(.caption2)
-                    .foregroundStyle(discoveryStatusColor)
-            }
-            if !hostName.isEmpty && online {
-                Text(hostName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if let watchText = watchBridge.lastReceivedText {
-                Text("Watch: \(watchText)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
+    // MARK: - Session Card
 
     private var sessionCard: some View {
         Section("Active Agent") {
@@ -309,20 +418,20 @@ struct ContentView: View {
             if activeAgentID == "opencode" {
                 actionButton
             } else {
-                Text("This agent runs commands on demand — no persistent session to manage.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Image(systemName: "bolt.circle.fill")
+                        .foregroundStyle(.blue)
+                        .font(.caption)
+                    Text("Ready — type a command below to send")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
 
-    private var activeAgentID: String {
-        sessionAgentIDFromStatus
-    }
-
-    private var activeAgentName: String {
-        sessionAgentNameFromStatus
-    }
+    private var activeAgentID: String { sessionAgentIDFromStatus }
+    private var activeAgentName: String { sessionAgentNameFromStatus }
 
     private var actionButton: some View {
         Button {
@@ -369,6 +478,8 @@ struct ContentView: View {
         case .offline: return "Offline"
         }
     }
+
+    // MARK: - Result View
 
     @ViewBuilder
     private var resultView: some View {
@@ -468,20 +579,40 @@ struct ContentView: View {
 
     private func failureReasonLabel(_ reason: String) -> String {
         switch reason {
-        case "quota_exceeded":      return "Quota exceeded"
-        case "authentication_failed": return "Authentication failed"
-        case "rate_limited":        return "Rate limited"
-        case "network_error":       return "Network error"
-        case "model_unavailable":   return "Model unavailable"
-        case "provider_error":      return "Provider error"
-        case "timeout":             return "Timeout"
-        case "process_exited":      return "Process exited"
-        default:                    return reason
+        case "quota_exceeded":         return "Quota exceeded"
+        case "authentication_failed":  return "Authentication failed"
+        case "rate_limited":           return "Rate limited"
+        case "network_error":          return "Network error"
+        case "model_unavailable":      return "Model unavailable"
+        case "provider_error":         return "Provider error"
+        case "timeout":                return "Timeout"
+        case "process_exited":         return "Process exited"
+        default:                       return reason
         }
     }
 
+    // MARK: - State Reset
+
+    private func resetState() {
+        online = false
+        hostName = ""
+        sessionState = .offline
+        sessionID = ""
+        sessionAgentIDFromStatus = "opencode"
+        sessionAgentNameFromStatus = "OpenCode"
+        sessionMessage = ""
+        phase = .idle
+        agents = []
+    }
+
+    // MARK: - Networking
+
     private func refreshStatus() async {
-        guard let url = baseURL?.appendingPathComponent("api/status") else { return }
+        guard let url = baseURL?.appendingPathComponent("api/status") else {
+            online = false
+            hostName = ""
+            return
+        }
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             let decoded = try JSONDecoder().decode(StatusResponse.self, from: data)
@@ -498,6 +629,15 @@ struct ContentView: View {
             watchBridge.currentSessionState = serverStatus
             watchBridge.currentAgentName = sessionAgentNameFromStatus
             watchBridge.currentAgentMode = sessionAgentIDFromStatus == "opencode" ? "session" : "headless"
+            watchBridge.currentAgentID = sessionAgentIDFromStatus
+            if !agents.isEmpty {
+                watchBridge.knownAgents = agents.map { ["id": $0.id, "name": $0.name] }
+            }
+            // 同步设备列表到 Watch
+            watchBridge.knownDevices = deviceStore.devices.map { d in
+                ["id": d.id, "name": d.displayName, "os": d.osType.rawValue]
+            }
+            watchBridge.activeDeviceID = deviceStore.activeDeviceID
             watchBridge.pushStatus(online: online, sessionStateRaw: serverStatus)
         } catch {
             online = false
@@ -512,32 +652,8 @@ struct ContentView: View {
             watchBridge.currentSessionState = ""
             watchBridge.currentAgentName = "OpenCode"
             watchBridge.currentAgentMode = "session"
+            watchBridge.currentAgentID = "opencode"
             watchBridge.pushStatus(online: false, sessionStateRaw: "")
-        }
-    }
-
-    /// Bonjour 自动发现：扫描局域网上的 BrewPing Mac Agent，找到后自动填充地址。
-    private func discoverMac() async {
-        bonjour.startSearching()
-        // 等待搜索完成（最多 5 秒，由 BonjourDiscovery 内部计时器控制）
-        for _ in 0..<10 {
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            if !bonjour.discoveredHosts.isEmpty || !bonjour.isSearching { break }
-        }
-        if let host = bonjour.discoveredHosts.first {
-            let resolvedHost = host.name.components(separatedBy: ".").first ?? host.name
-            let resolved = resolvedHost + ".local"
-            macAddress = resolved
-            port = host.port > 0 ? String(host.port) : "8787"
-            // 验证连接
-            await refreshStatus()
-            if online {
-                discoveryMessage = "Found: \(host.name)"
-            } else {
-                discoveryMessage = "Found host but connection failed"
-            }
-        } else if !bonjour.isSearching {
-            discoveryMessage = "No BrewPing agent found on this network"
         }
     }
 
@@ -552,41 +668,30 @@ struct ContentView: View {
         }
     }
 
-    private func fullRefresh() async {
-        guard let url = baseURL else { return }
-        discoveryRunning = true
-        discoveryMessage = "Checking agents..."
-        // 1. 触发 Mac 端完整重新发现（force refresh，读取真实配置文件）
-        do {
-            var request = URLRequest(url: url.appendingPathComponent("api/discovery/refresh"))
-            request.httpMethod = "POST"
-            request.timeoutInterval = 30
-            let (data, _) = try await URLSession.shared.data(for: request)
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            let success = json?["success"] as? Bool ?? false
-            let status = json?["status"] as? String ?? ""
-            if success {
-                if let errors = json?["errors"] as? [String], !errors.isEmpty {
-                    discoveryMessage = "Updated (\(errors.count) warning)"
-                } else {
-                    discoveryMessage = "Updated"
-                }
-            } else {
-                discoveryMessage = "Discovery failed"
-            }
-        } catch {
-            discoveryMessage = "Check failed: \(error.localizedDescription)"
-        }
-        // 2. 拉取最新状态和 Agent 列表
-        await refreshStatus()
-        await refreshAgents()
-        discoveryRunning = false
-        // 5 秒后清除提示
+    private func setDefaultAgent(_ id: String) {
+        guard let url = baseURL?.appendingPathComponent("api/agents/default") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 15
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["agent": id])
         Task {
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
-            if !discoveryRunning { discoveryMessage = "" }
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if statusCode != 200 {
+                    let decoded = try? JSONDecoder().decode(LifecycleResponse.self, from: data)
+                    sessionMessage = decoded?.error ?? "Switch failed (HTTP \(statusCode))"
+                }
+            } catch {
+                sessionMessage = "Switch failed: \(error.localizedDescription)"
+            }
+            await refreshStatus()
+            await refreshAgents()
         }
     }
+
+    // MARK: - Session Lifecycle
 
     private func stopSession() {
         guard let url = baseURL?.appendingPathComponent("api/session/stop") else { return }
@@ -646,6 +751,8 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Send
+
     private func send() {
         guard let url = baseURL?.appendingPathComponent("api/message"),
               let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty,
@@ -663,13 +770,13 @@ struct ContentView: View {
 
     private func submitWatchCommand(_ text: String) {
         guard let url = baseURL?.appendingPathComponent("api/message") else {
-            phase = .failed("No Mac address configured on iPhone.")
-            watchBridge.sendCommandResult(status: "failed", text: "iPhone has no Mac address configured")
+            phase = .failed("No device configured.")
+            watchBridge.sendCommandResult(status: "failed", text: "No device configured")
             return
         }
         guard sessionState == .running else {
-            phase = .failed("OpenCode session is unavailable.")
-            watchBridge.sendCommandResult(status: "failed", text: "OpenCode session is unavailable")
+            phase = .failed("Session is unavailable.")
+            watchBridge.sendCommandResult(status: "failed", text: "Session is unavailable")
             return
         }
         pollTask?.cancel()
@@ -721,7 +828,7 @@ struct ContentView: View {
                 guard (response as? HTTPURLResponse)?.statusCode == 200 else {
                     consecutiveErrors += 1
                     if consecutiveErrors >= 10 {
-                        phase = .failed("Status poll failed (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)).")
+                        phase = .failed("Status poll failed.")
                         return
                     }
                     continue
@@ -767,7 +874,7 @@ struct ContentView: View {
             } catch {
                 consecutiveErrors += 1
                 if consecutiveErrors >= 10 {
-                    phase = .failed("Connection lost while polling: \(error.localizedDescription)")
+                    phase = .failed("Connection lost: \(error.localizedDescription)")
                     return
                 }
             }

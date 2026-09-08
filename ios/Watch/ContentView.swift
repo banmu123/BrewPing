@@ -16,6 +16,13 @@ struct ContentView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
+                // MARK: - 设备切换（可左右滑动）
+                if sessionManager.devices.count > 1 {
+                    deviceSwipeSection
+                } else if let device = sessionManager.devices.first {
+                    singleDeviceBanner(device)
+                }
+
                 // MARK: - Agent 切换区（可左右滑动）
                 agentSwipeSection
 
@@ -38,6 +45,64 @@ struct ContentView: View {
         .onAppear {
             sessionManager.activate()
         }
+    }
+
+    // MARK: - 设备滑动切换
+
+    private var deviceSwipeSection: some View {
+        VStack(spacing: 2) {
+            TabView(selection: $sessionManager.activeDeviceIndex) {
+                ForEach(Array(sessionManager.devices.enumerated()), id: \.element.id) { index, device in
+                    deviceCard(device)
+                        .tag(index)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .automatic))
+            .frame(height: 40)
+            .onChange(of: sessionManager.activeDeviceIndex) { newIndex in
+                sessionManager.switchToDevice(index: newIndex)
+            }
+
+            Text("← swipe device →")
+                .font(.system(size: 7))
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private func singleDeviceBanner(_ device: WatchDevice) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: device.icon)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            Text(device.name)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+    }
+
+    private func deviceCard(_ device: WatchDevice) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: device.icon)
+                .font(.system(size: 12))
+                .foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(device.name)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white)
+                Text(device.osLabel)
+                    .font(.system(size: 8))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.white.opacity(0.08))
+        )
     }
 
     // MARK: - Agent 滑动切换
