@@ -85,7 +85,8 @@ class DesktopApiClient {
                                 name = obj.optString("name", ""),
                                 installed = obj.optBoolean("installed", false),
                                 active = obj.optBoolean("active", false),
-                                executable = obj.optBoolean("executable", false),
+                                // executable can be bool or string path
+                                executable = parseExecutable(obj),
                                 version = obj.optString("version", ""),
                             )
                         )
@@ -233,11 +234,14 @@ class DesktopApiClient {
         return try {
             val response = client.newCall(request).execute()
             val code = response.code
-            Log.d(TAG, "[API] Response $code")
+            val body = response.body?.string()
+            Log.d(TAG, "[API] GET $url -> $code ${body?.take(200) ?: ""}")
             if (code == 200) {
-                val body = response.body?.string()
                 if (body != null) JSONObject(body) else null
-            } else null
+            } else {
+                Log.w(TAG, "[API] GET $url non-200: $code $body")
+                null
+            }
         } catch (e: Exception) {
             Log.w(TAG, "[API] GET failed: $url — ${e.message}")
             null
@@ -245,17 +249,20 @@ class DesktopApiClient {
     }
 
     private fun post(client: OkHttpClient, url: String, jsonBody: String): JSONObject? {
-        Log.d(TAG, "[API] POST $url")
+        Log.d(TAG, "[API] POST $url body=${jsonBody.take(100)}")
         val body = jsonBody.toRequestBody("application/json".toMediaType())
         val request = Request.Builder().url(url).post(body).build()
         return try {
             val response = client.newCall(request).execute()
             val code = response.code
-            Log.d(TAG, "[API] Response $code")
+            val responseBody = response.body?.string()
+            Log.d(TAG, "[API] POST $url -> $code ${responseBody?.take(200) ?: ""}")
             if (code == 200) {
-                val responseBody = response.body?.string()
                 if (responseBody != null) JSONObject(responseBody) else null
-            } else null
+            } else {
+                Log.w(TAG, "[API] POST $url non-200: $code $responseBody")
+                null
+            }
         } catch (e: Exception) {
             Log.w(TAG, "[API] POST failed: $url — ${e.message}")
             null
@@ -268,4 +275,14 @@ class DesktopApiClient {
         agentName = obj.optString("agentName", ""),
         status = obj.optString("status", ""),
     )
+
+    /** Parse executable field: can be bool (iOS/Mac) or string path (Win). */
+    private fun parseExecutable(obj: JSONObject): Boolean {
+        val value = obj.opt("executable") ?: return false
+        return when (value) {
+            is Boolean -> value
+            is String -> value.isNotEmpty()
+            else -> false
+        }
+    }
 }

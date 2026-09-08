@@ -5,12 +5,14 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::agent_discovery::AgentEntry;
+use super::agent_discovery::{AgentEntry, AgentEntryApi};
 use super::device_identity::DeviceIdentity;
+use super::terminal_state::{AgentStatus, OutputType, TerminalManager};
 
 /// Shared application state for the HTTP server.
 #[derive(Clone)]
@@ -21,6 +23,8 @@ pub struct AppState {
     pub agents: Arc<RwLock<Vec<AgentEntry>>>,
     pub default_agent: Arc<RwLock<String>>,
     pub session: Arc<RwLock<Option<SessionInfo>>>,
+    pub terminal: TerminalManager,
+    pub command_store: CommandStore,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -30,6 +34,83 @@ pub struct SessionInfo {
     #[serde(rename = "agentName")]
     pub agent_name: String,
     pub status: String,
+}
+
+// ─── Command Store (tracks in-flight command results) ────────────────────────
+
+#[derive(Clone)]
+pub struct CommandStore {
+    commands: Arc<RwLock<HashMap<String, CommandEntry>>>,
+}
+
+#[derive(Debug, Clone)]
+struct CommandEntry {
+    status: String,
+    response: Option<String>,
+    error: Option<String>,
+    failure_reason: Option<String>,
+    model_id: Option<String>,
+    duration: Option<f64>,
+}
+
+impl CommandStore {
+    pub fn new() -> Self {
+        Self {
+            commands: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    async fn insert_pending(&self, command_id: &str) {
+        let mut map = self.commands.write().await;
+        map.insert(
+            command_id.to_string(),
+            CommandEntry {
+                status: "queued".to_string(),
+                response: None,
+                error: None,
+                failure_reason: None,
+                model_id: None,
+                duration: None,
+            },
+        );
+    }
+
+    async fn set_working(&self, command_id: &str) {
+        let mut map = self.commands.write().await;
+        if let Some(entry) = map.get_mut(command_id) {
+            entry.status = "working".to_string();
+        }
+    }
+
+    async fn set_completed(&self, command_id: &str, response: String, duration: Option<f64>) {
+        let mut map = self.commands.write().await;
+        if let Some(entry) = map.get_mut(command_id) {
+            entry.status = "completed".to_string();
+            entry.response = Some(response);
+            entry.duration = duration;
+        }
+    }
+
+    async fn set_failed(
+        &self,
+        command_id: &str,
+        error: String,
+        failure_reason: Option<String>,
+        duration: Option<f64>,
+    ) {
+        let mut map = self.commands.write().await;
+        if let Some(entry) = map.get_mut(command_id) {
+            entry.status = "failed".to_string();
+            entry.error = Some(error);
+            entry.failure_reason = failure_reason;
+            entry.duration = duration;
+        }
+    }
+
+    async fn get(&self, command_id: &str) -> Option<CommandEntry> {
+        let map = self.commands.read().await;
+        map.get(command_id).cloned()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,7 +136,7 @@ struct StatusResponse {
 
 #[derive(Serialize)]
 struct AgentsResponse {
-    agents: Vec<AgentEntry>,
+    agents: Vec<AgentEntryApi>,
     #[serde(rename = "defaultAgent")]
     default_agent: String,
 }
@@ -74,6 +155,8 @@ struct SuccessResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "commandId")]
     command_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 /// Build the axum router with all API routes.
@@ -104,7 +187,6 @@ pub async fn start_server(
     ];
 
     for port in &ports_to_try {
-        // Always bind to all interfaces so the API is accessible from localhost and LAN
         let addr: SocketAddr = format!("0.0.0.0:{}", port).parse().unwrap();
         let router = build_router(state.clone());
         let listener = match tokio::net::TcpListener::bind(&addr).await {
@@ -150,8 +232,19 @@ async fn handle_agents(
 ) -> Json<AgentsResponse> {
     let agents = state.agents.read().await.clone();
     let default_agent = state.default_agent.read().await.clone();
+
+    // Convert to API format with correct active flag
+    let api_agents: Vec<AgentEntryApi> = agents
+        .iter()
+        .map(|a| {
+            let mut api = AgentEntryApi::from(a);
+            api.active = api.installed && a.id == default_agent;
+            api
+        })
+        .collect();
+
     Json(AgentsResponse {
-        agents,
+        agents: api_agents,
         default_agent,
     })
 }
@@ -160,6 +253,15 @@ async fn handle_set_default_agent(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(body): Json<SetAgentBody>,
 ) -> Json<SuccessResponse> {
+    // Stop existing session when switching agent
+    {
+        let mut session = state.session.write().await;
+        if session.is_some() {
+            log::info!("Stopping session due to agent switch");
+            *session = None;
+        }
+    }
+
     let mut default = state.default_agent.write().await;
     *default = body.agent.clone();
     log::info!("Default agent set to: {}", body.agent);
@@ -167,8 +269,9 @@ async fn handle_set_default_agent(
         success: true,
         default_agent: Some(body.agent),
         session_id: None,
-        status: None,
+        status: Some("stopped".to_string()),
         command_id: None,
+        error: None,
     })
 }
 
@@ -200,6 +303,7 @@ async fn handle_start_session(
         session_id: Some(session_id),
         status: Some("running".to_string()),
         command_id: None,
+        error: None,
     })
 }
 
@@ -217,9 +321,11 @@ async fn handle_stop_session(
         session_id: sid,
         status: Some("stopped".to_string()),
         command_id: None,
+        error: None,
     })
 }
 
+/// POST /api/message — submit a command and execute it via TerminalManager.
 async fn handle_send_message(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(body): Json<MessageBody>,
@@ -229,18 +335,216 @@ async fn handle_send_message(
         return Err(StatusCode::BAD_REQUEST);
     }
     let sid = session.as_ref().unwrap().id.clone();
+    let agent_id = session.as_ref().unwrap().agent.clone();
     drop(session);
 
     let command_id = format!("cmd_{}", &uuid::Uuid::new_v4().to_string()[..8]);
     log::info!(
-        "Message received: '{}' -> {} (command: {})",
+        "Message received: '{}' -> {} (command: {}, agent: {})",
         body.text,
         sid,
-        command_id
+        command_id,
+        agent_id
     );
 
-    // TODO: Route to actual agent process
-    // For now, return the command ID immediately (protocol-compatible)
+    // Register command as pending
+    state.command_store.insert_pending(&command_id).await;
+
+    // Show user input in terminal
+    {
+        let mut map = state.terminal.agents.write().await;
+        if let Some(term) = map.get_mut(&agent_id) {
+            term.append_line(&format!("> {}", body.text), OutputType::System);
+        }
+    }
+
+    // Spawn async execution
+    let terminal = state.terminal.clone();
+    let command_store = state.command_store.clone();
+    let agents = state.agents.read().await.clone();
+    let text = body.text.clone();
+    let cmd_id = command_id.clone();
+    let aid = agent_id.clone();
+
+    tokio::spawn(async move {
+        command_store.set_working(&cmd_id).await;
+
+        let start = std::time::Instant::now();
+
+        if aid == "opencode" {
+            // Session agent: simulate processing
+            let agent_name = agents
+                .iter()
+                .find(|a| a.id == aid)
+                .map(|a| a.name.clone())
+                .unwrap_or_else(|| "OpenCode".to_string());
+
+            {
+                let mut map = terminal.agents.write().await;
+                if let Some(term) = map.get_mut(&aid) {
+                    term.append_line(
+                        &format!("Message sent to {}", agent_name),
+                        OutputType::System,
+                    );
+                }
+            }
+            command_store
+                .set_completed(&cmd_id, format!("Command received by {}", agent_name), None)
+                .await;
+        } else {
+            // CLI agent: spawn process
+            let agent_entry = agents.iter().find(|a| a.id == aid).cloned();
+            let Some(agent) = agent_entry else {
+                let err = format!("Agent '{}' not available", aid);
+                {
+                    let mut map = terminal.agents.write().await;
+                    if let Some(term) = map.get_mut(&aid) {
+                        term.append_line(&format!("Error: {}", err), OutputType::Error);
+                        term.set_status(AgentStatus::Idle);
+                    }
+                }
+                command_store.set_failed(&cmd_id, err, None, None).await;
+                return;
+            };
+
+            let Some(ref executable) = agent.executable else {
+                let err = format!("Executable not found for {}", aid);
+                {
+                    let mut map = terminal.agents.write().await;
+                    if let Some(term) = map.get_mut(&aid) {
+                        term.append_line(&format!("Error: {}", err), OutputType::Error);
+                        term.set_status(AgentStatus::Error);
+                    }
+                }
+                command_store
+                    .set_failed(&cmd_id, err, Some("process_exited".to_string()), None)
+                    .await;
+                return;
+            };
+
+            // Set running
+            {
+                let mut map = terminal.agents.write().await;
+                if let Some(term) = map.get_mut(&aid) {
+                    term.set_status(AgentStatus::Running);
+                }
+            }
+
+            let exec_clone = executable.clone();
+            let text_clone = text.clone();
+            let aid_clone = aid.clone();
+            let terminal_clone = terminal.clone();
+            let cmd_clone = cmd_id.clone();
+            let store_clone = command_store.clone();
+
+            let result = tokio::task::spawn_blocking(move || {
+                let mut cmd = std::process::Command::new(&exec_clone);
+                cmd.arg(&text_clone)
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped());
+
+                #[cfg(windows)]
+                {
+                    if let Ok(path) = std::env::var("PATH") {
+                        let home = dirs::home_dir().unwrap_or_default();
+                        let extra = format!(
+                            "{}\\.local\\bin;{}\\scoop\\shims",
+                            home.display(),
+                            home.display()
+                        );
+                        cmd.env("PATH", format!("{};{}", extra, path));
+                    }
+                }
+
+                cmd.output()
+            })
+            .await;
+
+            let elapsed = start.elapsed().as_secs_f64();
+
+            match result {
+                Ok(Ok(output)) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let mut response_text = String::new();
+
+                    {
+                        let mut map = terminal_clone.agents.write().await;
+                        if let Some(term) = map.get_mut(&aid_clone) {
+                            if output.status.success() {
+                                for line in stdout.split('\n') {
+                                    if !line.is_empty() {
+                                        term.append_line(line, OutputType::Normal);
+                                        response_text.push_str(line);
+                                        response_text.push('\n');
+                                    }
+                                }
+                                if stdout.trim().is_empty() {
+                                    term.append_line("(no output)", OutputType::System);
+                                    response_text = "(no output)".to_string();
+                                }
+                            } else {
+                                let err_line = format!(
+                                    "Exit code: {}",
+                                    output.status.code().unwrap_or(-1)
+                                );
+                                term.append_line(&err_line, OutputType::Error);
+                                if !stderr.trim().is_empty() {
+                                    term.append_line(stderr.trim(), OutputType::Error);
+                                }
+                                store_clone
+                                    .set_failed(
+                                        &cmd_clone,
+                                        format!("{}\n{}", err_line, stderr.trim()),
+                                        Some("process_exited".to_string()),
+                                        Some(elapsed),
+                                    )
+                                    .await;
+                                term.set_status(AgentStatus::Idle);
+                                return;
+                            }
+                            term.set_status(AgentStatus::Idle);
+                        }
+                    }
+
+                    store_clone
+                        .set_completed(&cmd_clone, response_text.trim().to_string(), Some(elapsed))
+                        .await;
+                }
+                Ok(Err(e)) => {
+                    let err = format!("Failed to start process: {}", e);
+                    {
+                        let mut map = terminal_clone.agents.write().await;
+                        if let Some(term) = map.get_mut(&aid_clone) {
+                            term.append_line(&format!("Error: {}", err), OutputType::Error);
+                            term.set_status(AgentStatus::Error);
+                        }
+                    }
+                    store_clone
+                        .set_failed(
+                            &cmd_clone,
+                            err,
+                            Some("process_exited".to_string()),
+                            Some(elapsed),
+                        )
+                        .await;
+                }
+                Err(e) => {
+                    let err = format!("Task join error: {}", e);
+                    {
+                        let mut map = terminal_clone.agents.write().await;
+                        if let Some(term) = map.get_mut(&aid_clone) {
+                            term.append_line(&format!("Error: {}", err), OutputType::Error);
+                            term.set_status(AgentStatus::Error);
+                        }
+                    }
+                    store_clone
+                        .set_failed(&cmd_clone, err, None, Some(elapsed))
+                        .await;
+                }
+            }
+        }
+    });
 
     Ok(Json(SuccessResponse {
         success: true,
@@ -248,6 +552,7 @@ async fn handle_send_message(
         session_id: Some(sid),
         status: Some("queued".to_string()),
         command_id: Some(command_id),
+        error: None,
     }))
 }
 
@@ -274,36 +579,61 @@ struct CommandStatusResponse {
     duration: Option<f64>,
 }
 
+/// GET /api/message/{id} — poll command status from CommandStore.
 async fn handle_get_message(
     Path(id): Path<String>,
-    axum::extract::State(_state): axum::extract::State<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Json<CommandStatusResponse> {
-    // TODO: Look up actual command status from CommandStore
-    Json(CommandStatusResponse {
-        command_id: id,
-        session_id: "unknown".to_string(),
-        status: "queued".to_string(),
-        response: None,
-        raw_output: None,
-        error: None,
-        failure_reason: None,
-        model_id: None,
-        duration: None,
-    })
+    let entry = state.command_store.get(&id).await;
+
+    match entry {
+        Some(e) => Json(CommandStatusResponse {
+            command_id: id.clone(),
+            session_id: "unknown".to_string(),
+            status: e.status,
+            response: e.response,
+            raw_output: None,
+            error: e.error,
+            failure_reason: e.failure_reason,
+            model_id: e.model_id,
+            duration: e.duration,
+        }),
+        None => Json(CommandStatusResponse {
+            command_id: id,
+            session_id: "unknown".to_string(),
+            status: "failed".to_string(),
+            response: None,
+            raw_output: None,
+            error: Some("Command not found".to_string()),
+            failure_reason: None,
+            model_id: None,
+            duration: None,
+        }),
+    }
 }
 
 async fn handle_discovery_refresh(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Json<AgentsResponse> {
-    // Force re-discovery
     let new_agents = super::agent_discovery::discover();
-    let mut agents = state.agents.write().await;
-    *agents = new_agents.clone();
+    {
+        let mut agents = state.agents.write().await;
+        *agents = new_agents.clone();
+    }
     let default_agent = state.default_agent.read().await.clone();
+
+    let api_agents: Vec<AgentEntryApi> = new_agents
+        .iter()
+        .map(|a| {
+            let mut api = AgentEntryApi::from(a);
+            api.active = api.installed && a.id == default_agent;
+            api
+        })
+        .collect();
 
     log::info!("Agent discovery refreshed: {} agents", new_agents.len());
     Json(AgentsResponse {
-        agents: new_agents,
+        agents: api_agents,
         default_agent,
     })
 }

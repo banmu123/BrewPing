@@ -11,7 +11,8 @@ pub struct AgentDefinition {
 }
 
 /// Discovered agent with runtime information.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Internal representation keeps the executable path for terminal execution.
+#[derive(Debug, Clone)]
 pub struct AgentEntry {
     pub id: String,
     pub name: String,
@@ -19,6 +20,30 @@ pub struct AgentEntry {
     pub active: bool,
     pub executable: Option<String>,
     pub version: Option<String>,
+}
+
+/// Serializable version for API responses (matches macOS/iOS AgentEntry schema).
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentEntryApi {
+    pub id: String,
+    pub name: String,
+    pub installed: bool,
+    pub active: bool,
+    pub executable: bool,
+    pub version: Option<String>,
+}
+
+impl From<&AgentEntry> for AgentEntryApi {
+    fn from(entry: &AgentEntry) -> Self {
+        Self {
+            id: entry.id.clone(),
+            name: entry.name.clone(),
+            installed: entry.installed,
+            active: entry.active,
+            executable: entry.installed,
+            version: entry.version.clone(),
+        }
+    }
 }
 
 /// Static agent catalog matching macOS Desktop.

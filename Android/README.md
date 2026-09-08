@@ -18,7 +18,7 @@ DiscoveryManager (NSD/mDNS)  ←→  DesktopApiClient (OkHttp)
 
 ```
 com.brewping.android/
-├── model/          — Device, AgentInfo, DesktopStatus
+├── model/          — Device, AgentEntry, DesktopStatus, CommandPhase, SessionState
 ├── discovery/      — DesktopDiscoveryManager (NSD)
 ├── api/            — DesktopApiClient (OkHttp HTTP)
 ├── repository/     — DesktopRepository (coordinates discovery + API)

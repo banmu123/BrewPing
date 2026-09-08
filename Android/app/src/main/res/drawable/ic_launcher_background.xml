@@ -4,8 +4,8 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Background circle -->
+    <!-- Background: warm beige from logo (#F0E1D2) -->
     <path
-        android:fillColor="#2563EB"
-        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
+        android:fillColor="#F0E1D2"
+        android:pathData="M0,0h108v108H0z" />
 </vector>

@@ -167,6 +167,9 @@ class DesktopRepository(
         } else {
             _online.value = false
             _connectionState.value = ConnectionState.Disconnected
+            if (!_lifecycleBusy.value) {
+                _sessionBrief.value = null
+            }
         }
     }
 
@@ -316,6 +319,23 @@ class DesktopRepository(
         apiClient.refreshDiscovery(device)
         refreshStatus(device)
         refreshAgents(device)
+    }
+
+    // ─── Reset all state (called on device switch) ───────────────────────────
+
+    fun resetAllState() {
+        _online.value = false
+        _hostName.value = ""
+        _agents.value = emptyList()
+        _sessionState.value = SessionState.Offline
+        _sessionBrief.value = null
+        _sessionMessage.value = ""
+        _lifecycleBusy.value = false
+        _commandPhase.value = CommandPhase.Idle
+        _connectionState.value = ConnectionState.Idle
+        pollJob?.cancel()
+        statusPollJob?.cancel()
+        commandPollJob?.cancel()
     }
 }
 

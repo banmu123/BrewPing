@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { DesktopStatus, AgentEntry } from "./types";
+import type {
+  DesktopStatus,
+  AgentEntry,
+  AgentTerminalState,
+} from "./types";
 
 /**
  * Fetch the full desktop status from the Rust backend.
@@ -34,4 +38,41 @@ export async function getLanIp(): Promise<string> {
  */
 export async function getPort(): Promise<number> {
   return invoke<number>("get_port");
+}
+
+// ─── Terminal commands ───────────────────────────────────────────────────────
+
+/**
+ * Get the terminal state for all agents.
+ */
+export async function getTerminalState(): Promise<AgentTerminalState[]> {
+  return invoke<AgentTerminalState[]>("get_terminal_state");
+}
+
+/**
+ * Get the currently active agent ID.
+ */
+export async function getActiveAgentId(): Promise<string> {
+  return invoke<string>("get_active_agent_id");
+}
+
+/**
+ * Switch the active terminal agent.
+ */
+export async function switchActiveAgent(agentId: string): Promise<void> {
+  return invoke<void>("switch_active_agent", { agentId });
+}
+
+/**
+ * Send a command to the active agent.
+ */
+export async function sendCommand(text: string): Promise<void> {
+  return invoke<void>("send_command", { text });
+}
+
+/**
+ * Clear the terminal output for an agent.
+ */
+export async function clearTerminal(agentId: string): Promise<void> {
+  return invoke<void>("clear_terminal", { agentId });
 }

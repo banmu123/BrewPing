@@ -4,10 +4,14 @@ import com.brewping.android.model.AgentEntry
 import com.brewping.android.model.CommandPhase
 import com.brewping.android.model.DesktopDevice
 import com.brewping.android.model.DesktopStatus
+import com.brewping.android.model.DeviceOSType
+import com.brewping.android.model.ManagedDevice
 import com.brewping.android.model.SessionState
 import com.brewping.android.repository.ConnectionState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -101,6 +105,51 @@ class HomeUiStateTest {
         assertEquals(2, device.agents.size)
         assertTrue(device.agents[0].active)
         assertFalse(device.agents[1].active)
+    }
+
+    // ─── ManagedDevice tests (matches iOS ManagedDevice) ─────────────────────
+
+    @Test
+    fun `managed device creates with correct defaults`() {
+        val device = ManagedDevice.new(name = "Chenzk", host = "192.168.1.10", port = "8787")
+        assertEquals("Chenzk", device.name)
+        assertEquals("192.168.1.10", device.host)
+        assertEquals("8787", device.port)
+        assertEquals(DeviceOSType.Mac, device.osType)
+        assertEquals(8, device.id.length)
+    }
+
+    @Test
+    fun `managed device displayName includes os label`() {
+        val mac = ManagedDevice.new(name = "Pro", host = "10.0.0.1", osType = DeviceOSType.Mac)
+        assertEquals("Mac Pro", mac.displayName)
+
+        val win = ManagedDevice.new(name = "PC", host = "10.0.0.2", osType = DeviceOSType.Windows)
+        assertEquals("Win PC", win.displayName)
+
+        val linux = ManagedDevice.new(name = "Server", host = "10.0.0.3", osType = DeviceOSType.Linux)
+        assertEquals("Linux Server", linux.displayName)
+    }
+
+    @Test
+    fun `managed device baseUrl returns correct URL`() {
+        val device = ManagedDevice.new(host = "192.168.1.10", port = "9090")
+        assertEquals("http://192.168.1.10:9090", device.baseUrl())
+    }
+
+    @Test
+    fun `managed device baseUrl returns null for empty host`() {
+        val device = ManagedDevice.new(host = "", port = "8787")
+        assertNull(device.baseUrl())
+    }
+
+    @Test
+    fun `device os type from raw`() {
+        assertEquals(DeviceOSType.Mac, DeviceOSType.fromRaw("mac"))
+        assertEquals(DeviceOSType.Mac, DeviceOSType.fromRaw("macOS"))
+        assertEquals(DeviceOSType.Windows, DeviceOSType.fromRaw("windows"))
+        assertEquals(DeviceOSType.Linux, DeviceOSType.fromRaw("linux"))
+        assertEquals(DeviceOSType.Mac, DeviceOSType.fromRaw("unknown"))
     }
 
     private fun createTestDevice() = DesktopDevice(

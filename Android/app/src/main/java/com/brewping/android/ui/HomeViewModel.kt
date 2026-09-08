@@ -1,16 +1,19 @@
 package com.brewping.android.ui
 
-import android.content.Context
-import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.brewping.android.CommandReceiver
 import com.brewping.android.model.AgentEntry
 import com.brewping.android.model.CommandPhase
 import com.brewping.android.model.DesktopDevice
+import com.brewping.android.model.ManagedDevice
 import com.brewping.android.model.SessionState
 import com.brewping.android.repository.ConnectionState
 import com.brewping.android.repository.DesktopRepository
+import com.brewping.android.store.DeviceStore
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,19 +21,21 @@ import kotlinx.coroutines.launch
 
 class HomeViewModel(
     private val repository: DesktopRepository,
-    prefs: SharedPreferences,
+    private val deviceStore: DeviceStore,
+    private val commandReceiver: CommandReceiver,
 ) : ViewModel() {
 
-    // ─── Persisted fields (matches iOS @AppStorage) ───────────────────────────
+    // ─── Device store ─────────────────────────────────────────────────────────
 
-    private val _macAddress = MutableStateFlow(prefs.getString(KEY_MAC, "") ?: "")
-    val macAddress: StateFlow<String> = _macAddress.asStateFlow()
+    val devices: StateFlow<List<ManagedDevice>> = deviceStore.devices
+    val activeDeviceID: StateFlow<String> = deviceStore.activeDeviceID
 
-    private val _port = MutableStateFlow(prefs.getString(KEY_PORT, "8787") ?: "8787")
-    val port: StateFlow<String> = _port.asStateFlow()
+    // ─── Message ──────────────────────────────────────────────────────────────
 
     private val _messageText = MutableStateFlow("")
     val messageText: StateFlow<String> = _messageText.asStateFlow()
+
+    // ─── Discovery ────────────────────────────────────────────────────────────
 
     private val _discoveryMessage = MutableStateFlow("")
     val discoveryMessage: StateFlow<String> = _discoveryMessage.asStateFlow()
@@ -38,7 +43,16 @@ class HomeViewModel(
     private val _discoveryRunning = MutableStateFlow(false)
     val discoveryRunning: StateFlow<Boolean> = _discoveryRunning.asStateFlow()
 
-    private val prefs: SharedPreferences = prefs
+    // ─── Session detail (from /api/status, matches iOS) ─────────────────────────
+
+    private val _sessionID = MutableStateFlow("")
+    val sessionID: StateFlow<String> = _sessionID.asStateFlow()
+
+    private val _sessionAgentID = MutableStateFlow("opencode")
+    val sessionAgentID: StateFlow<String> = _sessionAgentID.asStateFlow()
+
+    private val _sessionAgentName = MutableStateFlow("OpenCode")
+    val sessionAgentName: StateFlow<String> = _sessionAgentName.asStateFlow()
 
     // ─── Delegated from Repository ────────────────────────────────────────────
 
@@ -52,96 +66,103 @@ class HomeViewModel(
     val lifecycleBusy: StateFlow<Boolean> = repository.lifecycleBusy
     val commandPhase: StateFlow<CommandPhase> = repository.commandPhase
 
+    private var statusPollJob: Job? = null
+
     init {
-        // Observe discovered devices and auto-configure
+        // Observe active device changes and re-connect
         viewModelScope.launch {
-            repository.activeDevice.collect { device ->
-                if (device != null && _macAddress.value.isEmpty()) {
-                    _macAddress.value = device.ip
-                    _port.value = device.port.toString()
-                    savePrefs()
+            deviceStore.activeDeviceID.collect { id ->
+                resetState()
+                val device = deviceStore.activeDevice
+                if (device != null) {
+                    connectToDevice(device)
                 }
             }
         }
 
-        // Start discovery
-        repository.start()
-        repository.startDiscovery()
+        // Observe status response to update session detail (matches iOS refreshStatus)
+        viewModelScope.launch {
+            repository.sessionBrief.collect { brief ->
+                if (brief != null) {
+                    _sessionID.value = brief.id
+                    _sessionAgentID.value = brief.agent.ifEmpty { "opencode" }
+                    _sessionAgentName.value = brief.agentName.ifEmpty { "OpenCode" }
+                } else {
+                    // Session ended (agent switch or stop) — reset session detail
+                    _sessionID.value = ""
+                    _sessionAgentID.value = "opencode"
+                    _sessionAgentName.value = "OpenCode"
+                }
+            }
+        }
+    }
+
+    // ─── Device management ────────────────────────────────────────────────────
+
+    fun setActiveDevice(id: String) {
+        deviceStore.setActive(id)
+    }
+
+    fun addDevice(device: ManagedDevice) {
+        deviceStore.addDevice(device)
+        // Auto-select the newly added device
+        deviceStore.setActive(device.id)
+    }
+
+    fun updateDevice(device: ManagedDevice) {
+        deviceStore.updateDevice(device)
+    }
+
+    fun removeDevice(id: String) {
+        deviceStore.removeDevice(id)
     }
 
     // ─── User actions ─────────────────────────────────────────────────────────
-
-    fun updateMacAddress(value: String) {
-        _macAddress.value = value
-        savePrefs()
-    }
-
-    fun updatePort(value: String) {
-        _port.value = value
-        savePrefs()
-    }
 
     fun updateMessageText(value: String) {
         _messageText.value = value
     }
 
-    /** "Auto" button — trigger Bonjour discovery */
-    fun autoDiscover() {
+    /** "Auto" button — trigger Bonjour discovery for add/edit device sheet */
+    fun autoDiscoverForSheet(onResult: (host: String, port: String, name: String, message: String) -> Unit) {
         _discoveryRunning.value = true
-        _discoveryMessage.value = ""
 
         viewModelScope.launch {
             repository.stopDiscovery()
             repository.startDiscovery()
 
-            // Wait up to 5 seconds for a result (matches iOS timing)
             var attempts = 0
             while (attempts < 10) {
-                kotlinx.coroutines.delay(500)
+                delay(500)
                 val device = repository.activeDevice.value
                 if (device != null) {
-                    _macAddress.value = device.ip
-                    _port.value = device.port.toString()
-                    savePrefs()
-                    _discoveryMessage.value = "Found: ${device.name}"
+                    val resolved = device.name
                     _discoveryRunning.value = false
-                    checkConnection()
+                    onResult(
+                        if (resolved.endsWith(".local")) resolved else "$resolved.local",
+                        device.port.toString(),
+                        resolved,
+                        "Found: ${device.name}",
+                    )
                     return@launch
                 }
                 attempts++
             }
 
-            _discoveryMessage.value = "No BrewPing agent found on this network"
             _discoveryRunning.value = false
+            onResult("", "", "", "No BrewPing agent found")
         }
     }
 
-    /** "Check" button — refresh status and agents */
+    /** "Check" button — connect to the current active device */
     fun checkConnection() {
-        val ip = _macAddress.value.trim()
-        val portNum = _port.value.trim().toIntOrNull() ?: 8787
-        if (ip.isEmpty()) return
-
-        val device = DesktopDevice(
-            id = "manual",
-            name = ip,
-            host = "$ip.local",
-            ip = ip,
-            port = portNum,
-        )
-
-        viewModelScope.launch {
-            repository.refreshStatus(device)
-            if (repository.online.value) {
-                repository.startStatusPolling(device)
-                repository.refreshAgents(device)
-            }
-        }
+        val device = deviceStore.activeDevice ?: return
+        connectToDevice(device)
     }
 
     /** "Set Default" agent */
     fun setDefaultAgent(agentId: String) {
-        val device = currentDevice() ?: return
+        val device = currentDesktopDevice() ?: return
         viewModelScope.launch {
             repository.setDefaultAgent(device, agentId)
         }
@@ -149,7 +170,7 @@ class HomeViewModel(
 
     /** Start session */
     fun startSession() {
-        val device = currentDevice() ?: return
+        val device = currentDesktopDevice() ?: return
         viewModelScope.launch {
             repository.startSession(device)
         }
@@ -157,7 +178,7 @@ class HomeViewModel(
 
     /** Stop session */
     fun stopSession() {
-        val device = currentDevice() ?: return
+        val device = currentDesktopDevice() ?: return
         viewModelScope.launch {
             repository.stopSession(device)
         }
@@ -165,7 +186,7 @@ class HomeViewModel(
 
     /** Send message */
     fun sendMessage() {
-        val device = currentDevice() ?: return
+        val device = currentDesktopDevice() ?: return
         val text = _messageText.value.trim()
         if (text.isEmpty()) return
         _messageText.value = ""
@@ -177,7 +198,7 @@ class HomeViewModel(
 
     /** Force server-side agent re-scan */
     fun refreshDiscovery() {
-        val device = currentDevice() ?: return
+        val device = currentDesktopDevice() ?: return
         _discoveryRunning.value = true
         viewModelScope.launch {
             repository.refreshDiscovery(device)
@@ -185,24 +206,52 @@ class HomeViewModel(
         }
     }
 
-    private fun currentDevice(): DesktopDevice? {
-        val ip = _macAddress.value.trim()
+    // ─── Internal ─────────────────────────────────────────────────────────────
+
+    private fun connectToDevice(device: ManagedDevice) {
+        val ip = device.host.trim()
+        val portNum = device.port.trim().toIntOrNull() ?: 8787
+        if (ip.isEmpty()) return
+
+        val desktopDevice = DesktopDevice(
+            id = device.id,
+            name = device.name,
+            host = ip,
+            ip = ip,
+            port = portNum,
+        )
+
+        statusPollJob?.cancel()
+        viewModelScope.launch {
+            repository.refreshStatus(desktopDevice)
+            if (repository.online.value) {
+                repository.startStatusPolling(desktopDevice)
+                repository.refreshAgents(desktopDevice)
+            }
+        }
+    }
+
+    private fun currentDesktopDevice(): DesktopDevice? {
+        val device = deviceStore.activeDevice ?: return null
+        val ip = device.host.trim()
         if (ip.isEmpty()) return null
-        val portNum = _port.value.trim().toIntOrNull() ?: 8787
+        val portNum = device.port.trim().toIntOrNull() ?: 8787
         return DesktopDevice(
-            id = "manual",
-            name = ip,
-            host = "$ip.local",
+            id = device.id,
+            name = device.name,
+            host = ip,
             ip = ip,
             port = portNum,
         )
     }
 
-    private fun savePrefs() {
-        prefs.edit()
-            .putString(KEY_MAC, _macAddress.value)
-            .putString(KEY_PORT, _port.value)
-            .apply()
+    private fun resetState() {
+        _messageText.value = ""
+        _discoveryMessage.value = ""
+        _sessionID.value = ""
+        _sessionAgentID.value = "opencode"
+        _sessionAgentName.value = "OpenCode"
+        repository.resetAllState()
     }
 
     override fun onCleared() {
@@ -210,19 +259,14 @@ class HomeViewModel(
         repository.stop()
     }
 
-    companion object {
-        private const val KEY_MAC = "brewping.macAddress"
-        private const val KEY_PORT = "brewping.port"
-    }
-
     class Factory(
         private val repository: DesktopRepository,
-        private val context: Context,
+        private val deviceStore: DeviceStore,
+        private val commandReceiver: CommandReceiver,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            val prefs = context.getSharedPreferences("brewping_prefs", Context.MODE_PRIVATE)
-            return HomeViewModel(repository, prefs) as T
+            return HomeViewModel(repository, deviceStore, commandReceiver) as T
         }
     }
 }

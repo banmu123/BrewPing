@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItem, MenuItemBuilder},
-    tray::{TrayIconBuilder, TrayIconEvent},
+    tray::TrayIconBuilder,
     AppHandle, Emitter, Manager,
 };
 
@@ -10,6 +10,8 @@ use tauri::{
 pub struct TrayHandles {
     pub status_item: Arc<MenuItem<tauri::Wry>>,
     pub port_item: Arc<MenuItem<tauri::Wry>>,
+    pub device_item: Arc<MenuItem<tauri::Wry>>,
+    pub ip_item: Arc<MenuItem<tauri::Wry>>,
 }
 
 /// Generate a 32x32 RGBA coffee cup icon.
@@ -61,6 +63,14 @@ pub fn setup_system_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Erro
         .enabled(false)
         .build(app)?;
 
+    let device_item = MenuItemBuilder::with_id("device_info", "设备：-")
+        .enabled(false)
+        .build(app)?;
+
+    let ip_item = MenuItemBuilder::with_id("ip_info", "IP：-")
+        .enabled(false)
+        .build(app)?;
+
     let port_item = MenuItemBuilder::with_id("port_info", "端口：-")
         .enabled(false)
         .build(app)?;
@@ -73,6 +83,8 @@ pub fn setup_system_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Erro
 
     let menu = MenuBuilder::new(app)
         .item(&status_item)
+        .item(&device_item)
+        .item(&ip_item)
         .item(&port_item)
         .item(&separator1)
         .item(&show_item)
@@ -104,28 +116,29 @@ pub fn setup_system_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Erro
             }
             _ => {}
         })
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { .. } = event {
-                let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
-        })
+        // NOTE: 不注册 on_tray_icon_event，避免右键点击抢焦点导致菜单闪退
+        // "显示主窗口" 菜单项已提供该功能
         .build(app)?;
 
     // Store handles for later updates
     app.manage(TrayHandles {
         status_item: Arc::new(status_item),
         port_item: Arc::new(port_item),
+        device_item: Arc::new(device_item),
+        ip_item: Arc::new(ip_item),
     });
 
     Ok(())
 }
 
 /// Update tray menu status text.
-pub fn update_tray_status(app: &AppHandle, status: &str, port: u16) {
+pub fn update_tray_status(
+    app: &AppHandle,
+    status: &str,
+    port: u16,
+    device_name: &str,
+    ip: &str,
+) {
     if let Some(handles) = app.try_state::<TrayHandles>() {
         let _ = handles
             .status_item
@@ -133,5 +146,11 @@ pub fn update_tray_status(app: &AppHandle, status: &str, port: u16) {
         let _ = handles
             .port_item
             .set_text(format!("端口：{}", port));
+        let _ = handles
+            .device_item
+            .set_text(format!("设备：{}", device_name));
+        let _ = handles
+            .ip_item
+            .set_text(format!("IP：{}", ip));
     }
 }

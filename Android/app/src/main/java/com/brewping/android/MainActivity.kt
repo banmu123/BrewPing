@@ -20,7 +20,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             BrewPingTheme {
                 val viewModel: HomeViewModel = viewModel(
-                    factory = HomeViewModel.Factory(app.repository, this)
+                    factory = HomeViewModel.Factory(
+                        app.repository,
+                        app.deviceStore,
+                        CommandReceiver(),
+                    )
                 )
                 HomeScreen(viewModel = viewModel)
             }
