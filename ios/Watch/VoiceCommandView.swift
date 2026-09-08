@@ -200,21 +200,33 @@ struct VoiceCommandView: View {
             }
             .frame(height: 18)
 
-            // 录音时长提示
-            Text("Speak your command — auto-stops when you're quiet")
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+            // 两个按钮：完成 + 取消
+            HStack(spacing: 12) {
+                Button {
+                    audioRecorder.stopRecording()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 14))
+                        Text("Done")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 5)
+                    .background(Color.green.opacity(0.25))
+                    .cornerRadius(6)
+                }
+                .buttonStyle(.plain)
 
-            // 停止按钮
-            Button {
-                audioRecorder.cancelRecording()
-            } label: {
-                Image(systemName: "stop.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(.red)
+                Button {
+                    audioRecorder.cancelRecording()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
     }
 
@@ -243,15 +255,20 @@ struct VoiceCommandView: View {
 
         audioRecorder.startRecording { [self] audioData in
             DispatchQueue.main.async {
-                guard let audioData else {
+                print("VoiceCommandView: recording callback, data=\(audioData?.count ?? 0) bytes")
+                guard let audioData, audioData.count > 0 else {
                     // 录音失败
+                    print("VoiceCommandView: no audio data")
+                    self.sessionManager.commandState = .failed("No audio recorded")
                     if continuousMode {
                         continuousMode = false
                     }
                     return
                 }
-                // 发送音频到 iPhone 识别
-                self.showTranscribing = true
+                // 录音完成，立刻显示 Sending 状态
+                self.showTranscribing = false
+                self.sessionManager.commandState = .sending
+                print("VoiceCommandView: sending audio command")
                 self.sessionManager.sendAudioCommand(audioData)
             }
         }

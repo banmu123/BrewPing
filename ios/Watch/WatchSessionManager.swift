@@ -92,13 +92,21 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     func switchToAgent(index: Int) {
         guard index >= 0, index < agents.count else { return }
         activeAgentIndex = index
-        let agentId = agents[index].id
+        let agent = agents[index]
+        let agentId = agent.id
+        // 本地立刻更新显示名称
+        agentName = agent.name
 
         // 通知 iPhone 切换 Agent
         guard let session, session.activationState == .activated, session.isReachable else { return }
         session.sendMessage(
             ["type": "switchAgent", "agentId": agentId],
-            replyHandler: { _ in },
+            replyHandler: { [weak self] reply in
+                // iPhone 回复后刷新状态
+                DispatchQueue.main.async {
+                    self?.requestStatusSync()
+                }
+            },
             errorHandler: { error in
                 print("BrewPing watch: switchAgent failed: \(error.localizedDescription)")
             }

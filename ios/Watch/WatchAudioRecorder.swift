@@ -44,6 +44,15 @@ final class WatchAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
 
             isRecording = true
             startLevelMonitoring()
+
+            // 安全超时：如果 15 秒内没有自动停止，强制停止
+            DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
+                guard let self, self.isRecording else { return }
+                print("WatchAudioRecorder: force stop after 15s timeout")
+                self.stopRecording()
+            }
+
+            print("WatchAudioRecorder: recording started")
         } catch {
             print("WatchAudioRecorder: start failed - \(error)")
             completion(nil)
@@ -118,11 +127,13 @@ final class WatchAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
     // MARK: - AVAudioRecorderDelegate
 
     func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+        print("WatchAudioRecorder: didFinishRecording successfully=\(flag)")
         stopLevelMonitoring()
         isRecording = false
         audioLevel = 0
 
         guard flag else {
+            print("WatchAudioRecorder: recording failed")
             completion?(nil)
             completion = nil
             try? AVAudioSession.sharedInstance().setActive(false)
@@ -130,6 +141,7 @@ final class WatchAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         }
 
         let data = try? Data(contentsOf: tempURL)
+        print("WatchAudioRecorder: audio data size = \(data?.count ?? 0) bytes")
         try? FileManager.default.removeItem(at: tempURL)
         try? AVAudioSession.sharedInstance().setActive(false)
 

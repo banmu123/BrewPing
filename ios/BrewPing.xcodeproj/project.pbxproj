@@ -27,6 +27,7 @@
 		BB0000010000000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000010000000000000002 /* ContentView.swift */; };
 		BB0000010000000000000003 /* WatchSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000010000000000000004 /* WatchSessionManager.swift */; };
 		BB0000010000000000000008 /* VoiceCommandView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000010000000000000009 /* VoiceCommandView.swift */; };
+		BB000001000000000000000B /* WatchAudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000000A /* WatchAudioRecorder.swift */; };
 		BB00000100000000000000C3 /* BrewPing Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = BB0000010000000000000010 /* BrewPing Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -71,6 +72,7 @@
 		BB0000010000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		BB0000010000000000000004 /* WatchSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSessionManager.swift; sourceTree = "<group>"; };
 		BB0000010000000000000009 /* VoiceCommandView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCommandView.swift; sourceTree = "<group>"; };
+		BB000001000000000000000A /* WatchAudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAudioRecorder.swift; sourceTree = "<group>"; };
 		BB0000010000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		BB0000010000000000000010 /* BrewPing Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "BrewPing Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -131,6 +133,7 @@
 				BB0000010000000000000002 /* ContentView.swift */,
 				BB0000010000000000000004 /* WatchSessionManager.swift */,
 				BB0000010000000000000009 /* VoiceCommandView.swift */,
+				BB000001000000000000000A /* WatchAudioRecorder.swift */,
 				BB0000010000000000000005 /* Info.plist */,
 			);
 			path = Watch;
@@ -268,6 +271,7 @@
 				BB0000010000000000000001 /* ContentView.swift in Sources */,
 				BB0000010000000000000003 /* WatchSessionManager.swift in Sources */,
 				BB0000010000000000000008 /* VoiceCommandView.swift in Sources */,
+				BB000001000000000000000B /* WatchAudioRecorder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
