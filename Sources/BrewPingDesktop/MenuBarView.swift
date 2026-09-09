@@ -76,6 +76,22 @@ struct MenuBarView: View {
 
             Divider()
 
+            // Show Terminal
+            Button {
+                TerminalWindowManager.shared.showTerminal()
+            } label: {
+                HStack {
+                    Image(systemName: "terminal")
+                    Text("Show Terminal")
+                    Spacer()
+                }
+            }
+            .buttonStyle(.plain)
+            .font(.callout)
+            .padding(.vertical, 2)
+
+            Divider()
+
             // Quit
             Button("Quit BrewPing") {
                 core.stop()
