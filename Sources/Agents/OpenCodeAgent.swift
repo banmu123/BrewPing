@@ -1,7 +1,7 @@
 import Foundation
 
 final class OpenCodeAgent: TerminalAgent {
-    static let executablePath = "/Users/banmu/.opencode/bin/opencode"
+    static let defaultPath = "/usr/local/bin/opencode"
     static let interactiveMarker = "Ask anything"
     static let pasteStart = "\u{1b}[200~"
     static let pasteEnd = "\u{1b}[201~"
@@ -42,9 +42,17 @@ final class OpenCodeAgent: TerminalAgent {
         manager.session
     }
 
+    static func resolveExecutablePath() -> String {
+        SystemCommand.locate(command: "opencode") ?? defaultPath
+    }
+
     func start() throws {
+        let path = Self.resolveExecutablePath()
+        guard FileManager.default.isExecutableFile(atPath: path) else {
+            throw AgentError.childDied("opencode not found at \(path)")
+        }
         let session = try manager.startProcess(
-            path: Self.executablePath,
+            path: path,
             argvName: "opencode",
             environment: ["TERM": "xterm-256color"],
             logFileURL: SessionManager.shared.openCodeLogURL

@@ -73,8 +73,6 @@ enum ProtocolStateService {
     private static func agentProjections(defaultAgentID: String) -> [BrewPingProtocol.Agent] {
         var out: [BrewPingProtocol.Agent] = []
         for detected in AgentDiscovery.shared.discover() {
-            // Cursor 暂无 Provider（不可执行），不进入协议投影。
-            if detected.id == "cursor" { continue }
             let isSessionAgent = detected.id == AgentManager.sessionAgentID
             let mode: BrewPingProtocol.AgentExecutionMode = isSessionAgent ? .session : .headless
 

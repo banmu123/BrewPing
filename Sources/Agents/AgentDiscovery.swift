@@ -103,12 +103,6 @@ public final class AgentDiscovery {
             versionArguments: ["--version"]
         ),
         AgentDefinition(
-            id: "cursor",
-            name: "Cursor Agent",
-            command: "cursor-agent",
-            versionArguments: ["--version"]
-        ),
-        AgentDefinition(
             id: "aider",
             name: "Aider",
             command: "aider",

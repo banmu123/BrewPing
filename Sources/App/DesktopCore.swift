@@ -33,6 +33,9 @@ public final class DesktopCore: ObservableObject {
     }
 
     public func start() {
+        guard !isRunning else { return }
+        isRunning = true
+
         let id = DeviceIdentity.loadOrCreate()
         self.identity = id
         self.deviceId = id.deviceId

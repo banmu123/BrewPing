@@ -5,6 +5,7 @@ import BrewPingCore
 struct AgentTabView: View {
     let agents: [AgentInfo]
     @Binding var activeAgentID: String
+    var isOnline: Bool = false
     var onSelect: (String) -> Void
 
     // 终端配色
@@ -41,12 +42,12 @@ struct AgentTabView: View {
             // 状态指示
             HStack(spacing: 4) {
                 Circle()
-                    .fill(green)
+                    .fill(isOnline ? green : amber)
                     .frame(width: 5, height: 5)
                     .opacity(0.8)
-                Text("ONLINE")
+                Text(isOnline ? "ONLINE" : "OFFLINE")
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundColor(dimGreen.opacity(0.7))
+                    .foregroundColor(isOnline ? dimGreen.opacity(0.7) : amber.opacity(0.7))
             }
             .padding(.trailing, 14)
         }

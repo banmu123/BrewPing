@@ -4,6 +4,7 @@ import BrewPingCore
 /// Multi-Agent Terminal 窗口：真实终端风格
 struct TerminalWindow: View {
     @StateObject private var viewModel = TerminalViewModel()
+    @ObservedObject private var core = DesktopCore.shared
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
 
@@ -19,6 +20,7 @@ struct TerminalWindow: View {
             AgentTabView(
                 agents: viewModel.registeredAgents,
                 activeAgentID: $viewModel.activeAgentID,
+                isOnline: core.isRunning,
                 onSelect: { agentId in
                     viewModel.switchToAgent(agentId)
                 }

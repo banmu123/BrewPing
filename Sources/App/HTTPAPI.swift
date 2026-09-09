@@ -50,7 +50,7 @@ enum HTTPAPI {
         var agents: [[String: Any]] = []
         var errors: [String] = []
 
-        for detected in discovered where detected.id != "cursor" {
+        for detected in discovered {
             var entry: [String: Any] = [
                 "id": detected.id,
                 "name": detected.name,
@@ -216,6 +216,7 @@ enum HTTPAPI {
 
     private static var appendedCommandIDs = Set<String>()
     private static let appendLock = NSLock()
+    private static let maxAppendedIDs = 500
 
     private static func messageResponse(_ request: HTTPRequest, router: CommandRouter) -> HTTPResponse {
         guard let object = try? JSONSerialization.jsonObject(with: request.body, options: []),
@@ -257,7 +258,13 @@ enum HTTPAPI {
         if (info.status == .completed || info.status == .completedWithRaw || info.status == .failed) {
             appendLock.lock()
             let alreadyAppended = appendedCommandIDs.contains(id)
-            if !alreadyAppended { appendedCommandIDs.insert(id) }
+            if !alreadyAppended {
+                appendedCommandIDs.insert(id)
+                if appendedCommandIDs.count > maxAppendedIDs {
+                    appendedCommandIDs.removeAll(keepingCapacity: false)
+                    appendedCommandIDs.insert(id)
+                }
+            }
             appendLock.unlock()
 
             if !alreadyAppended {

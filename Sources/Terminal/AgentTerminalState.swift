@@ -28,12 +28,18 @@ public final class AgentTerminalState: ObservableObject {
     @Published public var outputLines: [OutputLine] = []
     @Published public var status: AgentStatus = .idle
 
+    /// 最大输出行数，超出时裁剪头部
+    public static let maxLines = 5000
+
     public init(agentId: String) {
         self.agentId = agentId
     }
 
     public func appendLine(_ text: String, type: OutputType = .normal) {
         outputLines.append(OutputLine(text: text, type: type))
+        if outputLines.count > Self.maxLines {
+            outputLines.removeFirst(outputLines.count - Self.maxLines)
+        }
     }
 
     public func setStatus(_ newStatus: AgentStatus) {

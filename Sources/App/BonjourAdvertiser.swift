@@ -13,9 +13,10 @@ enum BonjourAdvertiser {
             name: deviceName ?? "BrewPing Agent",
             port: Int32(port)
         )
+        let activeAgent = AgentManager.shared.activeAgentID
         var txtDict: [String: Data] = [:]
         txtDict["version"] = "0.1".data(using: .utf8)
-        txtDict["agent"] = "opencode".data(using: .utf8)
+        txtDict["agent"] = activeAgent.data(using: .utf8)
         txtDict["platform"] = "macOS".data(using: .utf8)
         txtDict["protocolVersion"] = "1".data(using: .utf8)
         if let deviceId { txtDict["deviceId"] = deviceId.data(using: .utf8) }
