@@ -7,14 +7,27 @@ APP_DIR="build/${APP_NAME}.app"
 EXEC_NAME="BrewPingDesktop"
 
 echo "Building ${EXEC_NAME}..."
-swift build --target BrewPingDesktop -c release 2>/dev/null || swift build --target BrewPingDesktop
+BUILD_CONFIG="release"
+if ! swift build --target BrewPingDesktop -c release 2>/dev/null; then
+    echo "Release build unavailable, falling back to debug..."
+    BUILD_CONFIG="debug"
+    swift build --target BrewPingDesktop
+fi
+
+# 从实际构建配置对应的产物目录取二进制（release/debug 路径不同）
+BIN_DIR="$(swift build --target BrewPingDesktop -c "$BUILD_CONFIG" --show-bin-path 2>/dev/null | tail -n 1)"
+if [ -z "$BIN_DIR" ] || [ ! -f "${BIN_DIR}/${EXEC_NAME}" ]; then
+    echo "error: build product not found (config=${BUILD_CONFIG}, dir=${BIN_DIR})" >&2
+    exit 1
+fi
+echo "Using binary: ${BIN_DIR}/${EXEC_NAME}"
 
 echo "Creating ${APP_NAME}.app..."
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
-cp ".build/arm64-apple-macosx/debug/${EXEC_NAME}" "$APP_DIR/Contents/MacOS/${EXEC_NAME}"
+cp "${BIN_DIR}/${EXEC_NAME}" "$APP_DIR/Contents/MacOS/${EXEC_NAME}"
 
 cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -39,6 +52,8 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
     <string>13.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>BrewPing accepts commands from your iPhone and Apple Watch on the local network.</string>
 </dict>
 </plist>
 PLIST

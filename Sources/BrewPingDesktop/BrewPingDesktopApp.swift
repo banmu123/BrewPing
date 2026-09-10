@@ -1,8 +1,11 @@
 import SwiftUI
+import AppKit
 import BrewPingCore
 
 @main
 struct BrewPingDesktopApp: App {
+    /// App 级启动钩子：菜单栏应用没有可见窗口，必须在这里拉起 Agent Core。
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var core = DesktopCore.shared
 
     var body: some Scene {
@@ -15,6 +18,21 @@ struct BrewPingDesktopApp: App {
 
         Settings {
             EmptyView()
+        }
+    }
+}
+
+/// 负责进程级生命周期：启动 HTTP 服务 / Bonjour 广播 / Agent 发现。
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { @MainActor in
+            DesktopCore.shared.start()
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        Task { @MainActor in
+            DesktopCore.shared.stop()
         }
     }
 }

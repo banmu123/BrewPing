@@ -20,6 +20,8 @@ public final class DesktopCore: ObservableObject {
     private var agentThread: Thread?
     private var statusTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
+    /// 防止重复启动（App 启动钩子与终端窗口都可能调用 start()）
+    private var hasStarted = false
 
     private init() {
         // 监听 Agent 切换通知
@@ -33,8 +35,8 @@ public final class DesktopCore: ObservableObject {
     }
 
     public func start() {
-        guard !isRunning else { return }
-        isRunning = true
+        guard !hasStarted else { return }
+        hasStarted = true
 
         let id = DeviceIdentity.loadOrCreate()
         self.identity = id
@@ -63,6 +65,7 @@ public final class DesktopCore: ObservableObject {
     public func stop() {
         statusTimer?.invalidate()
         statusTimer = nil
+        hasStarted = false
         // 通过 Unix Socket 发送 stop 指令
         let store = SessionManager.shared
         if let payload = try? JSONEncoder().encode(AgentRequest(cmd: "stop", text: nil)) {

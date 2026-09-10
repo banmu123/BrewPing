@@ -1,5 +1,37 @@
 import SwiftUI
+import AppKit
 import BrewPingCore
+
+/// 以 AppKit 方式按需打开终端窗口。
+/// 菜单栏应用（LSUIElement）不适合用 SwiftUI `Window` scene——那会在启动时自动弹窗。
+@MainActor
+final class TerminalWindowController {
+    static let shared = TerminalWindowController()
+
+    private var window: NSWindow?
+
+    private init() {}
+
+    func show() {
+        if let window {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let hosting = NSHostingController(rootView: TerminalWindow())
+        let win = NSWindow(contentViewController: hosting)
+        win.title = "BrewPing Terminal"
+        win.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        win.setContentSize(NSSize(width: 760, height: 480))
+        win.isReleasedWhenClosed = false
+        win.center()
+
+        window = win
+        win.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
 
 /// Multi-Agent Terminal 窗口：真实终端风格
 struct TerminalWindow: View {
@@ -38,9 +70,6 @@ struct TerminalWindow: View {
         }
         .frame(minWidth: 680, minHeight: 420)
         .background(bg)
-        .task {
-            DesktopCore.shared.start()
-        }
     }
 
     private var currentTerminalState: AgentTerminalState? {
