@@ -379,7 +379,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
             guard !wanted.language.isEmpty else { return nil }
             let wantedScript = effectiveScript(language: wanted.language, script: wanted.script, region: wanted.region)
 
-            var best: (score: Int, recognizer: SFSpeechRecognizer)?
+            var best: (score: Int, locale: Locale)?
             for candidate in supported {
                 let id = candidate.identifier.lowercased()
                 let info = localeSubtags(of: id)
@@ -393,7 +393,8 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
                 }
                 if best == nil || score > best!.score { best = (score, candidate) }
             }
-            return best?.recognizer
+            // candidate 来自 supportedLocales()，构造必然成功；用 flatMap 避免强解包
+            return best.flatMap { SFSpeechRecognizer(locale: $0.locale) }
         }
 
         if let preferredIdentifier, let recognizer = bestMatch(preferredIdentifier) {
