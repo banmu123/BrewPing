@@ -29,7 +29,9 @@ struct ContentView: View {
                 // MARK: - 连接状态
                 connectionStatusSection
 
-                if sessionManager.reachable {
+                // 语音入口只依赖会话是否激活：
+                // 音频经 transferFile 排队投递，iPhone App 不在前台时同样能发。
+                if sessionManager.activationState == .activated {
                     // MARK: - 语音命令
                     VoiceCommandView(sessionManager: sessionManager)
                 }

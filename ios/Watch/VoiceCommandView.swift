@@ -219,6 +219,7 @@ struct VoiceCommandView: View {
                 .buttonStyle(.plain)
 
                 Button {
+                    showTranscribing = false
                     audioRecorder.cancelRecording()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -248,28 +249,31 @@ struct VoiceCommandView: View {
     // MARK: - 语音输入
 
     private func startVoiceInput() {
-        guard sessionManager.reachable else {
+        // 只要 WCSession 已激活就允许录音：
+        // 音频走 transferFile 排队投递，不要求 iPhone App 此刻在前台。
+        guard sessionManager.activationState == .activated else {
             sessionManager.lastError = "iPhone not connected"
             return
         }
 
-        audioRecorder.startRecording { [self] audioData in
+        // 录音结束到发送之间显示 "Recognizing..."。
+        // 录音期间 recordingView 优先展示，不会与此冲突。
+        showTranscribing = true
+
+        audioRecorder.startRecording { [self] result in
             DispatchQueue.main.async {
-                print("VoiceCommandView: recording callback, data=\(audioData?.count ?? 0) bytes")
-                guard let audioData, audioData.count > 0 else {
-                    // 录音失败
-                    print("VoiceCommandView: no audio data")
-                    self.sessionManager.commandState = .failed("No audio recorded")
+                showTranscribing = false
+                switch result {
+                case .success(let url):
+                    print("VoiceCommandView: recording finished, sending \(url.lastPathComponent)")
+                    sessionManager.sendAudioCommand(fileURL: url)
+                case .failure(let error):
+                    print("VoiceCommandView: recording failed - \(error.localizedDescription)")
+                    sessionManager.commandState = .failed(error.errorDescription ?? "Recording failed")
                     if continuousMode {
                         continuousMode = false
                     }
-                    return
                 }
-                // 录音完成，立刻显示 Sending 状态
-                self.showTranscribing = false
-                self.sessionManager.commandState = .sending
-                print("VoiceCommandView: sending audio command")
-                self.sessionManager.sendAudioCommand(audioData)
             }
         }
     }

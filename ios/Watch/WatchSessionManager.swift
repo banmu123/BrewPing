@@ -79,6 +79,12 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     private var requestedStatus = false
     private var statusRequestTicks = 0
 
+    /// 正在排队的音频文件传输。`transferFile` 没有回复回调，
+    /// 完成/失败只能从 `session(_:didFinish:)` 得知，
+    /// 因此需要按文件名跟踪，避免把别的传输结果算到当前命令上。
+    private var audioTransfers: [WCSessionFileTransfer] = []
+    private var pendingAudioFileNames: Set<String> = []
+
     func activate() {
         guard let session, session.activationState != .activated else { return }
         session.delegate = self
@@ -265,7 +271,7 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
             DispatchQueue.main.async { self.commandState = .failed("WatchConnectivity unsupported") }
             return
         }
-        guard session.activationState == .activated, session.isReachable else {
+        guard session.activationState == .activated else {
             DispatchQueue.main.async { self.commandState = .failed("iPhone App Not Connected") }
             return
         }
@@ -274,20 +280,32 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
             DispatchQueue.main.async { self.commandState = .failed("Empty command") }
             return
         }
-        DispatchQueue.main.async { self.commandState = .sending }
-        session.sendMessage([
+        let payload: [String: Any] = [
             "type": "command",
             "text": trimmed,
             "content": trimmed,
             "agentId": activeAgentID
-        ], replyHandler: { [weak self] _ in
+        ]
+        DispatchQueue.main.async { self.commandState = .sending }
+
+        // sendMessage 只在 iPhone App 处于前台时可用；
+        // 不可达时退回 transferUserInfo（排队投递，会在 App 下次运行时送达）。
+        guard session.isReachable else {
+            session.transferUserInfo(payload)
+            DispatchQueue.main.async { self.commandState = .sent(trimmed) }
+            return
+        }
+
+        session.sendMessage(payload, replyHandler: { [weak self] _ in
             DispatchQueue.main.async {
                 self?.commandState = .sent(trimmed)
                 self?.lastError = nil
             }
         }, errorHandler: { [weak self] error in
+            print("BrewPing watch: sendMessage failed, falling back to transferUserInfo: \(error.localizedDescription)")
+            session.transferUserInfo(payload)
             DispatchQueue.main.async {
-                self?.commandState = .failed(error.localizedDescription)
+                self?.commandState = .sent(trimmed)
             }
         })
     }
@@ -313,6 +331,38 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        applyCommandResult(message)
+    }
+
+    /// iPhone 在不可达时会用 transferUserInfo 排队回传结果，
+    /// 由系统在 Watch App 下次运行时投递。
+    /// 注意：不要给参数写默认值，`WCSessionDelegate` 是 @objc 协议，
+    /// 带默认值的方法在见证协议要求时会有歧义。
+    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        applyCommandResult(userInfo)
+    }
+
+    /// 音频文件传输结束（成功或失败）。此时才能安全删除本地录音文件。
+    func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
+        let name = fileTransfer.file.fileURL.lastPathComponent
+        guard pendingAudioFileNames.contains(name) else { return }
+        pendingAudioFileNames.remove(name)
+        audioTransfers.removeAll { $0 === fileTransfer }
+        try? FileManager.default.removeItem(at: fileTransfer.file.fileURL)
+
+        DispatchQueue.main.async {
+            if let error {
+                print("BrewPing watch: audio transfer failed - \(error.localizedDescription)")
+                self.commandState = .failed("Send failed: \(error.localizedDescription)")
+            } else if case .sent = self.commandState {
+                // 只在仍处于"已送出"时更新文案，
+                // 避免覆盖已经到达的 commandResult 结果。
+                self.commandState = .sent("Audio delivered")
+            }
+        }
+    }
+
+    private func applyCommandResult(_ message: [String: Any]) {
         guard message["type"] as? String == "commandResult" else { return }
         let status = message["status"] as? String ?? ""
         let text = message["text"] as? String ?? ""
@@ -329,31 +379,45 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
 
     // MARK: - Audio Commands
 
-    /// 发送音频到 iPhone 进行语音识别
-    func sendAudioCommand(_ audioData: Data) {
+    /// 把录音文件发送到 iPhone 做语音识别。
+    ///
+    /// 使用 `transferFile` 而不是 `sendMessage`，原因有二：
+    ///  1. `sendMessage` 的载荷上限约 65 KB，一段 10s+ 的 AAC 录音随时会超限
+    ///     并返回 WCErrorCodePayloadTooLarge；
+    ///  2. `sendMessage` 要求 iPhone App 正在前台（`isReachable`），
+    ///     而"用手表发语音"的典型场景恰恰是手机在口袋里。
+    ///     `transferFile` 会排队并在后台投递。
+    /// 因此这里只要求会话已激活，不再要求 reachable。
+    func sendAudioCommand(fileURL: URL, duration: TimeInterval? = nil) {
         guard let session else {
+            try? FileManager.default.removeItem(at: fileURL)
             DispatchQueue.main.async { self.commandState = .failed("WatchConnectivity unsupported") }
             return
         }
-        guard session.activationState == .activated, session.isReachable else {
+        guard session.activationState == .activated else {
+            try? FileManager.default.removeItem(at: fileURL)
             DispatchQueue.main.async { self.commandState = .failed("iPhone App Not Connected") }
             return
         }
-        DispatchQueue.main.async { self.commandState = .sending }
-        session.sendMessage(
-            ["type": "audioCommand", "audio": audioData, "agentId": activeAgentID],
-            replyHandler: { [weak self] _ in
-                DispatchQueue.main.async {
-                    self?.commandState = .sent("Audio sent")
-                    self?.lastError = nil
-                }
-            },
-            errorHandler: { [weak self] error in
-                DispatchQueue.main.async {
-                    self?.commandState = .failed(error.localizedDescription)
-                }
-            }
-        )
+
+        var metadata: [String: Any] = [
+            "type": "audioCommand",
+            "agentId": activeAgentID,
+            "fileName": fileURL.lastPathComponent,
+            "createdAt": Date().timeIntervalSince1970,
+            "locale": Locale.current.identifier
+        ]
+        if let duration { metadata["duration"] = duration }
+
+        let transfer = session.transferFile(fileURL, metadata: metadata)
+        audioTransfers.append(transfer)
+        pendingAudioFileNames.insert(fileURL.lastPathComponent)
+
+        print("BrewPing watch: queued audio transfer \(fileURL.lastPathComponent) reachable=\(session.isReachable)")
+        // 排队成功即视为已送出：transferFile 是排队式投递，
+        // 若一直停在 .sending，手机长时间离线时 UI 会永久卡住。
+        // 真正的失败在 session(_:didFinish:) 里降级为 .failed。
+        DispatchQueue.main.async { self.commandState = .sent("Audio sent") }
     }
 
     // MARK: - Legacy

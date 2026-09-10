@@ -1,7 +1,31 @@
 import Foundation
 import AVFoundation
 
-/// Watch 端录音器：点击录音 + 静音自动停止
+/// 录音失败原因：用于把具体失败环节回显到 Watch UI，
+/// 避免所有失败都表现为同一句 "No audio recorded" 而无法定位。
+enum WatchRecorderError: LocalizedError {
+    case audioSession(String)
+    case recorderCreation(String)
+    case encodeFailed
+    case emptyRecording
+
+    var errorDescription: String? {
+        switch self {
+        case .audioSession(let detail):  return "Audio session failed: \(detail)"
+        case .recorderCreation(let detail): return "Recorder failed: \(detail)"
+        case .encodeFailed:              return "Audio encoding failed"
+        case .emptyRecording:            return "No audio captured"
+        }
+    }
+}
+
+/// Watch 端录音器：点击录音 + 静音自动停止。
+///
+/// 产物是一个落盘的 `.m4a` 文件（而非内存 Data）：
+/// WatchConnectivity 的 `sendMessage` 载荷上限只有约 65 KB，
+/// 音频必须走 `transferFile` 才能可靠送达 iOS。
+/// 文件所有权交给调用方（WatchSessionManager），
+/// 在 `session(_:didFinish:)` 传输结束后由发送方删除。
 final class WatchAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published var isRecording = false
     @Published var audioLevel: Float = 0
@@ -10,71 +34,115 @@ final class WatchAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
     private var recorder: AVAudioRecorder?
     private var levelTimer: Timer?
     private var silenceTimer: Timer?
-    private var completion: ((Data?) -> Void)?
+    private var completion: ((Result<URL, WatchRecorderError>) -> Void)?
+    private var finished = false
+    private var currentURL: URL?
 
-    private let silenceTimeout: TimeInterval = 1.5
-    private let levelThreshold: Float = -20.0 // dB
+    /// 静音判定阈值（dBFS）。
+    /// 腕上麦克风在正常说话距离下的 `averagePower` 多在 -35 ~ -20 dB，
+    /// 原值 -20 dB 偏高，轻声说话时 `hasSpeech` 永远不会置位，
+    /// 静音自动停止因此永不触发。
+    private let levelThreshold: Float = -35.0
+    /// 连续多少个 100ms 采样高于阈值才认定“开始说话”，避免单次爆音误判。
+    private let speechOnsetFrames = 2
+    private var voicedFrameCount = 0
 
-    private let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("breping_cmd.m4a")
+    private let silenceTimeout: TimeInterval = 1.2
+    /// 录音硬上限：超时强制停止，保证一定会回调。
+    private let maxDuration: TimeInterval = 12.0
 
-    private let settings: [String: Any] = [
-        AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-        AVSampleRateKey: 16000,
-        AVNumberOfChannelsKey: 1,
-        AVEncoderAudioQualityKey: AVAudioQuality.low.rawValue,
-        AVEncoderBitRateKey: 16000
-    ]
+    private let filePrefix = "brewping_cmd_"
 
     // MARK: - 录音控制
 
-    /// 开始录音，完成后回调音频数据（AAC m4a）
-    func startRecording(completion: @escaping (Data?) -> Void) {
+    /// 开始录音。完成（手动 / 静音 / 超时）后回调音频文件 URL。
+    /// 文件不会被自动删除，由调用方在传输完成后清理。
+    func startRecording(completion: @escaping (Result<URL, WatchRecorderError>) -> Void) {
         self.completion = completion
+        finished = false
         hasSpeech = false
+        voicedFrameCount = 0
+        audioLevel = 0
 
+        purgeStaleFiles()
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(filePrefix)\(UUID().uuidString).m4a")
+        currentURL = url
+
+        // 注意：`.duckOthers` 仅对 playAndRecord / playback / ambient / multiRoute 有效，
+        // 与 `.record` 组合属于非法选项，setCategory 会抛错并使整段录音直接失败。
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try session.setCategory(.record, mode: .measurement)
             try session.setActive(true)
-
-            recorder = try AVAudioRecorder(url: tempURL, settings: settings)
-            recorder?.delegate = self
-            recorder?.isMeteringEnabled = true
-            recorder?.record()
-
-            isRecording = true
-            startLevelMonitoring()
-
-            // 安全超时：如果 15 秒内没有自动停止，强制停止
-            DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
-                guard let self, self.isRecording else { return }
-                print("WatchAudioRecorder: force stop after 15s timeout")
-                self.stopRecording()
-            }
-
-            print("WatchAudioRecorder: recording started")
         } catch {
-            print("WatchAudioRecorder: start failed - \(error)")
-            completion(nil)
+            // `.measurement` 不可用时退回默认模式，尽量不因模式问题整体失败
+            do {
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.record, mode: .default)
+                try session.setActive(true)
+            } catch {
+                print("WatchAudioRecorder: audio session failed - \(error)")
+                finish(.failure(.audioSession(error.localizedDescription)))
+                return
+            }
         }
+
+        do {
+            recorder = try AVAudioRecorder(url: url, settings: settings)
+        } catch {
+            print("WatchAudioRecorder: recorder creation failed - \(error)")
+            try? AVAudioSession.sharedInstance().setActive(false)
+            finish(.failure(.recorderCreation(error.localizedDescription)))
+            return
+        }
+
+        recorder?.delegate = self
+        recorder?.isMeteringEnabled = true
+        guard recorder?.record() == true else {
+            print("WatchAudioRecorder: record() returned false")
+            try? AVAudioSession.sharedInstance().setActive(false)
+            finish(.failure(.recorderCreation("record() returned false")))
+            return
+        }
+
+        isRecording = true
+        startLevelMonitoring()
+
+        // 安全超时：即使静音检测未触发，也必须在 maxDuration 内结束并回调
+        DispatchQueue.main.asyncAfter(deadline: .now() + maxDuration) { [weak self] in
+            guard let self, self.isRecording else { return }
+            print("WatchAudioRecorder: force stop after \(self.maxDuration)s timeout")
+            self.stopRecording()
+        }
+
+        print("WatchAudioRecorder: recording started -> \(url.lastPathComponent)")
     }
 
-    /// 手动停止录音
+    /// 手动停止录音（delegate 的 audioRecorderDidFinishRecording 负责回调）
     func stopRecording() {
         guard isRecording else { return }
         stopLevelMonitoring()
         recorder?.stop()
-        // delegate 的 audioRecorderDidFinishRecording 会处理后续
     }
 
     func cancelRecording() {
         stopLevelMonitoring()
+        // 必须先失效回调：`stop()` 可能同步回调 delegate，
+        // 若先 stop 再置空，被取消的录音会被当成正常结果发出去。
+        completion = nil
+        finished = true
         recorder?.stop()
         recorder?.deleteRecording()
         recorder = nil
         isRecording = false
-        completion = nil
-        try? AVAudioSession.sharedInstance().setActive(false)
+        audioLevel = 0
+        if let url = currentURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+        currentURL = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     // MARK: - 音量监控 + 静音检测
@@ -102,14 +170,19 @@ final class WatchAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         audioLevel = normalized
 
         if power > levelThreshold {
-            // 检测到声音
-            hasSpeech = true
-            resetSilenceTimer()
-        } else if hasSpeech {
-            // 说过话后进入静音，开始计时
-            startSilenceTimerIfNeeded()
+            voicedFrameCount += 1
+            if voicedFrameCount >= speechOnsetFrames {
+                hasSpeech = true
+                resetSilenceTimer()
+            }
+        } else {
+            voicedFrameCount = 0
+            if hasSpeech {
+                // 说过话后进入静音，开始计时
+                startSilenceTimerIfNeeded()
+            }
+            // 如果从未说过话，不触发静音停止（等用户说话，由 maxDuration 兜底）
         }
-        // 如果从未说过话，不触发静音停止（等用户说话）
     }
 
     private func startSilenceTimerIfNeeded() {
@@ -124,37 +197,77 @@ final class WatchAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         silenceTimer = nil
     }
 
+    // MARK: - 收尾
+
+    /// 保证回调只发生一次
+    private func finish(_ result: Result<URL, WatchRecorderError>) {
+        guard !finished else { return }
+        finished = true
+        stopLevelMonitoring()
+        isRecording = false
+        audioLevel = 0
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        let block = completion
+        completion = nil
+        block?(result)
+    }
+
+    /// 清理上次可能残留（传输失败 / 进程被杀）的录音文件
+    private func purgeStaleFiles() {
+        let dir = FileManager.default.temporaryDirectory
+        guard let items = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.creationDateKey]
+        ) else { return }
+        let cutoff = Date().addingTimeInterval(-600)
+        for item in items where item.lastPathComponent.hasPrefix(filePrefix) {
+            let created = (try? item.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            if created < cutoff {
+                try? FileManager.default.removeItem(at: item)
+            }
+        }
+    }
+
     // MARK: - AVAudioRecorderDelegate
 
     func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
         print("WatchAudioRecorder: didFinishRecording successfully=\(flag)")
         stopLevelMonitoring()
-        isRecording = false
-        audioLevel = 0
 
         guard flag else {
             print("WatchAudioRecorder: recording failed")
-            completion?(nil)
-            completion = nil
-            try? AVAudioSession.sharedInstance().setActive(false)
+            finish(.failure(.encodeFailed))
             return
         }
 
-        let data = try? Data(contentsOf: tempURL)
-        print("WatchAudioRecorder: audio data size = \(data?.count ?? 0) bytes")
-        try? FileManager.default.removeItem(at: tempURL)
-        try? AVAudioSession.sharedInstance().setActive(false)
+        guard let url = currentURL, FileManager.default.fileExists(atPath: url.path) else {
+            finish(.failure(.emptyRecording))
+            return
+        }
 
-        completion?(data)
-        completion = nil
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        print("WatchAudioRecorder: audio file size = \(size) bytes")
+        guard size > 0 else {
+            try? FileManager.default.removeItem(at: url)
+            finish(.failure(.emptyRecording))
+            return
+        }
+
+        finish(.success(url))
     }
 
     func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
         print("WatchAudioRecorder: encode error - \(error?.localizedDescription ?? "unknown")")
-        stopLevelMonitoring()
-        isRecording = false
-        audioLevel = 0
-        completion?(nil)
-        completion = nil
+        finish(.failure(.encodeFailed))
     }
+
+    // MARK: - 录音参数
+
+    /// 16 kHz 单声道 AAC，语音识别足够且体积可控。
+    private let settings: [String: Any] = [
+        AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+        AVSampleRateKey: 16000,
+        AVNumberOfChannelsKey: 1,
+        AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
+        AVEncoderBitRateKey: 32000
+    ]
 }

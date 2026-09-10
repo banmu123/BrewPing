@@ -13,23 +13,7 @@ struct SessionBrief: Decodable {
     let status: String?
 }
 
-struct SubmitResponse: Decodable {
-    let success: Bool?
-    let commandId: String?
-    let sessionId: String?
-    let error: String?
-}
-
-struct CommandStatusResponse: Decodable {
-    let commandId: String?
-    let status: String?
-    let response: String?
-    let rawOutput: String?
-    let duration: Double?
-    let error: String?
-    let failureReason: String?
-    let modelId: String?
-}
+// SubmitResponse / CommandStatusResponse 已随命令提交引擎移到 CommandReceiver.swift。
 
 struct LifecycleResponse: Decodable {
     let success: Bool?
@@ -59,31 +43,18 @@ enum SessionState: Equatable {
     case stopping
 }
 
-enum CommandPhase: Equatable {
-    case idle
-    case sending
-    case delivered
-    case working
-    case completed(String)
-    case completedRaw(String)
-    case failed(String)
-
-    var inFlight: Bool {
-        switch self {
-        case .idle, .completed, .completedRaw, .failed: return false
-        default: return true
-        }
-    }
-}
+// CommandPhase 已随命令提交引擎一起移到 CommandReceiver.swift。
 
 // MARK: - ContentView
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var deviceStore = DeviceStore.shared
     @StateObject private var watchBridge = WatchConnectivityManager.shared
-    @StateObject private var commandReceiver = CommandReceiver.shared
+    @StateObject private var submitter = CommandSubmitter.shared
     @StateObject private var bonjour = BonjourDiscovery()
     @State private var messageText = ""
+    @State private var clearDraftWhenDelivered = false
     @State private var online = false
     @State private var hostName = ""
     @State private var sessionState: SessionState = .offline
@@ -91,15 +62,17 @@ struct ContentView: View {
     @State private var sessionAgentIDFromStatus = "opencode"
     @State private var sessionAgentNameFromStatus = "OpenCode"
     @State private var sessionMessage = ""
-    @State private var phase: CommandPhase = .idle
-    @State private var lastDuration: Double?
-    @State private var lastFailureReason: String?
-    @State private var lastModelId: String?
     @State private var lifecycleBusy = false
     @State private var agents: [AgentEntry] = []
-    @State private var pollTask: Task<Void, Never>?
     @State private var discoveryRunning = false
     @State private var discoveryMessage = ""
+
+    // 命令的提交与轮询统一由 CommandSubmitter 负责（见 CommandReceiver.swift），
+    // 视图只是它的观察者。这样即使界面没被创建，Watch 来的命令也能照常执行。
+    private var phase: CommandPhase { submitter.phase }
+    private var lastDuration: Double? { submitter.lastDuration }
+    private var lastFailureReason: String? { submitter.lastFailureReason }
+    private var lastModelId: String? { submitter.lastModelId }
 
     // 添加设备 Sheet
     @State private var showAddDevice = false
@@ -151,6 +124,10 @@ struct ContentView: View {
                 deviceFormSheet(isNew: false, existing: device)
             }
             .task {
+                // 语音识别权限只能在前台弹窗，先在这里定下来，
+                // 否则手表在后台发来的语音会因为权限未决而识别失败。
+                watchBridge.requestSpeechAuthorizationIfNeeded()
+                watchBridge.appIsActive = (scenePhase == .active)
                 await refreshStatus()
                 await refreshAgents()
                 while !Task.isCancelled {
@@ -165,11 +142,19 @@ struct ContentView: View {
                     await refreshAgents()
                 }
             }
-            .onChange(of: commandReceiver.lastCommandID) { _ in
-                guard let text = commandReceiver.lastCommandText, !text.isEmpty else { return }
-                submitWatchCommand(text)
+            .onChange(of: scenePhase) { newPhase in
+                // 让 WCSession 知道 App 是否在前台：
+                // 决定收到手表语音后要不要在本机回放（后台唤醒时不出声）。
+                watchBridge.appIsActive = (newPhase == .active)
             }
-            .onDisappear { pollTask?.cancel() }
+            .onChange(of: submitter.phase) { newPhase in
+                // 手动发送成功投递后才清空输入框（与旧行为一致），
+                // 失败时保留草稿，方便用户重试。
+                if newPhase == .delivered, clearDraftWhenDelivered {
+                    messageText = ""
+                    clearDraftWhenDelivered = false
+                }
+            }
         }
     }
 
@@ -322,16 +307,17 @@ struct ContentView: View {
 
     private func discoverForSheet() async {
         bonjour.startSearching()
-        for _ in 0..<10 {
+        // 等到「发现 + 解析」都结束（最多 10 秒）
+        for _ in 0..<20 {
             try? await Task.sleep(nanoseconds: 500_000_000)
-            if !bonjour.discoveredHosts.isEmpty || !bonjour.isSearching { break }
+            if !bonjour.discoveredHosts.isEmpty { break }
+            if !bonjour.isSearching && !bonjour.isResolving { break }
         }
         if let host = bonjour.discoveredHosts.first {
-            let resolved = host.name.components(separatedBy: ".").first ?? host.name
-            editHost = resolved.hasSuffix(".local") ? resolved : resolved + ".local"
-            editPort = host.port > 0 ? String(host.port) : "8787"
-            editName = resolved.replacingOccurrences(of: ".local", with: "")
-            discoveryMessage = "Found: \(host.name)"
+            editHost = host.host
+            editPort = String(host.port)
+            editName = host.name
+            discoveryMessage = "Found: \(host.name) (\(host.host):\(host.port))"
         } else {
             discoveryMessage = "No BrewPing agent found"
         }
@@ -601,7 +587,7 @@ struct ContentView: View {
         sessionAgentIDFromStatus = "opencode"
         sessionAgentNameFromStatus = "OpenCode"
         sessionMessage = ""
-        phase = .idle
+        submitter.reset()
         agents = []
     }
 
@@ -695,7 +681,7 @@ struct ContentView: View {
 
     private func stopSession() {
         guard let url = baseURL?.appendingPathComponent("api/session/stop") else { return }
-        pollTask?.cancel()
+        submitter.cancelPolling()
         lifecycleBusy = true
         sessionState = .stopping
         sessionMessage = ""
@@ -709,7 +695,7 @@ struct ContentView: View {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
                 if statusCode == 200, decoded?.success == true {
                     sessionMessage = "Session stopped"
-                    phase = .idle
+                    submitter.reset()
                 } else {
                     sessionMessage = "Stop failed: \(decoded?.error ?? "HTTP \(statusCode)")"
                 }
@@ -724,8 +710,7 @@ struct ContentView: View {
 
     private func newSession() {
         guard let url = baseURL?.appendingPathComponent("api/session/start") else { return }
-        pollTask?.cancel()
-        phase = .idle
+        submitter.reset()
         lifecycleBusy = true
         sessionState = .starting
         sessionMessage = ""
@@ -753,131 +738,16 @@ struct ContentView: View {
 
     // MARK: - Send
 
+    /// 手动发送（输入框 + Send 按钮）。
+    /// 这里只做 UI 侧的前置校验，真正的提交与轮询统一交给 CommandSubmitter，
+    /// 与 Watch 语音链路共用同一套实现，避免两条路径逻辑漂移。
     private func send() {
-        guard let url = baseURL?.appendingPathComponent("api/message"),
-              let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty,
+        guard let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty,
               sessionState == .running else { return }
-        pollTask?.cancel()
-        phase = .sending
-        lastDuration = nil
-        lastFailureReason = nil
-        lastModelId = nil
+        clearDraftWhenDelivered = true
         Task {
             await refreshStatus()
-            await submit(text, url: url)
-        }
-    }
-
-    private func submitWatchCommand(_ text: String) {
-        guard let url = baseURL?.appendingPathComponent("api/message") else {
-            phase = .failed("No device configured.")
-            watchBridge.sendCommandResult(status: "failed", text: "No device configured")
-            return
-        }
-        guard sessionState == .running else {
-            phase = .failed("Session is unavailable.")
-            watchBridge.sendCommandResult(status: "failed", text: "Session is unavailable")
-            return
-        }
-        pollTask?.cancel()
-        phase = .sending
-        lastDuration = nil
-        lastFailureReason = nil
-        lastModelId = nil
-        Task {
-            await submit(text, url: url, clearsDraft: false, fromWatch: true)
-        }
-    }
-
-    private func submit(_ text: String, url: URL, clearsDraft: Bool = true, fromWatch: Bool = false) async {
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 30
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text])
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            let decoded = try? JSONDecoder().decode(SubmitResponse.self, from: data)
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-            if statusCode == 200, let commandId = decoded?.commandId, !commandId.isEmpty {
-                if clearsDraft { messageText = "" }
-                phase = .delivered
-                pollTask = Task { await poll(commandId: commandId, fromWatch: fromWatch) }
-                return
-            }
-            phase = .failed(decoded?.error ?? "HTTP \(statusCode)")
-            if fromWatch {
-                watchBridge.sendCommandResult(status: "failed", text: decoded?.error ?? "HTTP \(statusCode)")
-            }
-        } catch {
-            phase = .failed(error.localizedDescription)
-            if fromWatch {
-                watchBridge.sendCommandResult(status: "failed", text: error.localizedDescription)
-            }
-        }
-    }
-
-    private func poll(commandId: String, fromWatch: Bool = false) async {
-        guard let base = baseURL else { return }
-        let url = base.appendingPathComponent("api/message/\(commandId)")
-        var consecutiveErrors = 0
-        while !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            do {
-                let (data, response) = try await URLSession.shared.data(from: url)
-                guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-                    consecutiveErrors += 1
-                    if consecutiveErrors >= 10 {
-                        phase = .failed("Status poll failed.")
-                        return
-                    }
-                    continue
-                }
-                let decoded = try JSONDecoder().decode(CommandStatusResponse.self, from: data)
-                consecutiveErrors = 0
-                switch decoded.status {
-                case "queued", "sent":
-                    phase = .delivered
-                case "working":
-                    phase = .working
-                case "completed":
-                    let text = decoded.response ?? "(empty response)"
-                    lastDuration = decoded.duration
-                    lastModelId = decoded.modelId
-                    phase = .completed(text)
-                    if fromWatch {
-                        watchBridge.sendCommandResult(status: "completed", text: text, duration: decoded.duration)
-                    }
-                    return
-                case "completed_with_raw":
-                    let text = decoded.rawOutput ?? "(empty raw output)"
-                    lastDuration = decoded.duration
-                    lastModelId = decoded.modelId
-                    phase = .completedRaw(text)
-                    if fromWatch {
-                        watchBridge.sendCommandResult(status: "completed_with_raw", text: text, duration: decoded.duration)
-                    }
-                    return
-                case "failed":
-                    let text = decoded.error ?? "Unknown error."
-                    lastDuration = decoded.duration
-                    lastFailureReason = decoded.failureReason
-                    lastModelId = decoded.modelId
-                    phase = .failed(text)
-                    if fromWatch {
-                        watchBridge.sendCommandResult(status: "failed", text: text, duration: decoded.duration)
-                    }
-                    return
-                default:
-                    continue
-                }
-            } catch {
-                consecutiveErrors += 1
-                if consecutiveErrors >= 10 {
-                    phase = .failed("Connection lost: \(error.localizedDescription)")
-                    return
-                }
-            }
+            submitter.submit(text: text, fromWatch: false)
         }
     }
 }
