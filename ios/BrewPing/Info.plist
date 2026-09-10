@@ -27,6 +27,12 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>BrewPing sends messages to your Mac Agent on the local network.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_brewping._tcp</string>
+	</array>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>BrewPing uses speech recognition to transcribe the voice commands you send from your Apple Watch.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

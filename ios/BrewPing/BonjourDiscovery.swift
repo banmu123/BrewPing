@@ -1,9 +1,13 @@
 import Foundation
 import Network
+import Darwin
 
 /// iPhone 端 Bonjour 自动发现：扫描局域网上的 BrewPing Mac Agent。
-/// 发现后自动设置 Mac 地址，用户无需手动输入 IP。
-final class BonjourDiscovery: ObservableObject {
+/// 通过 NetService 解析出真实 IP + 端口，用户无需手动输入。
+///
+/// 注意：`NWBrowser` 给出的 endpoint 只有**服务实例名**（等于 Mac 的电脑名，可能含空格），
+/// 不能当主机名用；必须解析后才能拿到可连接地址。
+final class BonjourDiscovery: NSObject, ObservableObject {
     struct DiscoveredHost: Identifiable, Equatable {
         let id: String
         let name: String
@@ -14,8 +18,13 @@ final class BonjourDiscovery: ObservableObject {
     @Published var discoveredHosts: [DiscoveredHost] = []
     @Published var isSearching = false
 
+    /// 是否仍有服务在解析中（浏览停止后，已发现的服务可能还在解析）
+    var isResolving: Bool { !resolvers.isEmpty }
+
     private var browser: NWBrowser?
     private var timer: Timer?
+    /// 仅在主队列读写：resolveNew 在主队列触发，NetService 回调也投递到主线程 run loop
+    private var resolvers: [String: NetService] = [:]
 
     func startSearching() {
         stopSearching()
@@ -28,50 +37,39 @@ final class BonjourDiscovery: ObservableObject {
 
         browser.stateUpdateHandler = { [weak self] state in
             DispatchQueue.main.async {
-                switch state {
-                case .failed:
+                if case .failed = state {
                     self?.isSearching = false
-                default:
-                    break
                 }
             }
         }
 
         browser.browseResultsChangedHandler = { [weak self] results, _ in
-            guard let self else { return }
-            var hosts: [DiscoveredHost] = []
-            for result in results {
-                let endpoint = result.endpoint
-                // NWBrowser endpoint 类型：.service(name, type, domain, interface)
-                let name: String
-                switch endpoint {
-                case .service(let n, _, _, _):
-                    name = n
-                default:
-                    continue
-                }
-                hosts.append(DiscoveredHost(
-                    id: name,
-                    name: name,
-                    host: "",
-                    port: 8787 // Bonjour 注册的端口
-                ))
-            }
             DispatchQueue.main.async {
-                self.discoveredHosts = hosts
+                self?.resolveNew(results)
             }
         }
 
         browser.start(queue: DispatchQueue.global(qos: .userInitiated))
         self.browser = browser
 
-        // 5 秒后停止搜索
-        timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { [weak self] _ in
-            self?.stopSearching()
+        // 8 秒后停止「浏览」；已发现服务的解析会继续跑完，不会被中断
+        timer = Timer.scheduledTimer(withTimeInterval: 8.0, repeats: false) { [weak self] _ in
+            self?.stopBrowsing()
         }
     }
 
+    /// 完整停止：结束浏览并取消所有未完成的解析
     func stopSearching() {
+        stopBrowsing()
+        for (_, service) in resolvers {
+            service.delegate = nil
+            service.stop()
+        }
+        resolvers.removeAll()
+    }
+
+    /// 只结束浏览，保留在途解析
+    private func stopBrowsing() {
         browser?.cancel()
         browser = nil
         timer?.invalidate()
@@ -79,11 +77,76 @@ final class BonjourDiscovery: ObservableObject {
         isSearching = false
     }
 
-    /// 通过 NWConnection 解析 Bonjour 服务的实际 IP 地址。
-    static func resolve(host: DiscoveredHost, completion: @escaping (String?, UInt16?) -> Void) {
-        // NWBrowser 的 endpoint 信息不足以获取 IP，使用 NetService 作为备用解析
-        // 或直接使用 host.name + port 做 TCP 连接（NW 支持 Bonjour 名称解析）
-        // 简化：直接用 mDNS 名称（如 "MacBook-Pro.local"）
-        completion(host.name.components(separatedBy: ".").first.map { "\($0).local" }, host.port > 0 ? host.port : 8787)
+    // MARK: - Resolution
+
+    /// 对每个新出现的服务实例发起一次解析（解析结果通过 NetServiceDelegate 回调）
+    private func resolveNew(_ results: Set<NWBrowser.Result>) {
+        for result in results {
+            guard case let .service(name, _, _, _) = result.endpoint else { continue }
+            guard resolvers[name] == nil else { continue }
+            guard !discoveredHosts.contains(where: { $0.id == name }) else { continue }
+
+            let service = NetService(domain: "local.", type: "_brewping._tcp.", name: name)
+            service.delegate = self
+            resolvers[name] = service
+            service.resolve(withTimeout: 4.0)
+        }
+    }
+
+    private func finishResolve(name: String, host: String?, port: UInt16) {
+        if let service = resolvers.removeValue(forKey: name) {
+            service.delegate = nil
+            service.stop()
+        }
+
+        guard let host, !host.isEmpty, port > 0 else {
+            print("BrewPing iPhone: failed to resolve \(name)")
+            return
+        }
+
+        discoveredHosts.removeAll { $0.id == name }
+        discoveredHosts.append(DiscoveredHost(id: name, name: name, host: host, port: port))
+        print("BrewPing iPhone: resolved \(name) -> \(host):\(port)")
+    }
+
+    /// 优先返回 IPv4 字面量（URLSession 直连最稳），失败时回退到 mDNS 主机名
+    private static func ipv4Address(from addresses: [Data]?) -> String? {
+        guard let addresses else { return nil }
+        for data in addresses {
+            let ip: String? = data.withUnsafeBytes { raw -> String? in
+                guard let base = raw.baseAddress else { return nil }
+                guard base.assumingMemoryBound(to: sockaddr.self).pointee.sa_family == sa_family_t(AF_INET) else {
+                    return nil
+                }
+                var addr = base.assumingMemoryBound(to: sockaddr_in.self).pointee.sin_addr
+                var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                guard let cString = inet_ntop(AF_INET, &addr, &buffer, socklen_t(INET_ADDRSTRLEN)) else {
+                    return nil
+                }
+                return String(cString: cString)
+            }
+            if let ip { return ip }
+        }
+        return nil
+    }
+
+    /// `"MacBook-Pro.local."` -> `"MacBook-Pro.local"`
+    private static func normalizedHostName(_ hostName: String?) -> String? {
+        guard var host = hostName, !host.isEmpty else { return nil }
+        while host.hasSuffix(".") { host.removeLast() }
+        return host.isEmpty ? nil : host
+    }
+}
+
+// MARK: - NetServiceDelegate
+
+extension BonjourDiscovery: NetServiceDelegate {
+    func netServiceDidResolveAddress(_ sender: NetService) {
+        let host = Self.ipv4Address(from: sender.addresses) ?? Self.normalizedHostName(sender.hostName)
+        finishResolve(name: sender.name, host: host, port: UInt16(clamping: sender.port))
+    }
+
+    func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
+        finishResolve(name: sender.name, host: nil, port: 0)
     }
 }
