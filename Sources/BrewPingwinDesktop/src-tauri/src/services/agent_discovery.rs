@@ -215,3 +215,101 @@ fn extract_version(raw: &str) -> String {
     }
     first_line.to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // TC-AD-01  版本号提取：常见 semver 形态
+    #[test]
+    fn extract_version_parses_semver() {
+        assert_eq!(extract_version("1.2.3"), "1.2.3");
+        assert_eq!(extract_version("opencode 1.2.3"), "1.2.3");
+        assert_eq!(extract_version("v0.10.4"), "0.10.4");
+        assert_eq!(extract_version("1.2.3-beta.1"), "1.2.3-beta.1");
+        assert_eq!(extract_version("1.2.3+build5 (sha abc)"), "1.2.3+build5");
+        assert_eq!(extract_version("1.2.3\nsecond line"), "1.2.3");
+    }
+
+    // TC-AD-02  边界：无数字 / 空串 / 多行，回退到首行
+    #[test]
+    fn extract_version_falls_back_to_first_line() {
+        assert_eq!(extract_version("no digits here"), "no digits here");
+        assert_eq!(extract_version("a\nb"), "a");
+        assert_eq!(extract_version(""), "");
+    }
+
+    // TC-AD-03  目录完整性：id 唯一且全部映射
+    #[test]
+    fn discover_returns_full_catalog_with_unique_ids() {
+        let agents = discover();
+        assert_eq!(agents.len(), CATALOG.len());
+        let mut ids: Vec<&str> = agents.iter().map(|a| a.id.as_str()).collect();
+        ids.sort();
+        let mut dedup = ids.clone();
+        dedup.dedup();
+        assert_eq!(ids.len(), dedup.len(), "agent id 必须唯一");
+        assert!(agents.iter().any(|a| a.id == "opencode"));
+        assert!(agents.iter().any(|a| a.id == "claude-code"));
+        assert!(agents.iter().any(|a| a.id == "codex"));
+        assert!(agents.iter().any(|a| a.id == "aider"));
+    }
+
+    // TC-AD-04  一致性：installed 与 executable 必须同时成立或同时缺失
+    #[test]
+    fn installed_implies_executable_path() {
+        for a in discover() {
+            if a.installed {
+                assert!(a.executable.is_some(), "{} installed 但 executable 为空", a.id);
+            } else {
+                assert!(a.executable.is_none(), "{} 未安装却带 executable 路径", a.id);
+            }
+        }
+    }
+
+    // TC-AD-05  API 投影：executable 必须是布尔且等于 installed（对齐移动端契约）
+    #[test]
+    fn api_projection_reports_executable_as_bool() {
+        let installed = AgentEntry {
+            id: "opencode".into(),
+            name: "OpenCode".into(),
+            installed: true,
+            active: true,
+            executable: Some("C:/npm/opencode.cmd".into()),
+            version: Some("1.0.0".into()),
+        };
+        let api = AgentEntryApi::from(&installed);
+        assert!(api.executable);
+        assert_eq!(api.version.as_deref(), Some("1.0.0"));
+
+        let missing = AgentEntry {
+            id: "aider".into(),
+            name: "Aider".into(),
+            installed: false,
+            executable: None,
+            version: None,
+            ..installed.clone()
+        };
+        let api = AgentEntryApi::from(&missing);
+        assert!(!api.executable, "未安装时 executable 必须为 false");
+        assert!(api.version.is_none());
+    }
+
+    // TC-AD-06  序列化契约：字段名必须与前端 types.ts 完全一致
+    #[test]
+    fn api_entry_serializes_with_expected_keys() {
+        let api = AgentEntryApi::from(&AgentEntry {
+            id: "codex".into(),
+            name: "Codex CLI".into(),
+            installed: true,
+            active: false,
+            executable: Some("codex".into()),
+            version: Some("2.0.0".into()),
+        });
+        let v = serde_json::to_value(&api).unwrap();
+        for key in ["id", "name", "installed", "active", "executable", "version"] {
+            assert!(v.get(key).is_some(), "缺少字段 {key}");
+        }
+        assert!(v["executable"].is_boolean(), "executable 必须是布尔，不能是路径字符串");
+    }
+}

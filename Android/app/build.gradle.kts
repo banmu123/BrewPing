@@ -49,6 +49,14 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    testOptions {
+        unitTests {
+            // 让 android.jar 中的方法（Log、ContextWrapper 等）返回默认值而非抛 "Stub!" 异常，
+            // 以便在纯 JVM 上测试 ApiClient / DeviceStore。
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
@@ -83,6 +91,8 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
     testImplementation("org.mockito:mockito-core:5.10.0")
+    // 真实的 org.json 实现：android.jar 中的 org.json 在单元测试中不可用
+    testImplementation("org.json:json:20240303")
 
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
