@@ -37,6 +37,9 @@ struct AgentEntry: Decodable, Identifiable {
     let active: Bool?
     let executable: Bool?
     let version: String?
+    /// 用户在该主机上选定的工作目录；缺失/为 null = 未设置（跟随进程当前目录）。
+    /// 老版本桌面端不返回这个字段，`?` 保证解码不炸。
+    let workdir: String?
 }
 
 enum SessionState: Equatable {
@@ -875,6 +878,7 @@ struct ContentView: View {
                 }
             }
             modelRow
+            workdirRow
             approvalModeRow
             if !sessionID.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
@@ -962,6 +966,45 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    /// 工作目录入口 —— **必须排在模型入口（`modelRow`）下面**（用户明确要求的顺序）。
+    ///
+    /// 显示条件：有已配对设备且默认 Agent 不是 opencode（stub 不 spawn 子进程，
+    /// 主机端会直接拒绝，提前拦住避免一次注定失败的请求）。
+    /// 老版本桌面端没有目录浏览接口时降级：入口仍显示，点进去看解释文案。
+    @ViewBuilder
+    private var workdirRow: some View {
+        if let device = activeDevice, DeviceAuth.isPaired(device),
+           FolderBrowserStore.supportsWorkdir(agentID: activeAgentID) {
+            NavigationLink {
+                FolderBrowserView(
+                    device: device,
+                    agentID: activeAgentID,
+                    currentWorkdir: activeAgentWorkdir,
+                    onSet: { _ in
+                        Task { await refreshAgents() }
+                    }
+                )
+            } label: {
+                HStack(spacing: 8) {
+                    Text("Working Folder Entry")
+                        .font(.callout)
+                    Spacer()
+                    // workdir 是主机上的路径数据，不翻译。
+                    Text(verbatim: activeAgentWorkdir ?? "—")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+            }
+        }
+    }
+
+    /// 当前默认 Agent 在主机上已设置的工作目录（`/api/agents` 的 `workdir` 字段）。
+    private var activeAgentWorkdir: String? {
+        agents.first(where: { $0.id == activeAgentID })?.workdir ?? nil
     }
 
     /// 授权模式切换，紧跟在模型入口下方。

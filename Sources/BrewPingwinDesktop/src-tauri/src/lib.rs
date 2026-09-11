@@ -8,6 +8,7 @@ use services::http_server::{AppState, CommandStore};
 use services::model_prefs::ModelPrefs;
 use services::pairing_store::PairingStore;
 use services::terminal_state::{AgentStatus, AgentTerminalState, OutputType, TerminalManager};
+use services::workdir_prefs::WorkdirPrefs;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use tokio::sync::RwLock;
@@ -156,6 +157,7 @@ async fn get_status(core: tauri::State<'_, DesktopCore>) -> Result<serde_json::V
         .map(|a| {
             let mut api = AgentEntryApi::from(a);
             api.active = api.installed && a.id == default_agent;
+            api.workdir = core.state.workdir_prefs.get(&a.id);
             api
         })
         .collect();
@@ -454,10 +456,36 @@ async fn send_command(
     }
     let _ = app.emit("terminal-updated", ());
 
+    // ★ cwd 预检（与 http_server::submit_command 同构，方案 §5.10 要求两处一致）：
+    //   目录没了必须报 invalid_workdir，不能静默回退到进程 cwd，也不能笼统报
+    //   process_exited。is_dir 在断开的网络盘上可能阻塞，所以放进 spawn_blocking。
+    let selected_workdir = core.state.workdir_prefs.get(&agent_id);
+    if let Some(dir) = selected_workdir.as_deref() {
+        let probe = dir.to_string();
+        let dir_ok = tokio::task::spawn_blocking(move || std::path::Path::new(&probe).is_dir())
+            .await
+            .unwrap_or(false);
+        if !dir_ok {
+            {
+                let mut map = core.terminal.agents.write().await;
+                if let Some(state) = map.get_mut(&agent_id) {
+                    state.append_line(
+                        &format!("Error: Workdir not available: {}", dir),
+                        OutputType::Error,
+                    );
+                    state.set_status(AgentStatus::Error);
+                }
+            }
+            let _ = app.emit("terminal-updated", ());
+            return Ok(());
+        }
+    }
+
     let terminal = core.terminal.clone();
     let agent_id_clone = agent_id.clone();
     let executable_clone = executable.clone();
     let text_clone = text.clone();
+    let workdir_clone = selected_workdir.clone();
     let app_clone = app.clone();
 
     // Use spawn_blocking for synchronous process execution
@@ -466,6 +494,10 @@ async fn send_command(
         cmd.arg(&text_clone)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
+        // ★ 关键一行：注入用户选定的工作目录（子进程级，不用 set_current_dir）。
+        if let Some(dir) = workdir_clone.as_deref() {
+            cmd.current_dir(dir);
+        }
 
         // Add common PATH entries on Windows
         #[cfg(windows)]
@@ -592,6 +624,8 @@ pub fn run() {
             let approval = Arc::new(ApprovalGate::new());
             // 模型偏好同理：手机端写入、执行命令时读取，必须是同一份。
             let model_prefs = Arc::new(ModelPrefs::new());
+            // 工作目录偏好同理：手机端选目录、执行命令时注入 cwd，必须是同一份。
+            let workdir_prefs = Arc::new(WorkdirPrefs::new());
 
             let app_state = AppState {
                 identity: identity.clone(),
@@ -605,6 +639,7 @@ pub fn run() {
                 pairing: pairing.clone(),
                 approval: approval.clone(),
                 model_prefs: model_prefs.clone(),
+                workdir_prefs: workdir_prefs.clone(),
             };
 
             let core = DesktopCore {

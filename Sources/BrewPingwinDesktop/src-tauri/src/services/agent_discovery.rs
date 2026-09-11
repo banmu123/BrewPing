@@ -31,6 +31,11 @@ pub struct AgentEntryApi {
     pub active: bool,
     pub executable: bool,
     pub version: Option<String>,
+    /// 用户选定的工作目录；`null` = 未指定（跟随进程当前目录）。
+    /// 由 `http_server::handle_agents` / `handle_discovery_refresh` 与 `lib.rs`
+    /// 的 Tauri command 从 `WorkdirPrefs` 填充，`From<&AgentEntry>` 保持 `None`。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workdir: Option<String>,
 }
 
 impl From<&AgentEntry> for AgentEntryApi {
@@ -42,6 +47,7 @@ impl From<&AgentEntry> for AgentEntryApi {
             active: entry.active,
             executable: entry.installed,
             version: entry.version.clone(),
+            workdir: None,
         }
     }
 }

@@ -20,6 +20,7 @@ final class DemoURLProtocol: URLProtocol {
         let (status, payload) = DemoBackend.shared.handle(
             method: request.httpMethod ?? "GET",
             path: url.path,
+            query: url.query,
             body: Self.bodyData(of: request)
         )
         // Demo 链路全部走本拦截器，这里记一条 debug 日志：

@@ -210,3 +210,35 @@
 "Camera is not available on this device." = "此设备没有可用的相机。";
 "Scanned. Tap Pair to finish." = "已读取，点「配对」完成。";
 "This QR code isn't a BrewPing pairing code." = "这个二维码不是 BrewPing 的配对码。";
+
+/* MARK: - 工作目录（浏览主机文件夹） */
+"Working Folder" = "工作目录";
+"Loading folders…" = "正在加载文件夹…";
+"Can't reach the host." = "无法连接主机。";
+"Pair with this host first." = "请先与这台主机配对。";
+"Can't load folders: %@" = "无法加载文件夹：%@";
+"The host took too long to respond." = "主机响应超时。";
+"This host doesn't support folder browsing. Update the desktop app." = "这台主机不支持文件夹浏览，请更新桌面端。";
+"Network shares (\\\\server\\share) aren't allowed." = "不支持网络共享路径（\\\\服务器\\共享）。";
+"This path is outside the allowed roots." = "该路径在允许范围之外。";
+"That path doesn't exist or isn't a folder." = "该路径不存在或不是文件夹。";
+"No permission to read this folder." = "没有读取该文件夹的权限。";
+"This host doesn't know that agent." = "这台主机上没有这个 Agent。";
+"This agent doesn't support working folders yet." = "该 Agent 尚未支持工作目录。";
+"Can't set the folder: %@" = "设置文件夹失败：%@";
+"Hidden" = "隐藏";
+"Empty Folder" = "空文件夹";
+"This folder has no subfolders." = "这个文件夹没有子文件夹。";
+"No Permission" = "无权限";
+"This folder can't be read on the host." = "主机上无法读取这个文件夹。";
+"Can't Browse Folders" = "无法浏览文件夹";
+"Retry" = "重试";
+"Path on host" = "主机上的路径";
+"Load More" = "加载更多";
+"Current working folder" = "当前工作目录";
+"Set Working Folder" = "设置工作目录";
+"Set Here" = "选这个";
+"Workdir set alert message" = "把 %@ 设为该 Agent 的工作目录？";
+"Symbolic link" = "符号链接";
+"Working Folder Entry" = "工作目录";
+"Working Folder Entry Hint" = "该 Agent 尚未支持工作目录";

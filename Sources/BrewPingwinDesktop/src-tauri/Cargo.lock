@@ -257,6 +257,7 @@ dependencies = [
  "axum",
  "chrono",
  "dirs",
+ "dunce",
  "env_logger",
  "hostname",
  "local-ip-address",
@@ -271,6 +272,7 @@ dependencies = [
  "tokio",
  "uuid",
  "which",
+ "windows-sys 0.52.0",
  "winreg",
 ]
 

@@ -11,6 +11,8 @@ import Foundation
 /// Demo 里"用户选过的模型"的存储键。
 /// 放在类型外是因为 Swift 不允许在**存储属性的初始化器**里引用 `Self`（covariant 'Self'）。
 private let demoPreferredModelsKey = "BrewPing.Demo.PreferredModels"
+/// Demo 里"用户选过的工作目录"的存储键。
+private let demoWorkdirsKey = "BrewPing.Demo.Workdirs"
 
 final class DemoBackend {
     static let shared = DemoBackend()
@@ -62,6 +64,9 @@ final class DemoBackend {
     /// Demo 若只在内存里记，重启 App 就会退回第一个模型，与真实行为不一致。
     private var preferredModel: [String: String] =
         (UserDefaults.standard.dictionary(forKey: demoPreferredModelsKey) as? [String: String]) ?? [:]
+    /// Demo 里用户选过的工作目录（按 Agent 分别记），与真机 `workdirs.json` 行为一致。
+    private var workdirs: [String: String] =
+        (UserDefaults.standard.dictionary(forKey: demoWorkdirsKey) as? [String: String]) ?? [:]
 
     private struct DemoCommand {
         let text: String
@@ -79,15 +84,25 @@ final class DemoBackend {
     // MARK: - Entry
 
     /// 处理一条虚拟请求，返回 (HTTP 状态码, JSON 对象)。
-    func handle(method: String, path: String, body: Data) -> (Int, [String: Any]) {
+    /// `query` 是原始 query string（不含 `?`）；目录浏览的 `path` 参数靠它传进来。
+    func handle(method: String, path: String, query: String? = nil, body: Data) -> (Int, [String: Any]) {
         let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+        let queryItems = Self.parseQuery(query)
 
         switch (method, path) {
         case ("GET", "/api/status"):
             return (200, statusPayload())
 
         case ("GET", "/api/agents"):
-            return (200, ["agents": Self.agents, "defaultAgent": activeAgent()])
+            // workdir 并进每个 agent（缺失 = 未设置），与真实桌面端的 /api/agents 对齐
+            let agentsWithWorkdir: [[String: Any]] = Self.agents.map { agent in
+                var a = agent
+                if let id = a["id"] as? String {
+                    a["workdir"] = workdirs[id] ?? NSNull()
+                }
+                return a
+            }
+            return (200, ["agents": agentsWithWorkdir, "defaultAgent": activeAgent()])
 
         case ("POST", "/api/agents/default"):
             let agentID = json["agent"] as? String ?? "opencode"
@@ -191,7 +206,111 @@ final class DemoBackend {
             lock.unlock()
             return (200, ["success": true, "agentId": agentID, "modelId": saved ?? NSNull()] as [String: Any])
         }
+        // ── 目录浏览（与 Windows 端 /api/folders* 同构，Demo 里也能走通"选工作目录"） ──
+        if method == "GET", path == "/api/folders/roots" {
+            return (200, [
+                "platform": "windows",
+                "pathSeparator": "\\",
+                "homeDir": Self.demoHome,
+                "drives": ["C:\\", "D:\\"]
+            ])
+        }
+        if method == "GET", path == "/api/folders" {
+            return browsePayload(queryItems: queryItems)
+        }
+        if method == "POST", path == "/api/agents/workdir" {
+            let agentID = json["agentId"] as? String ?? ""
+            let workdir = json["path"] as? String
+            guard !agentID.isEmpty else {
+                return (400, ["success": false, "error": "expected JSON body {\"agentId\": \"...\", \"path\": \"...\" | null}"])
+            }
+            if agentID == "opencode" {
+                return (400, ["success": false, "error": "opencode does not support workdir yet"])
+            }
+            lock.lock()
+            if let workdir, !workdir.isEmpty {
+                workdirs[agentID] = workdir
+            } else {
+                workdirs.removeValue(forKey: agentID)
+            }
+            UserDefaults.standard.set(workdirs, forKey: demoWorkdirsKey)
+            let saved = workdirs[agentID]
+            lock.unlock()
+            return (200, ["success": true, "agentId": agentID, "workdir": saved ?? NSNull()] as [String: Any])
+        }
         return (404, ["success": false, "error": "not found"])
+    }
+
+    /// 解析原始 query string（`a=1&b=2`）。只做 percent-decode，不抛错。
+    private static func parseQuery(_ query: String?) -> [String: String] {
+        guard let query else { return [:] }
+        var out: [String: String] = [:]
+        for pair in query.split(separator: "&") {
+            let kv = pair.split(separator: "=", maxSplits: 1)
+            guard let key = kv.first.map(String.init).flatMap({ $0.removingPercentEncoding }) else { continue }
+            let value = kv.count > 1 ? (String(kv[1]).removingPercentEncoding ?? String(kv[1])) : ""
+            out[key] = value
+        }
+        return out
+    }
+
+    /// Demo 浏览页的固定 home（Windows 风格路径，与 roots.homeDir 对齐）。
+    private static let demoHome = "C:\\Users\\Demo"
+
+    /// 模拟一层数据源：home → 三个项目目录（其一含 .git、其一不可读），项目下为空。
+    /// 覆盖 UI 需要分辨的三种形态：普通 / git 徽章 / unreadable 置灰。
+    private func browsePayload(queryItems: [String: String]) -> (Int, [String: Any]) {
+        let path = queryItems["path"].flatMap { $0.isEmpty ? nil : $0 } ?? demoHome
+        let showHidden = ["1", "true", "TRUE", "yes"].contains(queryItems["hidden"] ?? "")
+
+        func entry(_ name: String, parent: String, git: Bool = false, unreadable: Bool = false) -> [String: Any] {
+            var e: [String: Any] = [
+                "name": name,
+                "absolutePath": parent + "\\" + name,
+                "isSymlink": false,
+                "hidden": false
+            ]
+            if git { e["hints"] = ["git": true] }
+            if unreadable { e["error"] = "unreadable" }
+            return e
+        }
+
+        let target = path.hasSuffix("\\") ? String(path.dropLast()) : path
+        let parent: String? = {
+            guard let idx = target.lastIndex(of: "\\") else { return nil }
+            let p = String(target[..<idx])
+            // "C:" 这种无根形式视为无父目录
+            return p.count <= 2 ? nil : p
+        }()
+
+        // home（含盘符根）→ projects；projects → 三个项目（git 徽章 / 普通 / 不可读）；其余为空。
+        let entries: [[String: Any]]
+        if target == "C:" || target == "C:\\" || target == "D:" || target == "D:\\" || target == Self.demoHome {
+            entries = [
+                entry("projects", parent: target),
+                entry(".hidden-assets", parent: target)
+            ]
+        } else if target.hasSuffix("\\projects") {
+            entries = [
+                entry("brewping-ios", parent: target, git: true),
+                entry("legacy-app", parent: target),
+                entry("locked-archive", parent: target, unreadable: true)
+            ]
+        } else {
+            entries = []
+        }
+
+        // 隐藏目录默认过滤（与真实服务端一致）
+        let visible = showHidden
+            ? entries
+            : entries.filter { !($0["name"] as? String ?? "").hasPrefix(".") }
+
+        return (200, [
+            "path": target,
+            "parentPath": parent ?? NSNull(),
+            "entries": visible,
+            "truncated": false
+        ] as [String: Any])
     }
 
     // MARK: - Payloads

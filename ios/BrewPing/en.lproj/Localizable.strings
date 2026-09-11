@@ -212,3 +212,35 @@
 "Camera is not available on this device." = "Camera is not available on this device.";
 "Scanned. Tap Pair to finish." = "Scanned. Tap Pair to finish.";
 "This QR code isn't a BrewPing pairing code." = "This QR code isn't a BrewPing pairing code.";
+
+/* MARK: - Working folder (host folder browser) */
+"Working Folder" = "Working Folder";
+"Loading folders…" = "Loading folders…";
+"Can't reach the host." = "Can't reach the host.";
+"Pair with this host first." = "Pair with this host first.";
+"Can't load folders: %@" = "Can't load folders: %@";
+"The host took too long to respond." = "The host took too long to respond.";
+"This host doesn't support folder browsing. Update the desktop app." = "This host doesn't support folder browsing. Update the desktop app.";
+"Network shares (\\\\server\\share) aren't allowed." = "Network shares (\\\\server\\share) aren't allowed.";
+"This path is outside the allowed roots." = "This path is outside the allowed roots.";
+"That path doesn't exist or isn't a folder." = "That path doesn't exist or isn't a folder.";
+"No permission to read this folder." = "No permission to read this folder.";
+"This host doesn't know that agent." = "This host doesn't know that agent.";
+"This agent doesn't support working folders yet." = "This agent doesn't support working folders yet.";
+"Can't set the folder: %@" = "Can't set the folder: %@";
+"Hidden" = "Hidden";
+"Empty Folder" = "Empty Folder";
+"This folder has no subfolders." = "This folder has no subfolders.";
+"No Permission" = "No Permission";
+"This folder can't be read on the host." = "This folder can't be read on the host.";
+"Can't Browse Folders" = "Can't Browse Folders";
+"Retry" = "Retry";
+"Path on host" = "Path on host";
+"Load More" = "Load More";
+"Current working folder" = "Current working folder";
+"Set Working Folder" = "Set Working Folder";
+"Set Here" = "Set Here";
+"Workdir set alert message" = "Set %@ as the working folder for this agent?";
+"Symbolic link" = "Symbolic link";
+"Working Folder Entry" = "Working Folder";
+"Working Folder Entry Hint" = "This agent doesn't support working folders yet";

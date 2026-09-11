@@ -45,6 +45,37 @@ enum BrewPingHTTP {
         return request
     }
 
+    /// `request(device:path:)` 的 URLComponents 版本。
+    ///
+    /// 字符串拼接 `base + path` 只在 path 本身就是合法 URL 字符时可靠；
+    /// 目录浏览的 query 里会出现 Windows 路径（空格 / 中文 / `#` / `&`），
+    /// `URL(string:)` 会直接返回 nil 或把 `#` 当 fragment 截断。
+    /// 必须经 `URLComponents` 让 percent-encoding 交给 Foundation 处理。
+    static func request(
+        device: ManagedDevice?,
+        path: String,
+        queryItems: [URLQueryItem],
+        method: String = "GET",
+        timeout: TimeInterval = 30
+    ) -> URLRequest? {
+        guard let device, let base = device.baseURL else { return nil }
+        var comps = URLComponents(string: base.absoluteString)
+        comps?.path = path
+        comps?.queryItems = queryItems
+        guard let url = comps?.url else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = timeout
+
+        if !device.isDemo, let token = DeviceAuth.token(for: device), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue(String(Int(Date().timeIntervalSince1970)), forHTTPHeaderField: "X-BrewPing-Timestamp")
+            request.setValue(UUID().uuidString, forHTTPHeaderField: "X-BrewPing-Nonce")
+        }
+        return request
+    }
+
     /// 配对请求：拿 6 位配对码去换长期 token。
     /// 这是**唯一**一个不需要鉴权头的业务接口。
     static func pairingRequest(host: String, port: String, code: String, deviceName: String) -> URLRequest? {

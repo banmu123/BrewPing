@@ -51,6 +51,17 @@
 - **Demo 模式**：iOS 侧通过 `DemoURLProtocol` 拦截 `demo.brewping.local`，**不改动调用方代码**；`ManagedDevice.isDemo` 靠 host 判定（故意不加 Codable 字段，避免旧 UserDefaults JSON 解码失败清空设备列表）。
 - **日志**：iOS 用 `BrewPingLog`、Watch 用 `WatchLog`，禁止裸 `print`；可能含用户内容的值标 `privacy: .private`。
 - **隐私清单**：主 App 声明 `NSPrivacyAccessedAPICategoryUserDefaults / CA92.1`；Watch 声明 `NSPrivacyAccessedAPICategoryFileTimestamp / C617.1`。用了新的 Required Reason API 时必须同步更新对应 `PrivacyInfo.xcprivacy`。
+- **Windows 桌面端（`Sources/BrewPingwinDesktop`，Tauri 2 + axum 0.8）**：
+  - **HTTP 错误体必须永远是 JSON**（契约 `TC-HT-26`，`http_server.rs:1811`）。因此新增 query 参数**必须声明为 `Option<String>` 再手工解析** —— 用 axum 强类型反序列化时解析失败会返回 **400 纯文本**，直接违反该契约。
+  - **所有偏好落盘 `~/.brewping/*.json`**（`device.json` / `pairing.json` / `approval.json` / `models.json`），一个偏好一个文件。`Stored` 结构体**必须带 `#[serde(default)]`**，否则老用户配置文件会让 decode 失败并清空数据。测试必须用 `with_path(temp)` 隔离，别写用户真实目录。
+  - **⚠️ Agent 执行有「两处」`Command::new`**：`http_server.rs:687`（手机端 `submit_command`）与 `lib.rs:464`（桌面端 `send_command`），是历史复制出来的两份代码。**任何与执行有关的改动（参数、env、cwd）必须同批改两处**，否则出现「手机端生效、桌面端不生效」的分裂。
+  - **`opencode` 在 Windows 端是 stub**（`http_server.rs:620` / `lib.rs:382`）：只 append 一行文本就置 completed，**从不 spawn 进程**。要让 opencode 真正执行需先做 ConPTY，属独立工程。
+  - 仓库**没有 `capabilities/` 源码目录**（只有 `gen/schemas/` 自动生成的 schema），`tauri-plugin-dialog` **不是依赖**。新增 Tauri 插件权限面**无先例**，落地前先确认现有 `plugins.shell.open` 是否实际生效。
+  - 鉴权：`auth_middleware` 用 `route_layer` 作用全表，**新增路由自动受保护**；公开白名单只有 `POST /api/pair` 与 `GET /api/status`。`PairingStore::authorize` 对 **`GET` 只校验 Bearer、免 nonce** → 只读接口设计成 GET 即可省掉 nonce。
+  - 新增/修改端点时**必须同步 `ios/BrewPing/DemoBackend.swift` 的 switch**（约 `:82-190`），否则 Demo 模式 404。注意 **`DemoURLProtocol` 只传 `url.path`，query 要显式传 `url.query`**（2026-09-11 已改，`handle(method:path:query:body:)`）。
+  - **「获取文件夹」已实现**（方案见 `.workbuddy/outputs/BrewPing-获取文件夹-Windows落地方案.md`）：`services/folder_browser.rs`（浏览逻辑，纯函数）+ `services/workdir_prefs.rs`（`workdirs.json`）+ `services/folder_api.rs`（3 端点：`GET /api/folders/roots`、`GET /api/folders`、`POST /api/agents/workdir`）。**cwd 注入两处 spawn 点都改了**（`submit_command` + `send_command`，目录失效报 `invalid_workdir`）；opencode 是 stub，设 workdir 明确 400。**安全铁律**：UNC 在 realpath 前拒绝（SMB 凭据外泄）；白名单作用在 realpath **之后**（junction 防绕过）；`can_read_dir` 只探测目录句柄不读内容（OneDrive 防下载）；盘符用 `GetLogicalDrives` 枚举，**禁止 A–Z 探测**。iOS 侧 `FolderBrowserStore/FolderBrowserView` + `BrewPingHTTP` 的 **URLComponents 重载**（query 含 Windows 路径必须走它，`URL(string:)` 拼接会败）；**绝不用 `.fileImporter`**（那是 iPhone 的文件系统）。
+  - **windows-sys 0.52 的 `DRIVE_*` 常量在 `Win32::System::WindowsProgramming`**，不在 `Storage::FileSystem`（`GetLogicalDrives`/`GetDriveTypeW`/`SetFileAttributesW` 才在后者）。
+  - **⚠️ Windows 桌面端的"重启"必须走 `npm run tauri dev`（PowerShell 后台）**：直接跑 `target/release/brewping-desktop.exe` 内嵌的是**编译时打包的旧 dist**，表现为窗口出来但 UI 是旧版/缺功能（2026-09-11 踩到："配对码不见了"，release exe 是前一天编译的）。且 Git Bash 里 `npm` 会被解析成 WSL 版触发沙箱黑名单（wsl.exe）——必须用 PowerShell 工具跑；`tauri dev` 若报 debug exe exit code 1，先查 8787 端口残留进程。带 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--no-sandbox"` 启动。
 
 ## 已知坑
 
@@ -68,6 +79,13 @@
 - **`build-app.sh` 必须全量构建，不能用 `--target`**：脚本原来写的是 `swift build --target BrewPingDesktop -c release`，**`--target` 只编该 target 本身，依赖库 `BrewPingCore` 不会重编** —— 于是改完 `Sources/App/**`（HTTPAPI、ApprovalGate 等都在 Core 里）后打出的 .app 仍是旧逻辑（2026-09-11 实际踩到：iOS 切授权模式一直没反应，因为 .app 里根本没有 `/api/approvals` 路由）。已改为 `swift build -c release --disable-sandbox`（去掉 `--target`、补上 `--disable-sandbox`）。
   - 快速自检产物是否含最新代码：`strings "build/BrewPing Desktop.app/Contents/MacOS/BrewPingDesktop" | grep -c "api/approvals"`（0 = 旧二进制）。
   - **release 与 debug 是两套独立缓存**：平时 `swift build` 只更新 debug；只跑过 debug 验证不代表 release 产物也是新的。
+- **Windows 端目录/路径的四个坑**（做「获取文件夹」类功能时必踩）：
+  - `std::fs::canonicalize` **必定**返回 `\\?\C:\...` verbatim 形式 → 用 `dunce::simplified` 剥离，否则前端显示不可读路径。
+  - 「隐藏」是 **`FILE_ATTRIBUTE_HIDDEN` 属性位**，不是 dotfile → 必须 `name.starts_with('.') || metadata.file_attributes() & 0x2 != 0` 两者都认（只判点号会漏掉 `AppData`、`$RECYCLE.BIN`）。
+  - 枚举盘符**必须用 `GetLogicalDrives` + `GetDriveTypeW`**，**禁止 A–Z 逐个 `Path::exists()` 探测** —— 空光驱 / 断开的网络映射盘会让单次调用阻塞数秒。
+  - `is_symlink()` 对 **junction 也返回 true**（普通用户可建，最现实的路径白名单绕过手段）→ 白名单**必须作用在 realpath 之后**；而 **OneDrive 占位文件返回 false 但读内容会触发全量下载** → 判「不可读」绝不能读文件内容。
+  - 浏览 `\\server\share` 类 **UNC 路径会触发 SMB 认证**（主机名 + NTLM 哈希外泄，SMB relay）→ 必须在 realpath 之前按字符串拒绝。
+  - 验证子进程 cwd：Windows 用户态**没有查询进程 cwd 的 API**（cwd 在目标 PEB 里），`wmic` / `Get-Process` / `Get-CimInstance Win32_Process` **都只给 exe 路径**。可用手段只有：`cmd /c cd` 机制单测、失败码探针、Sysinternals **Process Explorer** 的 `Properties → Image → Current Directory`。
 
 ## 占位值 / 上架配置
 

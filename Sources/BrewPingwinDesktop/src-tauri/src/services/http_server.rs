@@ -19,6 +19,7 @@ use super::device_identity::DeviceIdentity;
 use super::model_prefs::ModelPrefs;
 use super::pairing_store::{AuthDecision, PairingStore};
 use super::terminal_state::{AgentStatus, OutputType, TerminalManager};
+use super::workdir_prefs::WorkdirPrefs;
 
 /// Shared application state for the HTTP server.
 #[derive(Clone)]
@@ -37,6 +38,8 @@ pub struct AppState {
     pub approval: Arc<ApprovalGate>,
     /// 用户通过 App 选定的默认模型（与 macOS `AgentManager._defaultModels` 对应）。
     pub model_prefs: Arc<ModelPrefs>,
+    /// 用户通过 App 选定的工作目录（agentId → 绝对路径，`None` = 跟随进程 cwd）。
+    pub workdir_prefs: Arc<WorkdirPrefs>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -244,6 +247,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/agents/default", post(handle_set_default_agent))
         .route("/api/agents/{agent_id}/models", get(handle_agent_models))
         .route("/api/agents/models/default", post(handle_set_default_model))
+        .route("/api/agents/workdir", post(super::folder_api::handle_set_agent_workdir))
+        .route("/api/folders/roots", get(super::folder_api::handle_folder_roots))
+        .route("/api/folders", get(super::folder_api::handle_browse_folder))
         .route("/api/pair", post(handle_pair))
         .route("/api/message", post(handle_send_message))
         .route("/api/message/{id}", get(handle_get_message))
@@ -343,6 +349,7 @@ async fn handle_agents(
         .map(|a| {
             let mut api = AgentEntryApi::from(a);
             api.active = api.installed && a.id == default_agent;
+            api.workdir = state.workdir_prefs.get(&a.id);
             api
         })
         .collect();
@@ -611,6 +618,8 @@ pub async fn submit_command(state: &AppState, text: &str) -> Result<SuccessRespo
     let text = text.to_string();
     // 用户选定的默认模型（可能为 None）。必须在 spawn 之前取好：闭包里拿不到 `state`。
     let selected_model = state.model_prefs.get(&agent_id);
+    // 用户选定的工作目录（可能为 None）。同上，必须在 spawn 之前取好。
+    let selected_workdir = state.workdir_prefs.get(&agent_id);
 
     tokio::spawn(async move {
         command_store.set_working(&cmd_id).await;
@@ -676,9 +685,35 @@ pub async fn submit_command(state: &AppState, text: &str) -> Result<SuccessRespo
                 }
             }
 
+            // ★ cwd 预检：目录已被删除 / 改名 / 卸载（U 盘拔掉 / 网络盘断开）时，
+            //   必须报独立的 invalid_workdir，不能笼统报 process_exited ——
+            //   否则手机端无法区分"命令失败"和"目录没了"（方案 §5.9）。
+            //   is_dir 在断开的网络盘上可能阻塞数秒，所以也放进 spawn_blocking。
+            if let Some(dir) = selected_workdir.as_deref() {
+                let probe = dir.to_string();
+                let dir_ok = tokio::task::spawn_blocking(move || std::path::Path::new(&probe).is_dir())
+                    .await
+                    .unwrap_or(false);
+                if !dir_ok {
+                    let err = format!("Workdir not available: {}", dir);
+                    {
+                        let mut map = terminal.agents.write().await;
+                        if let Some(term) = map.get_mut(&aid) {
+                            term.append_line(&format!("Error: {}", err), OutputType::Error);
+                            term.set_status(AgentStatus::Error);
+                        }
+                    }
+                    command_store
+                        .set_failed(&cmd_id, err, Some("invalid_workdir".to_string()), None)
+                        .await;
+                    return;
+                }
+            }
+
             let exec_clone = executable.clone();
             let text_clone = text.clone();
             let model_clone = selected_model.clone();
+            let workdir_clone = selected_workdir.clone();
             let aid_clone = aid.clone();
             let terminal_clone = terminal.clone();
             let cmd_clone = cmd_id.clone();
@@ -692,6 +727,13 @@ pub async fn submit_command(state: &AppState, text: &str) -> Result<SuccessRespo
                 // 没选过就不加参数，沿用 Agent 自己配置文件里的设置 —— 不自作主张。
                 if let Some(model) = &model_clone {
                     cmd.arg("--model").arg(model);
+                }
+                // ★ 关键一行：把用户选定的工作目录注入子进程。
+                //   用 Command::current_dir（只影响该子进程），绝不用
+                //   std::env::set_current_dir（进程级全局状态，会污染同一
+                //   runtime 上的其它并发任务，方案 §4.4(d)）。
+                if let Some(dir) = workdir_clone.as_deref() {
+                    cmd.current_dir(dir);
                 }
                 cmd.stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped());
@@ -881,6 +923,7 @@ async fn handle_discovery_refresh(
         .map(|a| {
             let mut api = AgentEntryApi::from(a);
             api.active = api.installed && a.id == default_agent;
+            api.workdir = state.workdir_prefs.get(&a.id);
             api
         })
         .collect();
@@ -1086,6 +1129,16 @@ mod tests {
         path
     }
 
+    /// 同上：工作目录偏好的测试文件也必须隔离。
+    fn workdir_prefs_test_path() -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "brewping-http-workdirs-{}.json",
+            uuid::Uuid::new_v4().simple()
+        ));
+        path
+    }
+
     fn test_state() -> AppState {
         let agents = vec![
             entry("opencode", "OpenCode", true, Some("opencode")),
@@ -1106,6 +1159,7 @@ mod tests {
             pairing: Arc::new(PairingStore::with_fixed_token(TEST_TOKEN)),
             approval: Arc::new(ApprovalGate::with_path(approval_test_path())),
             model_prefs: Arc::new(ModelPrefs::with_path(model_prefs_test_path())),
+            workdir_prefs: Arc::new(WorkdirPrefs::with_path(workdir_prefs_test_path())),
         }
     }
 
@@ -1828,5 +1882,323 @@ mod tests {
         let srv = spawn_server().await;
         let (code, _) = request_anonymous(srv.port, "GET", "/api/agents/opencode/models", None);
         assert_eq!(code, 401);
+    }
+
+    // ─── 「获取文件夹」HTTP 契约（方案 §10.1，TC-HT-28..39） ─────────────────
+
+    // TC-HT-28 + TC-HT-29  roots 契约 + platform 取值锁定为 "windows"
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn folder_roots_contract() {
+        let srv = spawn_server().await;
+        let (code, v) = get(srv.port, "/api/folders/roots");
+        assert_eq!(code, 200);
+        assert_eq!(v["platform"], "windows", "platform 必须是 windows（不是 win32）");
+        assert_eq!(v["pathSeparator"], "\\");
+        assert!(v["homeDir"].is_string() && !v["homeDir"].as_str().unwrap().is_empty());
+        assert!(v["drives"].is_array(), "drives 必须是数组");
+        assert!(v["drives"].as_array().unwrap().len() >= 1, "至少应有 C:");
+    }
+
+    // TC-HT-30  /api/folders 缺省回退 home
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn browse_defaults_to_home() {
+        let srv = spawn_server().await;
+        let (code, v) = get(srv.port, "/api/folders");
+        assert_eq!(code, 200);
+        let roots = get(srv.port, "/api/folders/roots").1;
+        assert_eq!(
+            v["path"].as_str().unwrap().to_ascii_lowercase(),
+            roots["homeDir"].as_str().unwrap().to_ascii_lowercase(),
+            "缺省应浏览 home"
+        );
+        assert!(v["entries"].is_array());
+        assert_eq!(v["truncated"], false);
+    }
+
+    // TC-HT-31  非法 limit / hidden 必须降级为缺省值，不得返回 400 纯文本（护住 TC-HT-26）
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn browse_tolerates_garbage_query() {
+        let srv = spawn_server().await;
+        let (code, raw) = request(srv.port, "GET", "/api/folders?limit=abc&hidden=yes", None);
+        assert_eq!(code, 200);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&raw).expect("非法 query 仍必须是可解析 JSON，不能是 400 纯文本");
+        assert_eq!(parsed["truncated"], false);
+    }
+
+    // TC-HT-32  UNC 路径拒绝（在 realpath 之前，绝不触发 SMB 流量）
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn browse_rejects_unc() {
+        let srv = spawn_server().await;
+        let (code, raw) = request(srv.port, "GET", "/api/folders?path=%5C%5Cserver%5Cshare", None);
+        assert_eq!(code, 400);
+        let v = json(&raw);
+        assert_eq!(v["error"], "unc-not-allowed");
+    }
+
+    // TC-HT-35  opencode 明确拒绝 workdir（stub 不 spawn，设了也不生效，不能沉默接受）
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn workdir_rejects_opencode() {
+        let srv = spawn_server().await;
+        let dir = std::env::temp_dir().to_string_lossy().replace('\\', "\\\\");
+        let (code, v) = post(
+            srv.port,
+            "/api/agents/workdir",
+            &format!(r#"{{"agentId":"opencode","path":"{dir}"}}"#),
+        );
+        assert_eq!(code, 400);
+        assert!(
+            v["error"].as_str().unwrap().contains("does not support workdir"),
+            "错误信息必须明确说明不支持，实际: {}",
+            v["error"]
+        );
+    }
+
+    // TC-HT-34 + TC-HT-36  未知 agent → 404 JSON；合法 agent 设置成功且可回读
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn workdir_set_and_roundtrip() {
+        let srv = spawn_server().await;
+
+        let (code, v) = post(
+            srv.port,
+            "/api/agents/workdir",
+            r#"{"agentId":"no-such-agent","path":"C:\\"}"#,
+        );
+        assert_eq!(code, 404);
+        assert_eq!(v["success"], false);
+        assert!(v["error"].is_string(), "未知 agent 必须返回 JSON 错误");
+
+        let dir = std::env::temp_dir();
+        let dir_json = dir.to_string_lossy().replace('\\', "\\\\");
+        let (code, v) = post(
+            srv.port,
+            "/api/agents/workdir",
+            &format!(r#"{{"agentId":"claude-code","path":"{dir_json}"}}"#),
+        );
+        assert_eq!(code, 200);
+        assert_eq!(v["success"], true);
+        let stored = v["workdir"].as_str().unwrap().to_string();
+        assert!(!stored.starts_with("\\\\?\\"), "存盘路径必须已剥 \\\\?\\ 前缀");
+
+        // 回读：/api/agents 里该 agent 的 workdir 应一致
+        let (_, agents) = get(srv.port, "/api/agents");
+        let entry = agents["agents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["id"] == "claude-code")
+            .expect("claude-code 应在列表中");
+        assert_eq!(
+            entry["workdir"].as_str().unwrap().to_ascii_lowercase(),
+            stored.to_ascii_lowercase(),
+            "workdir 必须能从 /api/agents 回读"
+        );
+
+        // 清除：path=null → 200 且 workdir 变 null
+        let (code, v) = post(srv.port, "/api/agents/workdir", r#"{"agentId":"claude-code","path":null}"#);
+        assert_eq!(code, 200);
+        assert!(v["workdir"].is_null());
+
+        // 幂等：重复清除也是成功
+        let (code, _) = post(srv.port, "/api/agents/workdir", r#"{"agentId":"claude-code","path":null}"#);
+        assert_eq!(code, 200);
+    }
+
+    // TC-HT-37  新端点受鉴权保护
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn folder_endpoints_require_auth() {
+        let srv = spawn_server().await;
+        for (method, path) in [
+            ("GET", "/api/folders/roots"),
+            ("GET", "/api/folders"),
+        ] {
+            let (code, raw) = request_anonymous(srv.port, method, path, None);
+            assert_eq!(code, 401, "{} {} 匿名必须 401", method, path);
+            let parsed: serde_json::Value =
+                serde_json::from_str(&raw).expect("401 响应体必须是 JSON");
+            assert_eq!(parsed["success"], false);
+        }
+        let (code, raw) = request_anonymous(
+            srv.port,
+            "POST",
+            "/api/agents/workdir",
+            Some(r#"{"agentId":"claude-code","path":"C:\\"}"#),
+        );
+        assert_eq!(code, 401);
+        let _: serde_json::Value = serde_json::from_str(&raw).expect("401 响应体必须是 JSON");
+    }
+
+    // TC-HT-39  目录浏览不泄露文件内容：entries 只有目录项，没有 content / size 之类字段
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn browse_does_not_leak_file_content() {
+        let srv = spawn_server().await;
+        let root = std::env::temp_dir().join(format!("brewping-ht39-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(root.join("subdir")).unwrap();
+        std::fs::write(root.join("secret.txt"), b"TOP SECRET CONTENT").unwrap();
+
+        let (code, raw) = request(
+            srv.port,
+            "GET",
+            &format!("/api/folders?path={}", urlencode(root.to_str().unwrap())),
+            None,
+        );
+        assert_eq!(code, 200);
+        assert!(!raw.contains("TOP SECRET"), "绝不能返回文件正文");
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let names: Vec<&str> = v["entries"].as_array().unwrap().iter().map(|e| e["name"].as_str().unwrap()).collect();
+        assert!(names.contains(&"subdir"), "目录应列出");
+        assert!(!names.contains(&"secret.txt"), "文件必须被过滤");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// 把 Windows 路径编码成 query 值（测试辅助：反斜杠、冒号都要转义）。
+    fn urlencode(path: &str) -> String {
+        let mut out = String::new();
+        for b in path.bytes() {
+            match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    out.push(b as char)
+                }
+                _ => out.push_str(&format!("%{:02X}", b)),
+            }
+        }
+        out
+    }
+
+    // ─── cwd 注入（方案 §10.2） ──────────────────────────────────────────────
+
+    // TC-WD-02  机制层：Command::current_dir 在 Windows 上确实切目录
+    #[test]
+    fn current_dir_switches_subprocess_cwd() {
+        let dir = std::env::temp_dir().join(format!("brewping-cwd-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let out = std::process::Command::new("cmd")
+            .args(["/c", "cd"])
+            .current_dir(&dir)
+            .output()
+            .expect("cmd 应能启动");
+
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(
+            stdout.trim().to_ascii_lowercase(),
+            dir.to_string_lossy().trim().to_ascii_lowercase(),
+            "子进程 cwd 未切到指定目录"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // TC-WD-04  接线层：workdir 指向已删除的目录 → failureReason == "invalid_workdir"
+    //           （不是 process_exited）。同时证明偏好被读到、预检生效、错误分类正确。
+    //           注意 workdir 白名单包含 temp 盘符（固定盘在 allowlist 内）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn message_with_missing_workdir_fails_as_invalid_workdir() {
+        let srv = spawn_server().await;
+        // 让 claude-code 可用并指向 cmd，便于走真实 spawn 路径
+        srv.state.agents.write().await[1] = crate::services::agent_discovery::AgentEntry {
+            id: "claude-code".to_string(),
+            name: "Claude Code".to_string(),
+            installed: true,
+            active: true,
+            executable: Some("cmd".to_string()),
+            version: Some("1.0.0".into()),
+        };
+
+        // 设一个"当前存在"的 workdir，然后删掉它
+        let dir = std::env::temp_dir().join(format!("brewping-wd-gone-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir_str = dir.to_string_lossy().to_string();
+        srv.state
+            .workdir_prefs
+            .set("claude-code", Some(crate::services::folder_browser::validate_workdir(&dir_str).unwrap().as_str()));
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        // 切默认 agent 并开会话（POST /api/agents/default 会停掉已有会话）
+        post(srv.port, "/api/agents/default", r#"{"agent":"claude-code"}"#);
+        let (code, _) = post(srv.port, "/api/session/start", "{}");
+        assert_eq!(code, 200);
+
+        let (code, v) = post(srv.port, "/api/message", r#"{"text":"hello"}"#);
+        assert_eq!(code, 200);
+        let cmd_id = v["commandId"].as_str().expect("应有 commandId").to_string();
+
+        // 轮询直到终态
+        let mut status = String::new();
+        let mut failure_reason: Option<String> = None;
+        for _ in 0..50 {
+            let (_, v) = get(srv.port, &format!("/api/message/{}", cmd_id));
+            status = v["status"].as_str().unwrap_or("").to_string();
+            if status == "completed" || status == "failed" {
+                failure_reason = v["failureReason"].as_str().map(|s| s.to_string());
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert_eq!(status, "failed");
+        assert_eq!(
+            failure_reason.as_deref(),
+            Some("invalid_workdir"),
+            "目录没了必须报 invalid_workdir，实际 {:?}",
+            failure_reason
+        );
+    }
+
+    // TC-WD-02b  接线层（正向）：workdir 存在时，子进程 cwd 真的切过去了。
+    //            用一个 `@echo %CD%` 批处理文件作可执行文件，stdout 即为子进程 cwd。
+    //            （不直接用 `cmd /c cd`：text 是单个 arg，会被 Rust 引号成 "/c cd"，
+    //             cmd.exe 对这种引号的解析规则不可靠。Rust std 对 .cmd 会经 cmd.exe 启动。）
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn message_with_valid_workdir_runs_in_it() {
+        let srv = spawn_server().await;
+
+        let dir = std::env::temp_dir().join(format!("brewping-wd-here-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bat = std::env::temp_dir().join(format!("brewping-wd-printcwd-{}.cmd", uuid::Uuid::new_v4()));
+        std::fs::write(&bat, b"@echo %CD%\r\n").unwrap();
+
+        srv.state.agents.write().await[1] = crate::services::agent_discovery::AgentEntry {
+            id: "claude-code".to_string(),
+            name: "Claude Code".to_string(),
+            installed: true,
+            active: true,
+            executable: Some(bat.to_string_lossy().to_string()),
+            version: Some("1.0.0".into()),
+        };
+        // submit_command 的回显与 response 拼接都发生在 terminal entry 存在时
+        // （`map.get_mut(&aid)`），不 init 的话 response 会是空串。
+        srv.state
+            .terminal
+            .init_from_agents(&srv.state.agents.read().await.clone())
+            .await;
+        let dir_str = dir.to_string_lossy().to_string();
+        srv.state
+            .workdir_prefs
+            .set("claude-code", Some(crate::services::folder_browser::validate_workdir(&dir_str).unwrap().as_str()));
+
+        post(srv.port, "/api/agents/default", r#"{"agent":"claude-code"}"#);
+        post(srv.port, "/api/session/start", "{}");
+
+        let (code, v) = post(srv.port, "/api/message", r#"{"text":"ignored"}"#);
+        assert_eq!(code, 200);
+        let cmd_id = v["commandId"].as_str().expect("应有 commandId").to_string();
+
+        let mut response: Option<String> = None;
+        for _ in 0..50 {
+            let (_, v) = get(srv.port, &format!("/api/message/{}", cmd_id));
+            if v["status"] == "completed" {
+                response = v["response"].as_str().map(|s| s.to_string());
+                break;
+            }
+            assert_ne!(v["status"], "failed", "不应失败: {}", v["error"]);
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        let response = response.expect("命令应在超时前完成");
+        assert_eq!(
+            response.trim().to_ascii_lowercase(),
+            dir_str.trim().to_ascii_lowercase(),
+            "子进程应跑在设定的 workdir 里"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&bat);
     }
 }
