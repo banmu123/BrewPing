@@ -167,3 +167,47 @@
 "Add Manually" = "Add Manually";
 "In %@, click the menu bar icon and tap “Show Pairing Code”. A QR code will appear." = "In %@, click the menu bar icon and tap “Show Pairing Code”. A QR code will appear.";
 "Scan the QR with your iPhone, or enter the 6-digit code in the device sheet." = "Scan the QR with your iPhone, or enter the 6-digit code in the device sheet.";
+
+/* MARK: - Approval (dangerous command confirmation) */
+"Approval Required" = "Approval Required";
+"This command needs your approval" = "This command needs your approval";
+"Command" = "Command";
+"Reason" = "Reason";
+"Approve Once" = "Approve Once";
+"Always Allow This Type" = "Always Allow This Type";
+"Deny" = "Deny";
+"Command was denied." = "Command was denied.";
+
+"danger.rm_root" = "Delete root directory";
+"danger.recursive_delete" = "Recursive delete";
+"danger.force_push" = "Force push";
+"danger.git_reset_hard" = "Hard git reset";
+"danger.pipe_to_shell" = "Pipe remote script to shell";
+"danger.sudo" = "Run with elevated privileges";
+"danger.chmod_777" = "Make files world-writable";
+"danger.write_device" = "Write to raw device";
+"danger.dd_disk" = "Write disk image";
+"danger.drop_table" = "Drop database table";
+"danger.truncate_table" = "Truncate database table";
+"danger.ask_all" = "Requires confirmation";
+
+"approval.mode.safe" = "Safe";
+"approval.mode.askAll" = "Ask All";
+"approval.mode.auto" = "Auto";
+"approval.mode.safe.summary" = "Block risky commands only; everything else runs automatically.";
+"approval.mode.askAll.summary" = "Ask before every command.";
+"approval.mode.auto.summary" = "Run everything without asking (not recommended).";
+
+"Approval" = "Approval";
+"Approval Mode" = "Approval Mode";
+"Decides when BrewPing asks you to confirm before running a risky command on your Mac." = "Decides when BrewPing asks you to confirm before running a risky command on your Mac.";
+"Couldn't switch approval mode: %@" = "Couldn't switch approval mode: %@";
+
+/* MARK: - QR pairing scanner */
+"Scan QR Code" = "Scan QR Code";
+"Point at the QR code shown in %@ on your Mac." = "Point at the QR code shown in %@ on your Mac.";
+"You can still enter the 6-digit pairing code manually." = "You can still enter the 6-digit pairing code manually.";
+"Camera access was denied. Enable it in Settings to scan." = "Camera access was denied. Enable it in Settings to scan.";
+"Camera is not available on this device." = "Camera is not available on this device.";
+"Scanned. Tap Pair to finish." = "Scanned. Tap Pair to finish.";
+"This QR code isn't a BrewPing pairing code." = "This QR code isn't a BrewPing pairing code.";

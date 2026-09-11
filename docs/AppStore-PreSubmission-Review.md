@@ -23,7 +23,7 @@
 | 4  | 隐私清单 / 隐私政策          | 5.1.2             | ❌ 高风险          |
 | 5  | 数据收集与追踪              | 5.1.2             | ✅ 安全           |
 | 6  | 导出合规（加密）             | App Store Connect | ⚠️ 有风险         |
-| 7  | 设备族 / 屏幕方向 / iPad    | 2.1、4.x           | ❌ 高风险          |
+| 7  | 设备族 / 屏幕方向（iPhone 独占） | 2.1、4.x           | ✅ 安全           |
 | 8  | 商标与第三方品牌             | 5.2.1 / 2.3       | ⚠️ 有风险         |
 | 9  | 安全（鉴权 + 明文传输）与 2.5.2 | 2.5.2 / 安全审查      | ⚠️ 有风险         |
 | 10 | 元数据准确性（定位 vs 实际能力）   | 2.3               | ⚠️ 有风险         |
@@ -36,8 +36,7 @@
 2. **审核员无法测试**：需要 Demo 模式 + 审核备注 → 2.1
 3. **缺 `PrivacyInfo.xcprivacy`**，但代码使用 `UserDefaults` → 5.1.2
 4. **App 内无隐私政策入口** → 5.1.2
-5. **`TARGETED_DEVICE_FAMILY = "1,2"` 但只声明竖屏、无 iPad 布局** → 2.1
-6. **第三方品牌名直用**（OpenCode / Claude / Codex / Aider）→ 5.2.1
+5. **第三方品牌名直用**（OpenCode / Claude / Codex / Aider）→ 5.2.1
 
 ---
 
@@ -242,35 +241,22 @@ UserDefaults.standard.set(id, forKey: activeKey)
 
 ---
 
-## 6. 设备族 / 屏幕方向 / iPad（Guideline 2.1、4.x）
+## 6. 设备族 / 屏幕方向（Guideline 2.1、4.x）
 
-### 判定：❌ 高风险
+### 判定：✅ 安全（iPhone 独占）
 
 事实：
 
 ```
 ios/BrewPing.xcodeproj/project.pbxproj
-  TARGETED_DEVICE_FAMILY = "1,2"      ← iPhone + iPad
+  TARGETED_DEVICE_FAMILY = 1            ← 仅 iPhone
 ios/BrewPing/Info.plist
-  UISupportedInterfaceOrientations = [UIInterfaceOrientationPortrait]   ← 只有竖屏
-  （无 UISupportedInterfaceOrientations~ipad）
-  （无 UIRequiresFullScreen）
+  UISupportedInterfaceOrientations = [UIInterfaceOrientationPortrait]   ← 仅竖屏
 ```
 
-问题：
-
-1. 声明支持 iPad，但 App Store Connect 会要求**13 英寸 iPad 截图**；
-2. iPad 上 App 必须支持全部四个方向，除非显式设置 `UIRequiresFullScreen = true`；现在只声明竖屏 → 审核会判定"iPad 支持不完整"；
-3. `NavigationView`（L90）在 iPad 上会渲染成侧边栏分栏样式，但 UI 是按 iPhone 宽度设计的（`.frame(width:)` 未适配），观感会明显走形。
-
-### 修复（二选一）
-
-- **方案 A（推荐，成本最低）**：改为 iPhone 独占  
-  `TARGETED_DEVICE_FAMILY = 1`，iPad 相关截图与适配全部免除。
-- **方案 B**：真正支持 iPad
-  - 补 `UISupportedInterfaceOrientations~ipad`（四个方向全支持）
-  - 把 `NavigationView` 换成 `NavigationStack`（`NavigationView` 已废弃）
-  - 提供 iPad 截图
+App 定位是 iPhone 上的遥控器（Watch 为伴侣端），设备族只声明 iPhone。
+因此 App Store Connect 不需要额外的设备截图，也不存在"声明了未适配的设备族"
+这类 2.1 问题。Watch target 为 `TARGETED_DEVICE_FAMILY = 4`，属正常配置。
 
 ---
 

@@ -11,15 +11,22 @@ APP_ICON="logo/AppIcon.icns"
 SHOW_IN_DOCK="${SHOW_IN_DOCK:-1}"
 
 echo "Building ${EXEC_NAME}..."
+# 🚨 不要用 `swift build --target BrewPingDesktop`：
+#    那只会编译 BrewPingDesktop 这个 target 本身，依赖库 BrewPingCore
+#    （HTTPAPI / ApprovalGate / DangerPattern 等全在里面）**不会被重新编译**，
+#    结果是改完 Core 后打出来的 .app 仍然跑旧逻辑（2026-09-11 实际踩到：
+#    iOS 切授权模式一直没反应，因为 .app 里根本没有 /api/approvals 路由）。
+#    必须全量构建。
+# 🚨 必须带 --disable-sandbox：本机沙盒会拦截 SwiftPM 的写操作，缺了它构建会静默失败。
 BUILD_CONFIG="release"
-if ! swift build --target BrewPingDesktop -c release 2>/dev/null; then
+if ! swift build -c release --disable-sandbox; then
     echo "Release build unavailable, falling back to debug..."
     BUILD_CONFIG="debug"
-    swift build --target BrewPingDesktop
+    swift build --disable-sandbox
 fi
 
 # 从实际构建配置对应的产物目录取二进制（release/debug 路径不同）
-BIN_DIR="$(swift build --target BrewPingDesktop -c "$BUILD_CONFIG" --show-bin-path 2>/dev/null | tail -n 1)"
+BIN_DIR="$(swift build -c "$BUILD_CONFIG" --disable-sandbox --show-bin-path 2>/dev/null | tail -n 1)"
 if [ -z "$BIN_DIR" ] || [ ! -f "${BIN_DIR}/${EXEC_NAME}" ]; then
     echo "error: build product not found (config=${BUILD_CONFIG}, dir=${BIN_DIR})" >&2
     exit 1

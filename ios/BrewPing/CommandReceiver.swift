@@ -68,6 +68,44 @@ struct SubmitResponse: Decodable {
     let success: Bool?
     let commandId: String?
     let sessionId: String?
+    let status: String?
+    let approval: PendingApprovalInfo?
+    let error: String?
+}
+
+/// 一条危险命中的机器可读标识 + 命中的原始片段。
+/// `code` 用于本地化文案，`detail` 给用户看具体上下文。
+struct ApprovalReasonInfo: Decodable, Hashable {
+    let code: String?
+    let detail: String?
+}
+
+/// 一条等待用户确认的命令（Mac 端挂起，iOS 端弹窗）。
+struct PendingApprovalInfo: Decodable, Identifiable {
+    let id: String?
+    let text: String?
+    let reasons: [ApprovalReasonInfo]?
+
+    /// 用户可读的危险原因文案。按 code 本地化，未知 code 兜底显示 detail。
+    func localizedReasons() -> [String] {
+        guard let reasons else { return [] }
+        return reasons.compactMap { reason in
+            guard let code = reason.code else { return reason.detail }
+            let localized = L("danger.\(code)")
+            // L 查不到 key 时原样返回 key 本身，此时退回 detail。
+            if localized == "danger.\(code)" {
+                return reason.detail ?? code
+            }
+            return localized
+        }
+    }
+}
+
+/// `POST /api/approvals/:id` 的响应。
+struct ApprovalDecisionResponse: Decodable {
+    let success: Bool?
+    let status: String?
+    let commandId: String?
     let error: String?
 }
 
@@ -101,8 +139,12 @@ final class CommandSubmitter: ObservableObject {
     @Published private(set) var lastDuration: Double?
     @Published private(set) var lastFailureReason: String?
     @Published private(set) var lastModelId: String?
+    /// 当前等待用户确认的命令（Mac 端挂起）。非 nil 时 iPhone 弹确认窗。
+    @Published private(set) var pendingApproval: PendingApprovalInfo?
 
     private var pollTask: Task<Void, Never>?
+    /// 挂起的命令是否来自 Watch：决定批准执行后的结果要不要回传手表。
+    private var pendingFromWatch = false
 
     private init() {}
 
@@ -136,6 +178,7 @@ final class CommandSubmitter: ObservableObject {
         lastDuration = nil
         lastFailureReason = nil
         lastModelId = nil
+        pendingApproval = nil
     }
 
     /// 提交一条文本命令。
@@ -157,6 +200,8 @@ final class CommandSubmitter: ObservableObject {
         lastDuration = nil
         lastFailureReason = nil
         lastModelId = nil
+        pendingApproval = nil
+        pendingFromWatch = fromWatch
 
         pollTask = Task { [weak self] in
             guard let self else { return }
@@ -164,7 +209,67 @@ final class CommandSubmitter: ObservableObject {
         }
     }
 
+    /// 用户对挂起的命令做出决定。`action` 取 `approve` / `deny` / `always_approve`。
+    func decide(action: String) {
+        guard let approval = pendingApproval, let id = approval.id, !id.isEmpty else { return }
+        let fromWatch = pendingFromWatch
+        guard let device = DeviceStore.shared.activeDevice, device.baseURL != nil else {
+            pendingApproval = nil
+            fail(with: L("No Mac connected. Add a device first."), fromWatch: fromWatch)
+            return
+        }
+        Task { [weak self] in
+            await self?.postDecision(id: id, action: action, device: device, fromWatch: fromWatch)
+        }
+    }
+
+    /// 用户手动关闭确认窗（不点任何按钮）：命令继续在 Mac 端挂起，直到服务端超时。
+    /// 不自动 deny、也不自动执行 —— 缺席不表态，留给服务端兜底。
+    func clearPendingApproval() {
+        pendingApproval = nil
+    }
+
     // MARK: - Internals
+
+    private func postDecision(id: String, action: String, device: ManagedDevice, fromWatch: Bool) async {
+        guard var request = BrewPingHTTP.request(device: device, path: "/api/approvals/\(id)", method: "POST", timeout: 30) else {
+            pendingApproval = nil
+            fail(with: L("No Mac connected. Add a device first."), fromWatch: fromWatch)
+            return
+        }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["action": action])
+
+        do {
+            let (data, response) = try await BrewPingHTTP.session.data(for: request)
+            guard !Task.isCancelled else { return }
+            let decoded = try? JSONDecoder().decode(ApprovalDecisionResponse.self, from: data)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+
+            if decoded?.status == "denied" {
+                pendingApproval = nil
+                phase = .idle
+                if fromWatch {
+                    WatchConnectivityManager.shared.sendCommandResult(
+                        status: "failed", text: L("Command was denied."), duration: nil
+                    )
+                }
+                return
+            }
+            guard statusCode == 200, let commandId = decoded?.commandId, !commandId.isEmpty else {
+                pendingApproval = nil
+                fail(with: decoded?.error ?? "HTTP \(statusCode)", fromWatch: fromWatch)
+                return
+            }
+            pendingApproval = nil
+            phase = .delivered
+            await poll(commandId: commandId, device: device, fromWatch: fromWatch)
+        } catch {
+            guard !Task.isCancelled else { return }
+            pendingApproval = nil
+            fail(with: error.localizedDescription, fromWatch: fromWatch)
+        }
+    }
 
     private func post(text: String, device: ManagedDevice, fromWatch: Bool) async {
         guard var request = BrewPingHTTP.request(device: device, path: "/api/message", method: "POST", timeout: 30) else {
@@ -184,6 +289,14 @@ final class CommandSubmitter: ObservableObject {
             }
             let decoded = try? JSONDecoder().decode(SubmitResponse.self, from: data)
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+
+            // 授权门卫：Mac 端判定该命令需要用户确认（safe 命中危险 / askAll）。
+            if let approval = decoded?.approval, decoded?.status == "pending_approval" {
+                pendingApproval = approval
+                phase = .idle  // 等待确认，不进入轮询
+                return
+            }
+
             guard statusCode == 200, let commandId = decoded?.commandId, !commandId.isEmpty else {
                 fail(with: decoded?.error ?? "HTTP \(statusCode)", fromWatch: fromWatch)
                 return

@@ -56,6 +56,8 @@ struct ContentView: View {
     @StateObject private var bonjour = BonjourDiscovery()
     /// 当前 Agent 的可切换模型（数据源是 Mac 端 `/api/agents/<id>/models`）。
     @StateObject private var modelStore = ModelStore.shared
+    /// 授权模式（safe / askAll / auto），读写 Mac 端 `/api/approvals/mode`。
+    @StateObject private var approvalMode = ApprovalModeStore.shared
     /// brewping:// 入口：Mac 端 QR 码扫码后唤起 App，BrewPingApp 在 .onOpenURL 里写入，
     /// 这里消费一次后清空。
     @EnvironmentObject private var pairingURL: PairingURLHandler
@@ -71,6 +73,10 @@ struct ContentView: View {
     /// 与 Mac 通信失败的可读原因。原来这些错误只被吞掉（`catch { online = false }`），
     /// 审核员看到的是"界面一直离线但没有任何解释"。
     @State private var statusError: String?
+    /// `/api/agents` 是否因鉴权失败（401）而拿不到数据。
+    /// 必须单独记：`/api/status` 是公开端点，token 失效时它仍返回 200 让 `online` 为 true，
+    /// 于是"agents 为空 + online 为 true"会被误渲染成永远的 "Detecting agents..."。
+    @State private var agentsUnauthorized = false
     @State private var lifecycleBusy = false
     @State private var agents: [AgentEntry] = []
     @State private var discoveryMessage = ""
@@ -93,6 +99,8 @@ struct ContentView: View {
     @State private var editPairingCode = ""
     @State private var pairingBusy = false
     @State private var pairingMessage = ""
+    /// 配对表单里的扫码页开关。
+    @State private var showScanner = false
 
     private var activeDevice: ManagedDevice? { deviceStore.activeDevice }
     private var baseURL: URL? { activeDevice?.baseURL }
@@ -136,6 +144,16 @@ struct ContentView: View {
             .sheet(isPresented: $showHelp) {
                 HelpView()
             }
+            .sheet(isPresented: Binding(
+                get: { submitter.pendingApproval != nil },
+                set: { if !$0 { submitter.clearPendingApproval() } }
+            )) {
+                if let approval = submitter.pendingApproval {
+                    ApprovalRequestView(approval: approval) { action in
+                        submitter.decide(action: action)
+                    }
+                }
+            }
             .sheet(isPresented: $showAddDevice) {
                 deviceFormSheet(isNew: true)
             }
@@ -146,6 +164,10 @@ struct ContentView: View {
             // 用 .task(id:) 而不是在闭包里 sleep 判断，是为了让系统在切换时直接取消旧任务。
             .task(id: scenePhase) {
                 await runStatusLoop()
+            }
+            .task(id: deviceStore.activeDeviceID) {
+                // 切换设备后重新读该 Mac 的授权模式（每台 Mac 的设置独立）。
+                await approvalMode.refresh()
             }
             .onChange(of: pairingURL.pendingAction) { _, newAction in
                 // 冷启动时 ContentView 还没 onAppear，但 URL 可能已存进 pendingAction，
@@ -557,6 +579,11 @@ struct ContentView: View {
                 }
 
                 Section {
+                    Button {
+                        showScanner = true
+                    } label: {
+                        Label("Scan QR Code", systemImage: "qrcode.viewfinder")
+                    }
                     TextField("6-digit pairing code", text: $editPairingCode)
                         .keyboardType(.numberPad)
                         .textContentType(.oneTimeCode)
@@ -606,7 +633,45 @@ struct ContentView: View {
                     .disabled(editHost.trimmingCharacters(in: .whitespaces).isEmpty || pairingBusy)
                 }
             }
+            .sheet(isPresented: $showScanner) {
+                QRScannerView { scanned in
+                    showScanner = false
+                    applyScannedValue(scanned)
+                }
+            }
         }
+    }
+
+    /// 处理扫码结果：把二维码内容解析并填进表单，由用户确认后再提交。
+    ///
+    /// 不直接发起配对，是为了让用户在表单里**看到**读到的 host / port / code，
+    /// 确认无误再点 Pair —— 扫码错了（扫到别的码）也有机会发现。
+    private func applyScannedValue(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        pairingMessage = ""
+
+        // 1) Mac 端 QR 的正式格式：brewping://pair?host=...&port=...&code=...&name=...
+        if let url = URL(string: trimmed),
+           url.scheme?.lowercased() == "brewping",
+           url.host?.lowercased() == "pair" {
+            let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            let dict = Dictionary(uniqueKeysWithValues: (comps?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+            if let host = dict["host"], !host.isEmpty { editHost = host }
+            if let port = dict["port"], !port.isEmpty { editPort = port }
+            if let code = dict["code"], !code.isEmpty { editPairingCode = code }
+            if let name = dict["name"], !name.isEmpty { editName = name }
+            pairingMessage = L("Scanned. Tap Pair to finish.")
+            return
+        }
+
+        // 2) 容忍纯 6 位码（有些用户会把码单独做成二维码）。
+        if trimmed.count == 6, trimmed.allSatisfy({ $0.isNumber }) {
+            editPairingCode = trimmed
+            pairingMessage = L("Scanned. Tap Pair to finish.")
+            return
+        }
+
+        pairingMessage = L("This QR code isn't a BrewPing pairing code.")
     }
 
     private func commitDeviceForm(isNew: Bool, existing: ManagedDevice?) async {
@@ -708,9 +773,12 @@ struct ContentView: View {
             if agents.isEmpty {
                 // 三元表达式的两个分支都要显式转成 LocalizedStringKey，
                 // 否则会被推断成 String、走 Text 的 verbatim 重载而不翻译。
-                Text(online
-                     ? LocalizedStringKey("Detecting agents...")
-                     : LocalizedStringKey("No agents detected. Connect a paired Mac to list the coding agents installed on it."))
+                // 三种"空"要分开说：鉴权失败 ≠ Mac 离线 ≠ 真的没装 agent。
+                Text(agentsUnauthorized
+                     ? LocalizedStringKey("Not paired with this Mac. Enter the pairing code in this device's settings.")
+                     : (online
+                        ? LocalizedStringKey("Detecting agents...")
+                        : LocalizedStringKey("No agents detected. Connect a paired Mac to list the coding agents installed on it.")))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -785,6 +853,7 @@ struct ContentView: View {
                 }
             }
             modelRow
+            approvalModeRow
             if !sessionID.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Session ID")
@@ -836,6 +905,45 @@ struct ContentView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    /// 授权模式切换，紧跟在模型入口下方。
+    /// 与 `modelRow` 不同的是：只要有**已配对**的设备就显示（授权档位是安全设置，
+    /// 不该像模型那样"没得选就隐藏"）。但**未配对时必须隐藏** ——
+    /// 没有 token 的请求会被 Mac 端直接判 401，显示出来只会让用户以为"坏了"。
+    @ViewBuilder
+    private var approvalModeRow: some View {
+        if let device = activeDevice, DeviceAuth.isPaired(device) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 8) {
+                    Image(systemName: approvalMode.mode == .auto ? "shield.slash" : "shield.lefthalf.filled")
+                        .foregroundStyle(approvalMode.mode == .auto ? .orange : .secondary)
+                        .font(.callout)
+                    Text("Approval Mode")
+                        .font(.callout)
+                    Spacer()
+                    Picker("Approval Mode", selection: Binding(
+                        get: { approvalMode.mode },
+                        set: { newMode in Task { await approvalMode.setMode(newMode) } }
+                    )) {
+                        ForEach(ApprovalModeStore.Mode.allCases) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                }
+                Text(approvalMode.mode.summary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                // 切换失败时明确告知原因，不要让用户面对"点了没反应"的静默回退。
+                if let error = approvalMode.lastError {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
                 }
             }
         }
@@ -1163,12 +1271,21 @@ struct ContentView: View {
     private func refreshAgents() async {
         guard let request = BrewPingHTTP.request(device: activeDevice, path: "/api/agents", timeout: 10) else {
             agents = []
+            agentsUnauthorized = false
             return
         }
         do {
-            let (data, _) = try await BrewPingHTTP.session.data(for: request)
+            let (data, response) = try await BrewPingHTTP.session.data(for: request)
+            if BrewPingHTTP.isUnauthorized(response) {
+                // 401：Mac 在线但没通过鉴权（未配对 / token 失效）。
+                // 显式标记，避免界面永远停在 "Detecting agents..."。
+                agents = []
+                agentsUnauthorized = true
+                return
+            }
             let decoded = try JSONDecoder().decode(AgentsResponse.self, from: data)
             agents = decoded.agents ?? []
+            agentsUnauthorized = false
         } catch {
             agents = []
         }

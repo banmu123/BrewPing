@@ -11,6 +11,8 @@ import SwiftUI
 struct HelpView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var language = LanguageManager.shared
+    @StateObject private var approvalMode = ApprovalModeStore.shared
+    @StateObject private var deviceStore = DeviceStore.shared
 
     var body: some View {
         NavigationStack {
@@ -27,6 +29,25 @@ struct HelpView: View {
                     Text("App-internal switch. Changes take effect immediately — no need to restart or change iOS system language.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
+
+                if deviceStore.activeDevice != nil {
+                    Section("Approval") {
+                        Picker("Approval Mode", selection: Binding(
+                            get: { approvalMode.mode },
+                            set: { newMode in Task { await approvalMode.setMode(newMode) } }
+                        )) {
+                            ForEach(ApprovalModeStore.Mode.allCases) { option in
+                                Text(option.displayName).tag(option)
+                            }
+                        }
+                        Text(approvalMode.mode.summary)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Text("Decides when BrewPing asks you to confirm before running a risky command on your Mac.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("How BrewPing works") {
@@ -86,6 +107,9 @@ struct HelpView: View {
             }
             .navigationTitle("Help & About")
             .navigationBarTitleDisplayMode(.inline)
+            .task {
+                await approvalMode.refresh()
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }

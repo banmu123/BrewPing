@@ -165,3 +165,47 @@
 "Add Manually" = "手动添加";
 "In %@, click the menu bar icon and tap “Show Pairing Code”. A QR code will appear." = "在 %@ 的菜单栏图标里点击「显示配对码」，会出现一个二维码。";
 "Scan the QR with your iPhone, or enter the 6-digit code in the device sheet." = "用 iPhone 扫描此二维码，或在设备表单里输入 6 位配对码。";
+
+/* MARK: - 授权确认（危险命令） */
+"Approval Required" = "需要授权确认";
+"This command needs your approval" = "此命令需要你确认";
+"Command" = "命令";
+"Reason" = "原因";
+"Approve Once" = "允许一次";
+"Always Allow This Type" = "总是允许此类型";
+"Deny" = "拒绝";
+"Command was denied." = "命令已被拒绝。";
+
+"danger.rm_root" = "删除根目录";
+"danger.recursive_delete" = "递归删除文件";
+"danger.force_push" = "强制推送";
+"danger.git_reset_hard" = "Git 硬重置";
+"danger.pipe_to_shell" = "管道执行远程脚本";
+"danger.sudo" = "提权执行";
+"danger.chmod_777" = "开放文件全部权限";
+"danger.write_device" = "写入原始设备";
+"danger.dd_disk" = "写入磁盘镜像";
+"danger.drop_table" = "删除数据库表";
+"danger.truncate_table" = "清空数据库表";
+"danger.ask_all" = "需要确认";
+
+"approval.mode.safe" = "安全（默认）";
+"approval.mode.askAll" = "每次确认";
+"approval.mode.auto" = "自动（免确认）";
+"approval.mode.safe.summary" = "只拦截危险命令，其余自动执行。";
+"approval.mode.askAll.summary" = "每条命令都先确认。";
+"approval.mode.auto.summary" = "全部免确认执行（不建议）。";
+
+"Approval" = "授权";
+"Approval Mode" = "授权模式";
+"Decides when BrewPing asks you to confirm before running a risky command on your Mac." = "决定 BrewPing 在执行 Mac 上的危险命令前是否请你确认。";
+"Couldn't switch approval mode: %@" = "切换授权模式失败：%@";
+
+/* MARK: - 扫码配对 */
+"Scan QR Code" = "扫描二维码";
+"Point at the QR code shown in %@ on your Mac." = "对准 Mac 上 %@ 显示的二维码。";
+"You can still enter the 6-digit pairing code manually." = "你也可以手动输入 6 位配对码。";
+"Camera access was denied. Enable it in Settings to scan." = "相机权限被拒绝。请在「设置」中开启后再扫码。";
+"Camera is not available on this device." = "此设备没有可用的相机。";
+"Scanned. Tap Pair to finish." = "已读取，点「配对」完成。";
+"This QR code isn't a BrewPing pairing code." = "这个二维码不是 BrewPing 的配对码。";

@@ -50,6 +50,11 @@ final class DemoBackend {
     private var sessionActive = false
     private var activeAgentID = "opencode"
     private var commands: [String: DemoCommand] = [:]
+    /// 授权模式（safe / askAll / auto），与 Mac 端 `ApprovalGate` 同构。
+    /// Demo 里默认 safe，让"危险命令会先弹确认"这件事在 Demo 里也能被看见。
+    private var approvalMode = "safe"
+    /// 挂起待确认的命令。
+    private var pendingApprovals: [String: DemoApproval] = [:]
     /// 记住用户在 Demo 里选过的模型（按 Agent 分别记），
     /// 这样"选择后立刻生效 + 下次进来还是它"能在 Demo 里被真实验证到。
     ///
@@ -60,6 +65,12 @@ final class DemoBackend {
 
     private struct DemoCommand {
         let text: String
+        let createdAt: Date
+    }
+
+    private struct DemoApproval {
+        let text: String
+        let reasons: [[String: String]]
         let createdAt: Date
     }
 
@@ -96,6 +107,25 @@ final class DemoBackend {
             guard !text.isEmpty else {
                 return (400, ["success": false, "error": "text is empty"])
             }
+            // 授权门卫（与 Mac 端 ApprovalGate 同构）：safe 模式命中危险 → 挂起等确认。
+            let mode = currentMode()
+            let dangers = Self.demoDangers(in: text)
+            if mode != "auto", !dangers.isEmpty {
+                let approvalID = "apv-demo-\(UUID().uuidString)"
+                lock.lock()
+                pendingApprovals[approvalID] = DemoApproval(text: text, reasons: dangers, createdAt: Date())
+                lock.unlock()
+                return (200, [
+                    "success": true,
+                    "status": "pending_approval",
+                    "approval": [
+                        "id": approvalID,
+                        "text": text,
+                        "reasons": dangers,
+                        "createdAt": ISO8601DateFormatter().string(from: Date())
+                    ]
+                ])
+            }
             let commandID = "demo-cmd-\(Int(Date().timeIntervalSince1970 * 1000))"
             lock.lock()
             commands[commandID] = DemoCommand(text: text, createdAt: Date())
@@ -109,6 +139,36 @@ final class DemoBackend {
         if method == "GET", path.hasPrefix("/api/message/") {
             let id = String(path.dropFirst("/api/message/".count))
             return commandStatus(id: id)
+        }
+        // 授权模式读写（与 Mac 端 /api/approvals/mode 同构）
+        if method == "GET", path == "/api/approvals/mode" {
+            return (200, ["success": true, "mode": currentMode()])
+        }
+        if method == "POST", path == "/api/approvals/mode" {
+            if let mode = json["mode"] as? String {
+                lock.lock(); approvalMode = mode; lock.unlock()
+            }
+            return (200, ["success": true, "mode": currentMode()])
+        }
+        // 批准/拒绝挂起的命令（与 Mac 端 /api/approvals/:id 同构）
+        if method == "POST", path.hasPrefix("/api/approvals/") {
+            let id = String(path.dropFirst("/api/approvals/".count))
+            let action = json["action"] as? String ?? ""
+            if action == "deny" {
+                lock.lock(); pendingApprovals.removeValue(forKey: id); lock.unlock()
+                return (200, ["success": true, "status": "denied"])
+            }
+            lock.lock()
+            let approval = pendingApprovals.removeValue(forKey: id)
+            lock.unlock()
+            guard let approval else {
+                return (404, ["success": false, "error": "unknown or expired approval"])
+            }
+            let commandID = "demo-cmd-\(Int(Date().timeIntervalSince1970 * 1000))"
+            lock.lock()
+            commands[commandID] = DemoCommand(text: approval.text, createdAt: Date())
+            lock.unlock()
+            return (200, ["success": true, "commandId": commandID, "sessionId": "demo-session-0001", "status": "queued"])
         }
         if method == "POST", path.hasPrefix("/api/agents/"), path.hasSuffix("/switch") {
             let agentID = String(path.dropFirst("/api/agents/".count).dropLast("/switch".count))
@@ -217,6 +277,37 @@ final class DemoBackend {
     }
 
     // MARK: - State helpers
+
+    private func currentMode() -> String {
+        lock.lock(); defer { lock.unlock() }
+        return approvalMode
+    }
+
+    /// Demo 用的简化危险检测（Mac 端有完整正则 `DangerPattern`，这里只覆盖常见的几类，
+    /// 让"危险命令会先弹确认"在 Demo 里也能演示，不必逐字对齐 Mac 端）。
+    private static func demoDangers(in text: String) -> [[String: String]] {
+        let lower = text.lowercased()
+        var reasons: [[String: String]] = []
+        if lower.contains("rm -rf") || lower.contains("rm -fr") || lower.contains("rm --recursive") {
+            reasons.append(["code": "recursive_delete", "detail": "recursive delete"])
+        }
+        if lower.contains("--force") || lower.contains("push -f") {
+            reasons.append(["code": "force_push", "detail": "git push --force"])
+        }
+        if lower.contains("sudo") {
+            reasons.append(["code": "sudo", "detail": "sudo"])
+        }
+        if lower.contains("chmod 777") {
+            reasons.append(["code": "chmod_777", "detail": "chmod 777"])
+        }
+        if lower.contains("git reset --hard") {
+            reasons.append(["code": "git_reset_hard", "detail": "git reset --hard"])
+        }
+        if lower.contains("| sh") || lower.contains("| bash") {
+            reasons.append(["code": "pipe_to_shell", "detail": "curl | sh"])
+        }
+        return reasons
+    }
 
     private func isSessionActive() -> Bool {
         lock.lock(); defer { lock.unlock() }

@@ -52,6 +52,9 @@ BB00000100000000000000D1 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBu
 		BB00000100000000000000F8 /* Localizable.strings (en) in Resources */ = {isa = PBXBuildFile; fileRef = BB00000100000000000000F5 /* en */; };
 		AA0000010000000000000102 /* ModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000101 /* ModelCatalog.swift */; };
 		AA0000010000000000000104 /* PairingURLHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000103 /* PairingURLHandler.swift */; };
+		AA0000010000000000000106 /* ApprovalRequestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000105 /* ApprovalRequestView.swift */; };
+		AA0000010000000000000108 /* ApprovalModeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000107 /* ApprovalModeStore.swift */; };
+		AA0000010000000000000110 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000109 /* QRScannerView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -120,6 +123,9 @@ BB00000100000000000000D0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; 
 		BB00000100000000000000F7 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		AA0000010000000000000101 /* ModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelCatalog.swift; sourceTree = "<group>"; };
 		AA0000010000000000000103 /* PairingURLHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingURLHandler.swift; sourceTree = "<group>"; };
+		AA0000010000000000000105 /* ApprovalRequestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalRequestView.swift; sourceTree = "<group>"; };
+		AA0000010000000000000107 /* ApprovalModeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalModeStore.swift; sourceTree = "<group>"; };
+		AA0000010000000000000109 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -170,6 +176,9 @@ BB00000100000000000000D0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; 
 				AA00000100000000000000F1 /* LanguageManager.swift */,
 				AA0000010000000000000101 /* ModelCatalog.swift */,
 				AA0000010000000000000103 /* PairingURLHandler.swift */,
+				AA0000010000000000000105 /* ApprovalRequestView.swift */,
+				AA0000010000000000000107 /* ApprovalModeStore.swift */,
+				AA0000010000000000000109 /* QRScannerView.swift */,
 				AA00000100000000000000F3 /* en */,
 				AA00000100000000000000F5 /* zh-Hans */,
 				AA000001000000000000001C /* Assets.xcassets */,
@@ -348,6 +357,9 @@ BB00000100000000000000D0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; 
 				AA00000100000000000000F0 /* LanguageManager.swift in Sources */,
 				AA0000010000000000000102 /* ModelCatalog.swift in Sources */,
 				AA0000010000000000000104 /* PairingURLHandler.swift in Sources */,
+				AA0000010000000000000106 /* ApprovalRequestView.swift in Sources */,
+				AA0000010000000000000108 /* ApprovalModeStore.swift in Sources */,
+				AA0000010000000000000110 /* QRScannerView.swift in Sources */,
 				AA0000010000000000000013 /* Event.swift in Protocol Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

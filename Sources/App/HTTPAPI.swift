@@ -27,6 +27,15 @@ enum HTTPAPI {
             return setDefaultAgentResponse(request)
         case ("POST", "/api/message"):
             return messageResponse(request, router: router)
+        case ("GET", "/api/approvals/mode"):
+            return approvalModeResponse()
+        case ("POST", "/api/approvals/mode"):
+            return setApprovalModeResponse(request)
+        case ("GET", "/api/approvals"):
+            return approvalsListResponse()
+        case let ("POST", path) where path.hasPrefix("/api/approvals/"):
+            let id = String(path.dropFirst("/api/approvals/".count))
+            return approvalDecideResponse(id, request: request, router: router)
         case ("POST", "/api/session/stop"):
             return lifecycleResponse(router.route(.stopSession))
         case ("POST", "/api/session/start"):
@@ -275,7 +284,23 @@ enum HTTPAPI {
             return .json(400, "Bad Request", ["success": false, "error": "text is empty"])
         }
 
+        // 授权门卫：safe 模式命中危险 / askAll 模式时挂起，返回 pending 让 iOS 弹确认；
+        // 未命中则放行。auto 模式永远放行。
+        switch ApprovalGate.shared.check(text: text) {
+        case .pending(let approval):
+            return pendingApprovalResponse(approval)
+        case .allow:
+            break
+        }
+
         // 将 iOS 发来的消息写入当前 Agent 的 TerminalState
+        return executeCommand(text: text, router: router)
+    }
+
+    /// 公共执行入口：把命令正文写进 TerminalState 并提交给 agent。
+    /// `messageResponse`（直接放行）与 `approvalDecideResponse`（用户批准后）共用，
+    /// 保证两条路径的 TerminalState 回显与响应结构完全一致。
+    private static func executeCommand(text: String, router: CommandRouter) -> HTTPResponse {
         let agentId = AgentManager.shared.activeAgentID
         if let state = AgentManager.shared.terminalState(for: agentId) {
             DispatchQueue.main.async {
@@ -294,6 +319,72 @@ enum HTTPAPI {
             ])
         }
         return .json(409, "Conflict", ["success": false, "error": resp.error ?? "send failed"])
+    }
+
+    // MARK: - Approval (授权确认) endpoints
+
+    private static func approvalDict(_ approval: PendingApproval) -> [String: Any] {
+        [
+            "id": approval.id,
+            "text": approval.text,
+            "reasons": approval.reasons.map { ["code": $0.code, "detail": $0.detail] },
+            "createdAt": ISO8601DateFormatter().string(from: approval.createdAt)
+        ]
+    }
+
+    private static func pendingApprovalResponse(_ approval: PendingApproval) -> HTTPResponse {
+        .json(200, "OK", [
+            "success": true,
+            "status": "pending_approval",
+            "approval": approvalDict(approval)
+        ])
+    }
+
+    private static func approvalsListResponse() -> HTTPResponse {
+        let approvals = ApprovalGate.shared.pendingApprovals().map { approvalDict($0) }
+        return .json(200, "OK", ["success": true, "approvals": approvals])
+    }
+
+    private static func approvalDecideResponse(_ id: String, request: HTTPRequest, router: CommandRouter) -> HTTPResponse {
+        guard !id.isEmpty, !id.hasPrefix("mode") else {
+            return .json(404, "Not Found", ["success": false, "error": "unknown approval"])
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: request.body, options: []),
+              let body = object as? [String: Any],
+              let action = body["action"] as? String else {
+            return .json(400, "Bad Request", ["success": false, "error": "expected JSON body {\"action\": \"approve\"|\"deny\"|\"always_approve\"}"])
+        }
+        guard let resolution = ApprovalGate.shared.decide(id: id, action: action) else {
+            return .json(404, "Not Found", ["success": false, "error": "unknown or expired approval"])
+        }
+
+        switch resolution.action {
+        case "deny":
+            return .json(200, "OK", ["success": true, "status": "denied"])
+        case "approve", "always_approve":
+            guard let text = resolution.text else {
+                return .json(409, "Conflict", ["success": false, "error": "approval has no command text"])
+            }
+            // 复用与 messageResponse 相同的执行路径，保证回显与响应一致。
+            return executeCommand(text: text, router: router)
+        default:
+            return .json(400, "Bad Request", ["success": false, "error": "unknown action"])
+        }
+    }
+
+    private static func approvalModeResponse() -> HTTPResponse {
+        .json(200, "OK", ["success": true, "mode": ApprovalGate.shared.currentMode.rawValue])
+    }
+
+    private static func setApprovalModeResponse(_ request: HTTPRequest) -> HTTPResponse {
+        guard let object = try? JSONSerialization.jsonObject(with: request.body, options: []),
+              let body = object as? [String: Any],
+              let raw = body["mode"] as? String,
+              let mode = ApprovalMode(rawValue: raw) else {
+            return .json(400, "Bad Request", ["success": false, "error": "expected JSON body {\"mode\": \"safe\"|\"askAll\"|\"auto\"}"])
+        }
+        ApprovalGate.shared.setMode(mode)
+        return .json(200, "OK", ["success": true, "mode": mode.rawValue])
     }
 
     private static func commandResponse(_ id: String) -> HTTPResponse {
