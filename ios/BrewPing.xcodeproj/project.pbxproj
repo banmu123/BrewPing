@@ -51,6 +51,8 @@ BB00000100000000000000D1 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBu
 		BB00000100000000000000F4 /* Localizable.strings (zh-Hans) in Resources */ = {isa = PBXBuildFile; fileRef = BB00000100000000000000F7 /* zh-Hans */; };
 		BB00000100000000000000F8 /* Localizable.strings (en) in Resources */ = {isa = PBXBuildFile; fileRef = BB00000100000000000000F5 /* en */; };
 		AA0000010000000000000102 /* ModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000101 /* ModelCatalog.swift */; };
+		AA0000010000000000000200 /* FolderBrowserStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000201 /* FolderBrowserStore.swift */; };
+		AA0000010000000000000202 /* FolderBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000203 /* FolderBrowserView.swift */; };
 		AA0000010000000000000104 /* PairingURLHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000103 /* PairingURLHandler.swift */; };
 		AA0000010000000000000106 /* ApprovalRequestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000105 /* ApprovalRequestView.swift */; };
 		AA0000010000000000000108 /* ApprovalModeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000107 /* ApprovalModeStore.swift */; };
@@ -122,6 +124,8 @@ BB00000100000000000000D0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; 
 		AA00000100000000000000F5 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		BB00000100000000000000F7 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		AA0000010000000000000101 /* ModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelCatalog.swift; sourceTree = "<group>"; };
+		AA0000010000000000000201 /* FolderBrowserStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderBrowserStore.swift; sourceTree = "<group>"; };
+		AA0000010000000000000203 /* FolderBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderBrowserView.swift; sourceTree = "<group>"; };
 		AA0000010000000000000103 /* PairingURLHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingURLHandler.swift; sourceTree = "<group>"; };
 		AA0000010000000000000105 /* ApprovalRequestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalRequestView.swift; sourceTree = "<group>"; };
 		AA0000010000000000000107 /* ApprovalModeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalModeStore.swift; sourceTree = "<group>"; };
@@ -175,6 +179,8 @@ BB00000100000000000000D0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; 
 				AA00000100000000000000EC /* HelpView.swift */,
 				AA00000100000000000000F1 /* LanguageManager.swift */,
 				AA0000010000000000000101 /* ModelCatalog.swift */,
+				AA0000010000000000000201 /* FolderBrowserStore.swift */,
+				AA0000010000000000000203 /* FolderBrowserView.swift */,
 				AA0000010000000000000103 /* PairingURLHandler.swift */,
 				AA0000010000000000000105 /* ApprovalRequestView.swift */,
 				AA0000010000000000000107 /* ApprovalModeStore.swift */,
@@ -356,6 +362,8 @@ BB00000100000000000000D0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; 
 				AA00000100000000000000ED /* HelpView.swift in Sources */,
 				AA00000100000000000000F0 /* LanguageManager.swift in Sources */,
 				AA0000010000000000000102 /* ModelCatalog.swift in Sources */,
+				AA0000010000000000000200 /* FolderBrowserStore.swift in Sources */,
+				AA0000010000000000000202 /* FolderBrowserView.swift in Sources */,
 				AA0000010000000000000104 /* PairingURLHandler.swift in Sources */,
 				AA0000010000000000000106 /* ApprovalRequestView.swift in Sources */,
 				AA0000010000000000000108 /* ApprovalModeStore.swift in Sources */,
