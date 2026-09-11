@@ -1,16 +1,13 @@
 import Foundation
 
 /// 上架相关的对外常量集中在这里，方便统一替换。
-///
-/// ⚠️ 提交前必须把下面两个占位值换成真实信息：
-///   - `privacyPolicyURLString`：必须在公网可访问（App Store Connect 也会校验）
-///   - `supportEmail`：审核员联系用的邮箱
 enum BrewPingConfig {
     /// 隐私政策地址（App Store Connect 的 Privacy Policy URL 字段填同一个）。
-    static let privacyPolicyURLString = "https://brewping.app/privacy"
+    /// 托管在 GitHub Pages（源文件 `docs/privacy.html`），公网可访问，无需自建服务器。
+    static let privacyPolicyURLString = "https://banmu123.github.io/BrewPing/privacy.html"
 
     /// 支持邮箱（App Review Notes 里也会引用）。
-    static let supportEmail = "support@brewping.app"
+    static let supportEmail = "czkbanmu@163.com"
 
     /// Mac 端产品名。App 内说明文案统一引用它，避免各写各的。
     static let macAppName = "BrewPing Desktop"
