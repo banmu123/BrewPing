@@ -5,6 +5,8 @@ struct HTTPRequest {
     let method: String
     let path: String
     let body: Data
+    /// 头字段名**统一小写**，取值时直接用小写 key（HTTP 头本身大小写不敏感）。
+    let headers: [String: String]
 }
 
 struct HTTPResponse {
@@ -119,17 +121,24 @@ final class HTTPServer {
             }
             if let headerEnd = buf.range(of: Data("\r\n\r\n".utf8)) {
                 let headData = buf.subdata(in: buf.startIndex..<headerEnd.lowerBound)
-                guard let (method, path, contentLength) = Self.parseHead(headData) else {
+                guard let head = Self.parseHead(headData) else {
                     self.respond(connection, .json(400, "Bad Request", ["success": false, "error": "malformed request"]))
                     return
                 }
                 var body = buf.subdata(in: headerEnd.upperBound..<buf.endIndex)
-                if body.count >= contentLength {
-                    body = body.prefix(contentLength)
-                    let request = HTTPRequest(method: method, path: path, body: body)
+                if body.count >= head.contentLength {
+                    body = body.prefix(head.contentLength)
+                    let request = HTTPRequest(method: head.method, path: head.path, body: body, headers: head.headers)
                     self.respond(connection, self.handler(request))
                 } else {
-                    self.receiveBody(connection, method: method, path: path, contentLength: contentLength, buffer: body)
+                    self.receiveBody(
+                        connection,
+                        method: head.method,
+                        path: head.path,
+                        headers: head.headers,
+                        contentLength: head.contentLength,
+                        buffer: body
+                    )
                 }
                 return
             }
@@ -145,6 +154,7 @@ final class HTTPServer {
         _ connection: NWConnection,
         method: String,
         path: String,
+        headers: [String: String],
         contentLength: Int,
         buffer: Data
     ) {
@@ -156,19 +166,33 @@ final class HTTPServer {
             }
             if buf.count >= contentLength {
                 let body = buf.prefix(contentLength)
-                let request = HTTPRequest(method: method, path: path, body: Data(body))
+                let request = HTTPRequest(method: method, path: path, body: Data(body), headers: headers)
                 self.respond(connection, self.handler(request))
                 return
             }
             if error == nil, !isComplete {
-                self.receiveBody(connection, method: method, path: path, contentLength: contentLength, buffer: buf)
+                self.receiveBody(
+                    connection,
+                    method: method,
+                    path: path,
+                    headers: headers,
+                    contentLength: contentLength,
+                    buffer: buf
+                )
             } else {
                 connection.cancel()
             }
         }
     }
 
-    private static func parseHead(_ headData: Data) -> (method: String, path: String, contentLength: Int)? {
+    private struct ParsedHead {
+        let method: String
+        let path: String
+        let contentLength: Int
+        let headers: [String: String]
+    }
+
+    private static func parseHead(_ headData: Data) -> ParsedHead? {
         guard let head = String(data: headData, encoding: .utf8) else { return nil }
         var lines = head.components(separatedBy: "\r\n")
         guard let requestLine = lines.first else { return nil }
@@ -180,15 +204,21 @@ final class HTTPServer {
         if let queryStart = path.firstIndex(of: "?") {
             path = String(path[..<queryStart])
         }
+
         var contentLength = 0
+        var headers: [String: String] = [:]
         for line in lines {
             let kv = line.split(separator: ":", maxSplits: 1)
             guard kv.count == 2 else { continue }
-            if kv[0].trimmingCharacters(in: .whitespaces).lowercased() == "content-length" {
-                contentLength = Int(kv[1].trimmingCharacters(in: .whitespaces)) ?? 0
+            let name = kv[0].trimmingCharacters(in: .whitespaces).lowercased()
+            let value = kv[1].trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty else { continue }
+            headers[name] = value
+            if name == "content-length" {
+                contentLength = Int(value) ?? 0
             }
         }
-        return (method, path, contentLength)
+        return ParsedHead(method: method, path: path, contentLength: contentLength, headers: headers)
     }
 
     private func respond(_ connection: NWConnection, _ response: HTTPResponse) {

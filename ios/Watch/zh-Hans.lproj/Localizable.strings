@@ -1,0 +1,57 @@
+/* BrewPing Watch App — Chinese (Simplified) */
+
+/* ── Connection status ────────────────────────── */
+"Connecting..." = "正在连接…";
+"Connected" = "已连接";
+"iPhone Not Connected" = "iPhone 未连接";
+"Mac: Offline" = "Mac：离线";
+"Mac: Session Stopped" = "Mac：会话已停止";
+"Mac: %@ Ready" = "Mac：%@ 已就绪";
+"Mac: %@ Running" = "Mac：%@ 运行中";
+
+/* ── Agent 状态标签 ───────────────────────────── */
+"● running" = "● 运行中";
+"○ idle" = "○ 空闲";
+"● ready" = "● 就绪";
+
+/* ── Swipe hints ──────────────────────────────── */
+"← swipe device →" = "← 左右滑动切换设备 →";
+"← swipe to switch →" = "← 左右滑动切换 →";
+
+/* ── Voice command ────────────────────────────── */
+"Speak" = "说话";
+"Start Listening" = "开始聆听";
+"Continuous" = "连续模式";
+"Type..." = "输入指令…";
+"Listening..." = "正在聆听…";
+"Speak now" = "请说话";
+"Recognizing..." = "正在识别…";
+"Done" = "完成";
+"Sending..." = "正在发送…";
+"Sent" = "已发送";
+"Waiting..." = "等待中…";
+"Failed" = "失败";
+"New Command" = "新指令";
+"Continue" = "继续";
+"Retry" = "重试";
+"iPhone not connected" = "iPhone 未连接";
+"Recording failed" = "录音失败";
+
+/* ── Session manager 状态 ─────────────────────── */
+"WatchConnectivity unsupported" = "手表通信不可用";
+"iPhone App Not Connected" = "iPhone App 未连接";
+"Empty command" = "指令为空";
+"Command failed" = "指令执行失败";
+"Audio sent" = "语音已发送";
+"Audio delivered" = "语音已送达";
+"Send failed: %@" = "发送失败：%@";
+
+/* ── Recorder errors ──────────────────────────── */
+"Audio session failed: %@" = "音频会话失败：%@";
+"Recorder failed: %@" = "录音器失败：%@";
+"Audio encoding failed" = "音频编码失败";
+"No audio captured" = "未采集到音频";
+
+
+/* MARK: - Model switching */
+"← switch model →" = "← 左右切换模型 →";

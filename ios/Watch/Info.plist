@@ -17,13 +17,15 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1</string>
+	<string>1.0.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>WKApplication</key>
 	<true/>
 	<key>WKCompanionAppBundleIdentifier</key>
-	<string>local.brewping.app</string>
+	<string>com.brewping.ios</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>BrewPing uses the microphone to turn your voice into commands for your coding agent.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

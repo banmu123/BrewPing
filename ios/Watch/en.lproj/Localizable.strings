@@ -1,0 +1,57 @@
+/* BrewPing Watch App — English (base) */
+
+/* ── Connection status ────────────────────────── */
+"Connecting..." = "Connecting...";
+"Connected" = "Connected";
+"iPhone Not Connected" = "iPhone Not Connected";
+"Mac: Offline" = "Mac: Offline";
+"Mac: Session Stopped" = "Mac: Session Stopped";
+"Mac: %@ Ready" = "Mac: %@ Ready";
+"Mac: %@ Running" = "Mac: %@ Running";
+
+/* ── Agent status labels ──────────────────────── */
+"● running" = "● running";
+"○ idle" = "○ idle";
+"● ready" = "● ready";
+
+/* ── Swipe hints ──────────────────────────────── */
+"← swipe device →" = "← swipe device →";
+"← swipe to switch →" = "← swipe to switch →";
+
+/* ── Voice command ────────────────────────────── */
+"Speak" = "Speak";
+"Start Listening" = "Start Listening";
+"Continuous" = "Continuous";
+"Type..." = "Type...";
+"Listening..." = "Listening...";
+"Speak now" = "Speak now";
+"Recognizing..." = "Recognizing...";
+"Done" = "Done";
+"Sending..." = "Sending...";
+"Sent" = "Sent";
+"Waiting..." = "Waiting...";
+"Failed" = "Failed";
+"New Command" = "New Command";
+"Continue" = "Continue";
+"Retry" = "Retry";
+"iPhone not connected" = "iPhone not connected";
+"Recording failed" = "Recording failed";
+
+/* ── Session manager states ───────────────────── */
+"WatchConnectivity unsupported" = "WatchConnectivity unsupported";
+"iPhone App Not Connected" = "iPhone App Not Connected";
+"Empty command" = "Empty command";
+"Command failed" = "Command failed";
+"Audio sent" = "Audio sent";
+"Audio delivered" = "Audio delivered";
+"Send failed: %@" = "Send failed: %@";
+
+/* ── Recorder errors ──────────────────────────── */
+"Audio session failed: %@" = "Audio session failed: %@";
+"Recorder failed: %@" = "Recorder failed: %@";
+"Audio encoding failed" = "Audio encoding failed";
+"No audio captured" = "No audio captured";
+
+
+/* MARK: - Model switching */
+"← switch model →" = "← switch model →";

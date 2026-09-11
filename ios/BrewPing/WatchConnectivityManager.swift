@@ -21,6 +21,10 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
     ]
     var knownDevices: [[String: String]] = []
     var activeDeviceID: String = ""
+    /// 当前 Agent 的可切换模型（由 ContentView 从 ModelStore 同步过来）。
+    /// 与 agents 走同一条通道，手表不自己发请求。
+    var knownModels: [[String: String]] = []
+    var activeModelID: String = ""
 
     /// App 是否在前台（由 ContentView 按 `scenePhase` 维护）。
     /// 用于决定"收到手表语音后要不要在本机回放一遍"：
@@ -52,10 +56,32 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
                 "agents": knownAgents,
                 "activeAgent": currentAgentID,
                 "devices": knownDevices,
-                "activeDevice": activeDeviceID
+                "activeDevice": activeDeviceID,
+                "models": knownModels,
+                "activeModelId": activeModelID,
+                // 语言偏好：手表照抄 iPhone 的设置，避免两端各维护一份。
+                LanguageManager.syncKey: UserDefaults.standard
+                    .string(forKey: LanguageManager.storageKey) ?? AppLanguage.system.rawValue
             ])
         } catch {
-            print("BrewPing iPhone: status push failed: \(error.localizedDescription)")
+            BrewPingLog.watch.error("Status push failed: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    /// 用户刚在 iPhone 上换了语言时立刻推一次，不必等下一轮状态轮询。
+    func pushLanguage() {
+        guard WCSession.isSupported() else { return }
+        let session = WCSession.default
+        guard session.activationState == .activated, session.isPaired else { return }
+        let value = UserDefaults.standard.string(forKey: LanguageManager.storageKey)
+            ?? AppLanguage.system.rawValue
+        do {
+            var context = session.applicationContext
+            context["macConnected"] = session.applicationContext["macConnected"] ?? false
+            context[LanguageManager.syncKey] = value
+            try session.updateApplicationContext(context)
+        } catch {
+            BrewPingLog.watch.error("Language push failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -63,7 +89,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         guard WCSession.isSupported() else { return }
         let session = WCSession.default
         guard session.activationState == .activated else {
-            print("BrewPing iPhone: session not activated, command result dropped: \(status)")
+            BrewPingLog.watch.error("Session not activated, command result dropped: \(status, privacy: .public)")
             return
         }
         var message: [String: Any] = [
@@ -78,18 +104,18 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         // 改用 transferUserInfo 排队，在手表 App 下次运行时送达。
         guard session.isReachable else {
             session.transferUserInfo(message)
-            print("BrewPing iPhone: watch not reachable, queued command result: \(status)")
+            BrewPingLog.watch.info("Watch not reachable, queued command result: \(status, privacy: .public)")
             return
         }
         session.sendMessage(message, replyHandler: nil) { error in
-            print("BrewPing iPhone: command result push failed (\(error.localizedDescription)), queuing instead")
+            BrewPingLog.watch.error("Command result push failed (\(error.localizedDescription, privacy: .private)), queuing instead")
             session.transferUserInfo(message)
         }
     }
 
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
         if let error {
-            print("BrewPing iPhone WCSession activation error: \(error.localizedDescription)")
+            BrewPingLog.watch.error("WCSession activation error: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -123,7 +149,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         let metadata = file.metadata ?? [:]
         let type = metadata["type"] as? String ?? ""
         guard type == "audioCommand" else {
-            print("BrewPing iPhone: ignoring unexpected file transfer type=\(type)")
+            BrewPingLog.watch.error("Ignoring unexpected file transfer type=\(type, privacy: .public)")
             return
         }
 
@@ -133,7 +159,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         do {
             try FileManager.default.copyItem(at: file.fileURL, to: localURL)
         } catch {
-            print("BrewPing iPhone: failed to persist incoming audio: \(error)")
+            BrewPingLog.watch.error("Failed to persist incoming audio: \(error.localizedDescription, privacy: .private)")
             sendCommandResult(status: "failed", text: "Audio save failed")
             return
         }
@@ -142,7 +168,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         let localeId = metadata["locale"] as? String
         let sourceName = metadata["fileName"] as? String ?? file.fileURL.lastPathComponent
         let size = (try? localURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-        print("BrewPing iPhone: audio file received \(sourceName) (\(size) bytes) agentId=\(agentId ?? "default")")
+        BrewPingLog.watch.info("Audio file received \(sourceName, privacy: .private) (\(size, privacy: .public) bytes)")
 
         // 前台时把收到的语音原样回放一遍：
         // 这是用户唯一能"听到"录音确实完整送达的方式（识别结果只是文字）。
@@ -161,7 +187,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
                 replyHandler?(["ok": false, "error": "missing deviceId"])
                 return
             }
-            print("BrewPing iPhone: watch switching to device: \(deviceId)")
+            BrewPingLog.watch.info("Watch switching to device \(deviceId, privacy: .private)")
             DispatchQueue.main.async {
                 DeviceStore.shared.setActive(deviceId)
             }
@@ -169,7 +195,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
             return
         }
         if type == "requestStatus" {
-            print("BrewPing iPhone: watch requested status -> online=\(currentOnline ?? false) session=\(currentSessionState ?? "")")
+            BrewPingLog.watch.debug("Watch requested status")
             replyHandler?([
                 "macConnected": currentOnline ?? false,
                 "sessionState": currentSessionState ?? "",
@@ -178,7 +204,11 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
                 "agents": currentAgentList(),
                 "activeAgent": currentActiveAgentID,
                 "devices": knownDevices,
-                "activeDevice": activeDeviceID
+                "activeDevice": activeDeviceID,
+                "models": knownModels,
+                "activeModelId": activeModelID,
+                LanguageManager.syncKey: UserDefaults.standard
+                    .string(forKey: LanguageManager.storageKey) ?? AppLanguage.system.rawValue
             ])
             return
         }
@@ -187,15 +217,27 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
                 replyHandler?(["ok": false, "error": "missing agentId"])
                 return
             }
-            print("BrewPing iPhone: watch switching to agent: \(agentId)")
+            BrewPingLog.watch.info("Watch switching to agent \(agentId, privacy: .public)")
             replyHandler?(["ok": true, "type": "ack"])
             switchMacAgent(to: agentId)
+            return
+        }
+        if type == "switchModel" {
+            guard let modelId = message["modelId"] as? String else {
+                replyHandler?(["ok": false, "error": "missing modelId"])
+                return
+            }
+            // agentId 可省略：手表切换的是"当前 Agent 的模型"，缺省用当前值。
+            let agentId = (message["agentId"] as? String) ?? currentAgentID
+            BrewPingLog.watch.info("Watch switching model to \(modelId, privacy: .public)")
+            replyHandler?(["ok": true, "type": "ack"])
+            switchMacModel(to: modelId, agentId: agentId)
             return
         }
         if type == "command" {
             let text = (message["text"] as? String) ?? (message["content"] as? String) ?? ""
             let agentId = message["agentId"] as? String
-            print("Command received from Watch: agentId=\(agentId ?? "default") text=\(text)")
+            BrewPingLog.command.info("Command received from Watch, agent=\(agentId ?? "default", privacy: .public)")
             replyHandler?(["ok": true, "type": "ack"])
             ensureAgentThenForward(text: text, agentId: agentId)
             return
@@ -205,19 +247,19 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
             // 该通道载荷上限约 65 KB，稍长的录音就会被系统拒绝，
             // 因此新版本已改用 transferFile（见 session(_:didReceive:)）。
             guard let audioData = message["audio"] as? Data, !audioData.isEmpty else {
-                print("BrewPing iPhone: audioCommand missing audio data (payload dropped or too large)")
+                BrewPingLog.watch.error("audioCommand missing audio data (payload dropped or too large)")
                 replyHandler?(["ok": false, "error": "no audio data"])
                 sendCommandResult(status: "failed", text: "Audio payload missing or too large")
                 return
             }
             let agentId = message["agentId"] as? String
-            print("BrewPing iPhone: legacy inline audio command (\(audioData.count) bytes) agentId=\(agentId ?? "default")")
+            BrewPingLog.watch.info("Legacy inline audio command (\(audioData.count, privacy: .public) bytes)")
             let localURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("watch_audio_\(UUID().uuidString).m4a")
             do {
                 try audioData.write(to: localURL)
             } catch {
-                print("BrewPing iPhone: failed to write audio: \(error)")
+                BrewPingLog.watch.error("Failed to write audio: \(error.localizedDescription, privacy: .private)")
                 replyHandler?(["ok": false, "error": "cannot persist audio"])
                 sendCommandResult(status: "failed", text: "Audio save failed")
                 return
@@ -227,7 +269,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
             return
         }
         let text = message["text"] as? String ?? ""
-        print("Received from Watch:\n\(text)")
+        BrewPingLog.watch.debug("Received from Watch: \(text, privacy: .private)")
         CommandReceiver.shared.receive(type: .status, text: text)
         DispatchQueue.main.async {
             self.lastReceivedType = type
@@ -238,38 +280,81 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
 
     // MARK: - Active Device Resolution
 
-    /// 在主线程读取当前生效设备的 baseURL。
+    /// 在主线程读取当前生效设备。
     /// Watch 回调来自 WCSession 的后台队列，而 DeviceStore 是 @MainActor，
     /// 因此所有对 DeviceStore 的读取都统一切回主线程。
-    private func onMainWithActiveDeviceURL(_ body: @escaping (URL?) -> Void) {
+    private func onMainWithActiveDevice(_ body: @escaping (ManagedDevice?) -> Void) {
         Task { @MainActor in
-            body(DeviceStore.shared.activeDevice?.baseURL)
+            body(DeviceStore.shared.activeDevice)
         }
-    }
-
-    private func agentSwitchURL(base: URL, agentId: String) -> URL? {
-        URL(string: base.absoluteString + "/api/agents/\(agentId)/switch")
     }
 
     /// 切换 Mac 端的 active Agent
     private func switchMacAgent(to agentId: String) {
-        onMainWithActiveDeviceURL { base in
-            guard let base, let url = self.agentSwitchURL(base: base, agentId: agentId) else {
-                print("BrewPing iPhone: no active device, skip switch to \(agentId)")
+        onMainWithActiveDevice { device in
+            guard let device,
+                  var request = BrewPingHTTP.request(
+                    device: device,
+                    path: "/api/agents/\(agentId)/switch",
+                    method: "POST",
+                    timeout: 10
+                  ) else {
+                BrewPingLog.watch.info("No active device, skip switch to \(agentId, privacy: .public)")
                 return
             }
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.timeoutInterval = 10
             Task {
                 do {
-                    let (data, _) = try await URLSession.shared.data(for: request)
+                    let (data, response) = try await BrewPingHTTP.session.data(for: request)
+                    if BrewPingHTTP.isUnauthorized(response) {
+                        BrewPingLog.watch.error("Agent switch rejected: device is not paired")
+                        return
+                    }
                     let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
                     let success = json?["success"] as? Bool ?? false
-                    print("BrewPing iPhone: switch to \(agentId) -> \(success ? "OK" : "failed")")
+                    BrewPingLog.watch.info("Switch to \(agentId, privacy: .public) -> \(success ? "OK" : "failed", privacy: .public)")
                 } catch {
-                    print("BrewPing iPhone: switch agent error: \(error)")
+                    BrewPingLog.watch.error("Switch agent error: \(error.localizedDescription, privacy: .private)")
+                }
+            }
+        }
+    }
+
+    /// 切换 Mac 端当前 Agent 的默认模型（`POST /api/agents/models/default`）。
+    /// 走的是与 Agent 切换同一条通道：手表只发意图，真正落地由 iPhone 转给 Mac。
+    private func switchMacModel(to modelId: String, agentId: String) {
+        onMainWithActiveDevice { device in
+            guard let device,
+                  var request = BrewPingHTTP.request(
+                    device: device,
+                    path: "/api/agents/models/default",
+                    method: "POST",
+                    timeout: 10
+                  ) else {
+                BrewPingLog.watch.info("No active device, skip model switch")
+                return
+            }
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try? JSONSerialization.data(withJSONObject: [
+                "agentId": agentId,
+                "modelId": modelId
+            ])
+
+            Task {
+                do {
+                    let (data, response) = try await BrewPingHTTP.session.data(for: request)
+                    if BrewPingHTTP.isUnauthorized(response) {
+                        BrewPingLog.watch.error("Model switch rejected: device is not paired")
+                        return
+                    }
+                    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                    let success = json?["success"] as? Bool ?? false
+                    BrewPingLog.watch.info("Model switch to \(modelId, privacy: .public) -> \(success ? "OK" : "failed", privacy: .public)")
+                    // 让 iPhone 界面与手表同步：ModelStore 重新拉一次以刷新高亮。
+                    await ModelStore.shared.refresh(device: device, agentID: agentId, force: true)
+                } catch {
+                    BrewPingLog.watch.error("Switch model error: \(error.localizedDescription, privacy: .private)")
                 }
             }
         }
@@ -283,23 +368,25 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
             }
         }
 
-        onMainWithActiveDeviceURL { base in
-            guard let agentId, let base,
-                  let switchURL = self.agentSwitchURL(base: base, agentId: agentId) else {
+        onMainWithActiveDevice { device in
+            guard let agentId, let device,
+                  var switchReq = BrewPingHTTP.request(
+                    device: device,
+                    path: "/api/agents/\(agentId)/switch",
+                    method: "POST",
+                    timeout: 10
+                  ) else {
                 // 未指定 Agent 或没有可用设备：仍然转发，由上层决定如何提示
                 forward()
                 return
             }
-
-            var switchReq = URLRequest(url: switchURL)
-            switchReq.httpMethod = "POST"
-            switchReq.timeoutInterval = 10
+            switchReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
             Task {
                 do {
-                    let _ = try await URLSession.shared.data(for: switchReq)
+                    let _ = try await BrewPingHTTP.session.data(for: switchReq)
                 } catch {
-                    print("BrewPing iPhone: pre-switch failed: \(error)")
+                    BrewPingLog.watch.error("Pre-switch failed: \(error.localizedDescription, privacy: .private)")
                 }
                 // 无论切换是否成功，都转发命令
                 forward()
@@ -327,11 +414,11 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
     func requestSpeechAuthorizationIfNeeded() {
         let status = SFSpeechRecognizer.authorizationStatus()
         guard status == .notDetermined else {
-            print("BrewPing iPhone: speech authorization already = \(status.rawValue)")
+            BrewPingLog.audio.debug("Speech authorization already = \(status.rawValue, privacy: .public)")
             return
         }
         SFSpeechRecognizer.requestAuthorization { newStatus in
-            print("BrewPing iPhone: speech authorization request -> \(newStatus.rawValue)")
+            BrewPingLog.audio.info("Speech authorization request -> \(newStatus.rawValue, privacy: .public)")
         }
     }
 
@@ -450,25 +537,25 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         // 权限先行：否则后台唤醒时识别必然失败，且错误信息没有指向性。
         guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
             let status = SFSpeechRecognizer.authorizationStatus()
-            print("BrewPing iPhone: speech recognition not authorized (status=\(status.rawValue)),请先在前台授权")
+            BrewPingLog.audio.error("Speech recognition not authorized (status=\(status.rawValue, privacy: .public))")
             try? FileManager.default.removeItem(at: audioURL)
             sendCommandResult(status: "failed", text: "Speech recognition not authorized")
             return
         }
 
         guard let recognizer = makeRecognizer(preferredIdentifier: localeIdentifier) else {
-            print("BrewPing iPhone: no speech recognizer available for locale \(localeIdentifier ?? "auto")")
+            BrewPingLog.audio.error("No speech recognizer available for locale \(localeIdentifier ?? "auto", privacy: .private)")
             try? FileManager.default.removeItem(at: audioURL)
             sendCommandResult(status: "failed", text: "Speech recognition not available")
             return
         }
         guard recognizer.isAvailable else {
-            print("BrewPing iPhone: speech recognizer not currently available (locale=\(recognizer.locale.identifier))")
+            BrewPingLog.audio.error("Speech recognizer not currently available (locale=\(recognizer.locale.identifier, privacy: .public))")
             try? FileManager.default.removeItem(at: audioURL)
             sendCommandResult(status: "failed", text: "Speech recognition not available")
             return
         }
-        print("BrewPing iPhone: recognizer locale = \(recognizer.locale.identifier) (requested \(localeIdentifier ?? "auto"))")
+        BrewPingLog.audio.info("Recognizer locale = \(recognizer.locale.identifier, privacy: .public)")
 
         let request = SFSpeechURLRecognitionRequest(url: audioURL)
         request.taskHint = .dictation
@@ -483,7 +570,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
             guard let self else { return }
 
             if let error {
-                print("BrewPing iPhone: speech recognition error: \(error)")
+                BrewPingLog.audio.error("Speech recognition error: \(error.localizedDescription, privacy: .private)")
                 self.activeRecognitions.removeValue(forKey: token)
                 try? FileManager.default.removeItem(at: audioURL)
                 self.sendCommandResult(status: "failed", text: "Recognition failed: \(error.localizedDescription)")
@@ -494,7 +581,8 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
 
             let text = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
             let elapsed = Date().timeIntervalSince(started)
-            print("BrewPing iPhone: recognized in \(String(format: "%.1f", elapsed))s: \"\(text)\"")
+            // 转写结果属于用户内容，标记 .private。
+            BrewPingLog.audio.info("Recognized in \(String(format: "%.1f", elapsed), privacy: .public)s: \(text, privacy: .private)")
 
             self.activeRecognitions.removeValue(forKey: token)
             try? FileManager.default.removeItem(at: audioURL)
@@ -543,9 +631,9 @@ final class WatchAudioPlayback: NSObject, AVAudioPlayerDelegate {
             player.prepareToPlay()
             self.player = player          // 必须强引用，否则播放会被立刻中断
             player.play()
-            print("BrewPing iPhone: playing back watch audio \(label)")
+            BrewPingLog.audio.debug("Playing back watch audio \(label, privacy: .private)")
         } catch {
-            print("BrewPing iPhone: audio playback skipped (\(error.localizedDescription))")
+            BrewPingLog.audio.error("Audio playback skipped: \(error.localizedDescription, privacy: .private)")
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
     }
@@ -553,12 +641,12 @@ final class WatchAudioPlayback: NSObject, AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         self.player = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        print("BrewPing iPhone: audio playback finished (ok=\(flag))")
+        BrewPingLog.audio.debug("Audio playback finished (ok=\(flag, privacy: .public))")
     }
 
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
         self.player = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        print("BrewPing iPhone: audio playback decode error: \(error?.localizedDescription ?? "unknown")")
+        BrewPingLog.audio.error("Audio playback decode error: \(error?.localizedDescription ?? "unknown", privacy: .private)")
     }
 }

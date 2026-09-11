@@ -100,13 +100,14 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         }
 
         guard let host, !host.isEmpty, port > 0 else {
-            print("BrewPing iPhone: failed to resolve \(name)")
+            // 设备名可能包含用户自己的电脑名，标记 .private。
+            BrewPingLog.discovery.info("Failed to resolve \(name, privacy: .private)")
             return
         }
 
         discoveredHosts.removeAll { $0.id == name }
         discoveredHosts.append(DiscoveredHost(id: name, name: name, host: host, port: port))
-        print("BrewPing iPhone: resolved \(name) -> \(host):\(port)")
+        BrewPingLog.discovery.info("Resolved \(name, privacy: .private) -> \(host, privacy: .private):\(Int(port), privacy: .public)")
     }
 
     /// 优先返回 IPv4 字面量（URLSession 直连最稳），失败时回退到 mDNS 主机名

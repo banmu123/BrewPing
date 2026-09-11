@@ -48,14 +48,15 @@ final class CommandReceiver: ObservableObject {
     private init() {}
 
     func receive(type: MessageType, text: String) {
-        print("CommandReceiver: received \(type) text=\(text)")
+        // 命令正文属于用户内容，一律标记 .private（Release 下由系统抹除）。
+        BrewPingLog.command.debug("Received \(String(describing: type), privacy: .public) text=\(text, privacy: .private)")
         guard type == .command, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         DispatchQueue.main.async {
             self.lastCommandText = text
             self.lastCommandReceivedAt = Date()
             self.lastCommandStatus = "received"
             self.lastCommandID = UUID()
-            print("CommandReceiver: command stored: \(text) at \(self.lastCommandReceivedAt ?? Date())")
+            BrewPingLog.command.debug("Command stored at \(self.lastCommandReceivedAt ?? Date(), privacy: .public)")
             self.onCommand?(text)
         }
     }
@@ -119,7 +120,7 @@ final class CommandSubmitter: ObservableObject {
                 CommandSubmitter.shared.submit(text: text, fromWatch: true)
             }
         }
-        print("CommandSubmitter: bootstrapped")
+        BrewPingLog.command.info("CommandSubmitter bootstrapped")
     }
 
     /// 取消当前轮询但保留已展示的结果（切换设备/会话时使用）。
@@ -146,8 +147,8 @@ final class CommandSubmitter: ObservableObject {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        guard let base = DeviceStore.shared.activeDevice?.baseURL else {
-            fail(with: "No device configured.", fromWatch: fromWatch)
+        guard let device = DeviceStore.shared.activeDevice, device.baseURL != nil else {
+            fail(with: L("No Mac connected. Add a device first."), fromWatch: fromWatch)
             return
         }
 
@@ -157,25 +158,30 @@ final class CommandSubmitter: ObservableObject {
         lastFailureReason = nil
         lastModelId = nil
 
-        let url = base.appendingPathComponent("api/message")
         pollTask = Task { [weak self] in
             guard let self else { return }
-            await self.post(text: trimmed, to: url, base: base, fromWatch: fromWatch)
+            await self.post(text: trimmed, device: device, fromWatch: fromWatch)
         }
     }
 
     // MARK: - Internals
 
-    private func post(text: String, to url: URL, base: URL, fromWatch: Bool) async {
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+    private func post(text: String, device: ManagedDevice, fromWatch: Bool) async {
+        guard var request = BrewPingHTTP.request(device: device, path: "/api/message", method: "POST", timeout: 30) else {
+            fail(with: L("No Mac connected. Add a device first."), fromWatch: fromWatch)
+            return
+        }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 30
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text])
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await BrewPingHTTP.session.data(for: request)
             guard !Task.isCancelled else { return }
+            // 401 单独翻译：审核与真实用户都需要知道"不是网络问题，是没配对"。
+            if BrewPingHTTP.isUnauthorized(response) {
+                fail(with: L("Not paired with this Mac. Enter the pairing code in this device's settings."), fromWatch: fromWatch)
+                return
+            }
             let decoded = try? JSONDecoder().decode(SubmitResponse.self, from: data)
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard statusCode == 200, let commandId = decoded?.commandId, !commandId.isEmpty else {
@@ -183,26 +189,29 @@ final class CommandSubmitter: ObservableObject {
                 return
             }
             phase = .delivered
-            await poll(commandId: commandId, base: base, fromWatch: fromWatch)
+            await poll(commandId: commandId, device: device, fromWatch: fromWatch)
         } catch {
             guard !Task.isCancelled else { return }
             fail(with: error.localizedDescription, fromWatch: fromWatch)
         }
     }
 
-    private func poll(commandId: String, base: URL, fromWatch: Bool) async {
-        let url = base.appendingPathComponent("api/message/\(commandId)")
+    private func poll(commandId: String, device: ManagedDevice, fromWatch: Bool) async {
         var consecutiveErrors = 0
         while !Task.isCancelled {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             guard !Task.isCancelled else { return }
+            guard let request = BrewPingHTTP.request(device: device, path: "/api/message/\(commandId)", timeout: 15) else {
+                fail(with: L("No Mac connected. Add a device first."), fromWatch: fromWatch)
+                return
+            }
             do {
-                let (data, response) = try await URLSession.shared.data(from: url)
+                let (data, response) = try await BrewPingHTTP.session.data(for: request)
                 guard !Task.isCancelled else { return }
                 guard (response as? HTTPURLResponse)?.statusCode == 200 else {
                     consecutiveErrors += 1
                     if consecutiveErrors >= 10 {
-                        fail(with: "Status poll failed.", fromWatch: fromWatch)
+                        fail(with: L("Status poll failed."), fromWatch: fromWatch)
                         return
                     }
                     continue
@@ -215,14 +224,14 @@ final class CommandSubmitter: ObservableObject {
                 case "working":
                     phase = .working
                 case "completed":
-                    finish(decoded.response ?? "(empty response)", raw: false, decoded: decoded, fromWatch: fromWatch)
+                    finish(decoded.response ?? L("(empty response)"), raw: false, decoded: decoded, fromWatch: fromWatch)
                     return
                 case "completed_with_raw":
-                    finish(decoded.rawOutput ?? "(empty raw output)", raw: true, decoded: decoded, fromWatch: fromWatch)
+                    finish(decoded.rawOutput ?? L("(empty raw output)"), raw: true, decoded: decoded, fromWatch: fromWatch)
                     return
                 case "failed":
                     lastFailureReason = decoded.failureReason
-                    fail(with: decoded.error ?? "Unknown error.", decoded: decoded, fromWatch: fromWatch)
+                    fail(with: decoded.error ?? L("Unknown error."), decoded: decoded, fromWatch: fromWatch)
                     return
                 default:
                     continue
@@ -230,7 +239,7 @@ final class CommandSubmitter: ObservableObject {
             } catch {
                 consecutiveErrors += 1
                 if consecutiveErrors >= 10 {
-                    fail(with: "Connection lost: \(error.localizedDescription)", fromWatch: fromWatch)
+                    fail(with: L("Connection lost: %@", error.localizedDescription), fromWatch: fromWatch)
                     return
                 }
             }

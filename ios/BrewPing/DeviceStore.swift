@@ -38,11 +38,37 @@ final class DeviceStore: ObservableObject {
     }
 
     func removeDevice(id: String) {
+        // 删除设备时同时清掉 Keychain 里的配对 token，
+        // 否则同一台 Mac 重新添加后会沿用旧 token，一旦 Mac 侧轮换就再也连不上。
+        if let device = devices.first(where: { $0.id == id }) {
+            DeviceAuth.clear(for: device)
+        }
         devices.removeAll { $0.id == id }
         if activeDeviceID == id {
             activeDeviceID = devices.first?.id ?? ""
         }
         save()
+    }
+
+    /// 添加（或复用）内置 Demo 设备，供审核员零硬件走通完整链路。
+    ///
+    /// 幂等：已经有 Demo 设备时只切换为当前设备，不重复添加。
+    @discardableResult
+    func addDemoDevice() -> ManagedDevice {
+        if let existing = devices.first(where: { $0.isDemo }) {
+            setActive(existing.id)
+            BrewPingLog.demo.info("Reusing existing demo device")
+            return existing
+        }
+        let device = ManagedDevice.new(
+            name: "Demo Mac",
+            host: DemoBackend.host,
+            port: DemoBackend.port,
+            osType: .mac
+        )
+        addDevice(device)
+        BrewPingLog.demo.info("Demo device added")
+        return device
     }
 
     func setActive(_ id: String) {

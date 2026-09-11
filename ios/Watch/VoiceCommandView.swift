@@ -51,9 +51,10 @@ struct VoiceCommandView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)
-                        Text(durationSuffix("Done"))
+                        Text("Done")
                             .font(.caption)
                             .fontWeight(.medium)
+                        durationSuffix
                     }
                     Text(text)
                         .font(.caption2)
@@ -75,9 +76,13 @@ struct VoiceCommandView: View {
                 }
             case .failed(let message):
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(durationSuffix("Failed"))
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                    HStack(spacing: 4) {
+                        Text("Failed")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                        durationSuffix
+                    }
+                    // message 是动态内容（设备返回的错误），不做本地化
                     Text(message)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -100,11 +105,15 @@ struct VoiceCommandView: View {
         }
     }
 
-    private func durationSuffix(_ base: String) -> String {
+    /// 耗时后缀（" · 1.5s"）。用单独 Text 拼接，避开 LocalizedStringKey
+    /// 不支持 format string 的限制。耗时数字本身是动态内容，不本地化。
+    @ViewBuilder
+    private var durationSuffix: some View {
         if let d = sessionManager.lastCommandDuration {
-            return String(format: "%@ · %.1fs", base, d)
+            Text(String(format: " · %.1fs", d))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
-        return base
     }
 
     // MARK: - 空闲状态
@@ -113,10 +122,8 @@ struct VoiceCommandView: View {
     private var idleControls: some View {
         VStack(spacing: 8) {
             if audioRecorder.isRecording {
-                // 正在录音
                 recordingView
             } else if showTranscribing {
-                // 正在识别
                 HStack(spacing: 6) {
                     ProgressView()
                     Text("Recognizing...")
@@ -124,14 +131,15 @@ struct VoiceCommandView: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
-                // 录音按钮
                 Button {
                     startVoiceInput()
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "mic.fill")
                             .font(.system(size: 14))
-                        Text(continuousMode ? "Start Listening" : "Speak")
+                        Text(continuousMode
+                             ? LocalizedStringKey("Start Listening")
+                             : LocalizedStringKey("Speak"))
                             .font(.system(size: 12, weight: .medium))
                     }
                     .frame(maxWidth: .infinity)
@@ -141,7 +149,6 @@ struct VoiceCommandView: View {
                 }
                 .buttonStyle(.plain)
 
-                // 连续模式开关
                 Button {
                     continuousMode.toggle()
                 } label: {
@@ -156,7 +163,6 @@ struct VoiceCommandView: View {
                 }
                 .buttonStyle(.plain)
 
-                // 文字输入备用
                 HStack(spacing: 4) {
                     TextField("Type...", text: $commandText, axis: .vertical)
                         .lineLimit(1...3)
@@ -180,7 +186,6 @@ struct VoiceCommandView: View {
 
     private var recordingView: some View {
         VStack(spacing: 6) {
-            // 音频电平
             HStack(spacing: 2) {
                 ForEach(0..<7, id: \.self) { i in
                     RoundedRectangle(cornerRadius: 1)
@@ -200,7 +205,6 @@ struct VoiceCommandView: View {
             }
             .frame(height: 18)
 
-            // 两个按钮：完成 + 取消
             HStack(spacing: 12) {
                 Button {
                     audioRecorder.stopRecording()
@@ -231,8 +235,6 @@ struct VoiceCommandView: View {
         }
     }
 
-    // MARK: - 音频电平条
-
     private func barHeight(for index: Int) -> CGFloat {
         let normalized = CGFloat(audioRecorder.audioLevel) * 7
         return CGFloat(index) < normalized ? CGFloat(6 + index * 2) : 4
@@ -252,12 +254,10 @@ struct VoiceCommandView: View {
         // 只要 WCSession 已激活就允许录音：
         // 音频走 transferFile 排队投递，不要求 iPhone App 此刻在前台。
         guard sessionManager.activationState == .activated else {
-            sessionManager.lastError = "iPhone not connected"
+            sessionManager.lastError = LW("iPhone not connected")
             return
         }
 
-        // 录音结束到发送之间显示 "Recognizing..."。
-        // 录音期间 recordingView 优先展示，不会与此冲突。
         showTranscribing = true
 
         audioRecorder.startRecording { [self] result in
@@ -265,11 +265,11 @@ struct VoiceCommandView: View {
                 showTranscribing = false
                 switch result {
                 case .success(let url):
-                    print("VoiceCommandView: recording finished, sending \(url.lastPathComponent)")
+                    WatchLog.audio.info("Recording finished, sending \(url.lastPathComponent, privacy: .private)")
                     sessionManager.sendAudioCommand(fileURL: url)
                 case .failure(let error):
-                    print("VoiceCommandView: recording failed - \(error.localizedDescription)")
-                    sessionManager.commandState = .failed(error.errorDescription ?? "Recording failed")
+                    WatchLog.audio.error("Recording failed: \(error.localizedDescription, privacy: .private)")
+                    sessionManager.commandState = .failed(error.errorDescription ?? LW("Recording failed"))
                     if continuousMode {
                         continuousMode = false
                     }
@@ -277,8 +277,6 @@ struct VoiceCommandView: View {
             }
         }
     }
-
-    // MARK: - 文字发送
 
     private func sendTextCommand() {
         let trimmed = commandText.trimmingCharacters(in: .whitespacesAndNewlines)

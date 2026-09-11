@@ -33,6 +33,25 @@
 		BB0000010000000000000008 /* VoiceCommandView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000010000000000000009 /* VoiceCommandView.swift */; };
 		BB000001000000000000000B /* WatchAudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000000A /* WatchAudioRecorder.swift */; };
 		BB00000100000000000000C3 /* BrewPing Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = BB0000010000000000000010 /* BrewPing Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+AA00000100000000000000E1 /* BrewPingConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000100000000000000E0 /* BrewPingConfig.swift */; };
+AA00000100000000000000E3 /* BrewPingLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000100000000000000E2 /* BrewPingLog.swift */; };
+AA00000100000000000000E5 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000100000000000000E4 /* KeychainStore.swift */; };
+AA00000100000000000000E7 /* BrewPingHTTP.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000100000000000000E6 /* BrewPingHTTP.swift */; };
+AA00000100000000000000E9 /* DemoBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000100000000000000E8 /* DemoBackend.swift */; };
+AA00000100000000000000EB /* DemoURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000100000000000000EA /* DemoURLProtocol.swift */; };
+AA00000100000000000000ED /* HelpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000100000000000000EC /* HelpView.swift */; };
+AA00000100000000000000D1 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AA00000100000000000000D0 /* PrivacyInfo.xcprivacy */; };
+BB00000100000000000000E1 /* WatchLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000100000000000000E0 /* WatchLog.swift */; };
+BB00000100000000000000D1 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = BB00000100000000000000D0 /* PrivacyInfo.xcprivacy */; };
+		AA00000100000000000000F0 /* LanguageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000100000000000000F1 /* LanguageManager.swift */; };
+		AA00000100000000000000F2 /* Localizable.strings (zh-Hans) in Resources */ = {isa = PBXBuildFile; fileRef = AA00000100000000000000F5 /* zh-Hans */; };
+		AA00000100000000000000F6 /* Localizable.strings (en) in Resources */ = {isa = PBXBuildFile; fileRef = AA00000100000000000000F3 /* en */; };
+		BB00000100000000000000F0 /* WatchLanguageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000100000000000000F1 /* WatchLanguageManager.swift */; };
+		BB00000100000000000000F2 /* WatchLocalized.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB00000100000000000000F3 /* WatchLocalized.swift */; };
+		BB00000100000000000000F4 /* Localizable.strings (zh-Hans) in Resources */ = {isa = PBXBuildFile; fileRef = BB00000100000000000000F7 /* zh-Hans */; };
+		BB00000100000000000000F8 /* Localizable.strings (en) in Resources */ = {isa = PBXBuildFile; fileRef = BB00000100000000000000F5 /* en */; };
+		AA0000010000000000000102 /* ModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000101 /* ModelCatalog.swift */; };
+		AA0000010000000000000104 /* PairingURLHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000103 /* PairingURLHandler.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -82,6 +101,25 @@
 		BB000001000000000000000A /* WatchAudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAudioRecorder.swift; sourceTree = "<group>"; };
 		BB0000010000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		BB0000010000000000000010 /* BrewPing Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "BrewPing Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+AA00000100000000000000E0 /* BrewPingConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrewPingConfig.swift; sourceTree = "<group>"; };
+AA00000100000000000000E2 /* BrewPingLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrewPingLog.swift; sourceTree = "<group>"; };
+AA00000100000000000000E4 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+AA00000100000000000000E6 /* BrewPingHTTP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrewPingHTTP.swift; sourceTree = "<group>"; };
+AA00000100000000000000E8 /* DemoBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoBackend.swift; sourceTree = "<group>"; };
+AA00000100000000000000EA /* DemoURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoURLProtocol.swift; sourceTree = "<group>"; };
+AA00000100000000000000EC /* HelpView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpView.swift; sourceTree = "<group>"; };
+AA00000100000000000000D0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+BB00000100000000000000E0 /* WatchLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLog.swift; sourceTree = "<group>"; };
+BB00000100000000000000D0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		AA00000100000000000000F1 /* LanguageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageManager.swift; sourceTree = "<group>"; };
+		BB00000100000000000000F1 /* WatchLanguageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLanguageManager.swift; sourceTree = "<group>"; };
+		BB00000100000000000000F3 /* WatchLocalized.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLocalized.swift; sourceTree = "<group>"; };
+		AA00000100000000000000F3 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		BB00000100000000000000F5 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		AA00000100000000000000F5 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		BB00000100000000000000F7 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		AA0000010000000000000101 /* ModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelCatalog.swift; sourceTree = "<group>"; };
+		AA0000010000000000000103 /* PairingURLHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingURLHandler.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -122,7 +160,20 @@
 				AA0000010000000000000009 /* CommandReceiver.swift */,
 				AA0000010000000000000017 /* ManagedDevice.swift */,
 				AA0000010000000000000019 /* DeviceStore.swift */,
+				AA00000100000000000000E0 /* BrewPingConfig.swift */,
+				AA00000100000000000000E2 /* BrewPingLog.swift */,
+				AA00000100000000000000E4 /* KeychainStore.swift */,
+				AA00000100000000000000E6 /* BrewPingHTTP.swift */,
+				AA00000100000000000000E8 /* DemoBackend.swift */,
+				AA00000100000000000000EA /* DemoURLProtocol.swift */,
+				AA00000100000000000000EC /* HelpView.swift */,
+				AA00000100000000000000F1 /* LanguageManager.swift */,
+				AA0000010000000000000101 /* ModelCatalog.swift */,
+				AA0000010000000000000103 /* PairingURLHandler.swift */,
+				AA00000100000000000000F3 /* en */,
+				AA00000100000000000000F5 /* zh-Hans */,
 				AA000001000000000000001C /* Assets.xcassets */,
+				AA00000100000000000000D0 /* PrivacyInfo.xcprivacy */,
 				AA0000010000000000000005 /* Info.plist */,
 			);
 			path = BrewPing;
@@ -144,6 +195,12 @@
 				BB0000010000000000000004 /* WatchSessionManager.swift */,
 				BB0000010000000000000009 /* VoiceCommandView.swift */,
 				BB000001000000000000000A /* WatchAudioRecorder.swift */,
+				BB00000100000000000000E0 /* WatchLog.swift */,
+				BB00000100000000000000F1 /* WatchLanguageManager.swift */,
+				BB00000100000000000000F3 /* WatchLocalized.swift */,
+				BB00000100000000000000F5 /* en */,
+				BB00000100000000000000F7 /* zh-Hans */,
+				BB00000100000000000000D0 /* PrivacyInfo.xcprivacy */,
 				BB0000010000000000000005 /* Info.plist */,
 			);
 			path = Watch;
@@ -226,6 +283,7 @@
 			knownRegions = (
 				en,
 				Base,
+				"zh-Hans",
 			);
 			mainGroup = AA0000010000000000000030;
 			productRefGroup = AA0000010000000000000040 /* Products */;
@@ -243,6 +301,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA00000100000000000000D1 /* PrivacyInfo.xcprivacy in Resources */,
+				AA00000100000000000000F2 /* Localizable.strings (zh-Hans) in Resources */,
+				AA00000100000000000000F6 /* Localizable.strings (en) in Resources */,
 				AA000001000000000000001A /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -251,6 +312,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BB00000100000000000000D1 /* PrivacyInfo.xcprivacy in Resources */,
+				BB00000100000000000000F4 /* Localizable.strings (zh-Hans) in Resources */,
+				BB00000100000000000000F8 /* Localizable.strings (en) in Resources */,
 				BB000001000000000000003A /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -274,6 +338,16 @@
 				AA000001000000000000000C /* Agent.swift in Protocol Sources */,
 				AA0000010000000000000011 /* Session.swift in Protocol Sources */,
 				AA0000010000000000000012 /* Conversation.swift in Protocol Sources */,
+				AA00000100000000000000E1 /* BrewPingConfig.swift in Sources */,
+				AA00000100000000000000E3 /* BrewPingLog.swift in Sources */,
+				AA00000100000000000000E5 /* KeychainStore.swift in Sources */,
+				AA00000100000000000000E7 /* BrewPingHTTP.swift in Sources */,
+				AA00000100000000000000E9 /* DemoBackend.swift in Sources */,
+				AA00000100000000000000EB /* DemoURLProtocol.swift in Sources */,
+				AA00000100000000000000ED /* HelpView.swift in Sources */,
+				AA00000100000000000000F0 /* LanguageManager.swift in Sources */,
+				AA0000010000000000000102 /* ModelCatalog.swift in Sources */,
+				AA0000010000000000000104 /* PairingURLHandler.swift in Sources */,
 				AA0000010000000000000013 /* Event.swift in Protocol Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -285,6 +359,9 @@
 				BB0000010000000000000001 /* ContentView.swift in Sources */,
 				BB0000010000000000000003 /* WatchSessionManager.swift in Sources */,
 				BB0000010000000000000008 /* VoiceCommandView.swift in Sources */,
+				BB00000100000000000000E1 /* WatchLog.swift in Sources */,
+				BB00000100000000000000F0 /* WatchLanguageManager.swift in Sources */,
+				BB00000100000000000000F2 /* WatchLocalized.swift in Sources */,
 				BB000001000000000000000B /* WatchAudioRecorder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -314,7 +391,7 @@
 					"DEBUG=1",
 					"$(inherited)",
 				);
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -332,7 +409,7 @@
 				CLANG_ENABLE_OBJC_ARC = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
@@ -351,16 +428,16 @@
 				INFOPLIST_FILE = BrewPing/Info.plist;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "BrewPing sends messages to your Mac Agent on the local network.";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = local.brewping.app;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brewping.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -374,16 +451,16 @@
 				INFOPLIST_FILE = BrewPing/Info.plist;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "BrewPing sends messages to your Mac Agent on the local network.";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = local.brewping.app;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brewping.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
@@ -401,8 +478,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = local.brewping.app.watchkitapp;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brewping.ios.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -425,8 +502,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = local.brewping.app.watchkitapp;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brewping.ios.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SWIFT_EMIT_LOC_STRINGS = YES;

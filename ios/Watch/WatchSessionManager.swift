@@ -15,6 +15,13 @@ struct WatchAgent: Identifiable, Equatable {
     let name: String
 }
 
+/// 一个可切换的模型。与 `WatchAgent` 一样由 iPhone 同步过来 ——
+/// 手表不直连 Mac，也不自己解析配置文件。模型名是用户配置的数据，不本地化。
+struct WatchModel: Identifiable, Equatable {
+    let id: String
+    let name: String
+}
+
 struct WatchDevice: Identifiable, Equatable {
     let id: String
     let name: String
@@ -57,9 +64,31 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     ]
     @Published var activeAgentIndex: Int = 0
 
+    // MARK: - Multi-Model
+    /// 当前 Agent 的可切换模型。空 = 还没同步到（或该 Agent 没有可选模型）。
+    @Published var models: [WatchModel] = []
+    @Published var activeModelIndex: Int = 0
+
     // MARK: - Multi-Device
     @Published var devices: [WatchDevice] = []
     @Published var activeDeviceIndex: Int = 0
+
+    /// 有得选才展示切换入口：0 个（没同步到）或 1 个（没得选）时隐藏。
+    var canSwitchModel: Bool { models.count > 1 }
+
+    /// 当前生效模型名；越界时返回空串（同步过程中数组可能短暂收缩）。
+    var activeModelName: String {
+        guard activeModelIndex < models.count else { return "" }
+        return models[activeModelIndex].name
+    }
+
+    /// 左右切换一格（手表小屏用按钮比 TabView 手势更可控）。
+    func stepModel(by delta: Int) {
+        guard !models.isEmpty else { return }
+        let count = models.count
+        let next = ((activeModelIndex + delta) % count + count) % count
+        switchToModel(index: next)
+    }
 
     var activeAgentID: String {
         guard activeAgentIndex < agents.count else { return "opencode" }
@@ -135,7 +164,49 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
                let idx = self.devices.firstIndex(where: { $0.id == activeDevId }) {
                 self.activeDeviceIndex = idx
             }
+            // 同步模型列表 + 当前生效模型（iPhone 从 Mac 端拿到后转发）
+            self.applyModels(from: context)
+            // 语言偏好由 iPhone 同步过来，手表不单独维护。
+            if let lang = context[WatchLanguageManager.syncKey] as? String {
+                WatchLanguageManager.shared.setLanguageFromPhone(lang)
+            }
         }
+    }
+
+    /// 解析 iPhone 同步过来的模型列表。
+    /// - Note: 列表为空时**保留**上一次的结果 —— iPhone 可能只是这一轮没拉到，
+    ///   不该让手表上已经显示的选项凭空消失。
+    private func applyModels(from context: [String: Any]) {
+        guard let list = context["models"] as? [[String: String]] else { return }
+        let parsed = list.compactMap { dict -> WatchModel? in
+            guard let id = dict["id"], let name = dict["name"] else { return nil }
+            return WatchModel(id: id, name: name)
+        }
+        guard !parsed.isEmpty else { return }
+        models = parsed
+        if let activeId = context["activeModelId"] as? String,
+           let idx = parsed.firstIndex(where: { $0.id == activeId }) {
+            activeModelIndex = idx
+        } else if activeModelIndex >= parsed.count {
+            activeModelIndex = 0
+        }
+    }
+
+    // MARK: - Model Switching
+
+    func switchToModel(index: Int) {
+        guard index >= 0, index < models.count else { return }
+        let model = models[index]
+        activeModelIndex = index
+
+        guard let session, session.activationState == .activated, session.isReachable else { return }
+        session.sendMessage(
+            ["type": "switchModel", "agentId": activeAgentID, "modelId": model.id],
+            replyHandler: nil,
+            errorHandler: { error in
+                WatchLog.session.error("switchModel failed: \(error.localizedDescription, privacy: .private)")
+            }
+        )
     }
 
     // MARK: - Agent Switching
@@ -156,7 +227,7 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
                 }
             },
             errorHandler: { error in
-                print("BrewPing watch: switchAgent failed: \(error.localizedDescription)")
+                WatchLog.session.error("switchAgent failed: \(error.localizedDescription, privacy: .private)")
             }
         )
     }
@@ -187,7 +258,7 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
                 }
             },
             errorHandler: { error in
-                print("BrewPing watch: switchDevice failed: \(error.localizedDescription)")
+                WatchLog.session.error("switchDevice failed: \(error.localizedDescription, privacy: .private)")
             }
         )
     }
@@ -256,6 +327,10 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
                    let idx = self.devices.firstIndex(where: { $0.id == activeDevId }) {
                     self.activeDeviceIndex = idx
                 }
+                self.applyModels(from: reply)
+                if let lang = reply[WatchLanguageManager.syncKey] as? String {
+                    WatchLanguageManager.shared.setLanguageFromPhone(lang)
+                }
             }
         }, errorHandler: { [weak self] error in
             DispatchQueue.main.async {
@@ -268,16 +343,16 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
 
     func sendCommand(_ text: String) {
         guard let session else {
-            DispatchQueue.main.async { self.commandState = .failed("WatchConnectivity unsupported") }
+            DispatchQueue.main.async { self.commandState = .failed(LW("WatchConnectivity unsupported")) }
             return
         }
         guard session.activationState == .activated else {
-            DispatchQueue.main.async { self.commandState = .failed("iPhone App Not Connected") }
+            DispatchQueue.main.async { self.commandState = .failed(LW("iPhone App Not Connected")) }
             return
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            DispatchQueue.main.async { self.commandState = .failed("Empty command") }
+            DispatchQueue.main.async { self.commandState = .failed(LW("Empty command")) }
             return
         }
         let payload: [String: Any] = [
@@ -302,7 +377,7 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
                 self?.lastError = nil
             }
         }, errorHandler: { [weak self] error in
-            print("BrewPing watch: sendMessage failed, falling back to transferUserInfo: \(error.localizedDescription)")
+            WatchLog.session.error("sendMessage failed, falling back to transferUserInfo: \(error.localizedDescription, privacy: .private)")
             session.transferUserInfo(payload)
             DispatchQueue.main.async {
                 self?.commandState = .sent(trimmed)
@@ -352,12 +427,12 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
 
         DispatchQueue.main.async {
             if let error {
-                print("BrewPing watch: audio transfer failed - \(error.localizedDescription)")
-                self.commandState = .failed("Send failed: \(error.localizedDescription)")
+                WatchLog.audio.error("Audio transfer failed: \(error.localizedDescription, privacy: .private)")
+                self.commandState = .failed(LW("Send failed: %@", error.localizedDescription))
             } else if case .sent = self.commandState {
                 // 只在仍处于"已送出"时更新文案，
                 // 避免覆盖已经到达的 commandResult 结果。
-                self.commandState = .sent("Audio delivered")
+                self.commandState = .sent(LW("Audio delivered"))
             }
         }
     }
@@ -372,7 +447,7 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
             if status == "completed" || status == "completed_with_raw" {
                 self.commandState = .completed(text)
             } else {
-                self.commandState = .failed(text.isEmpty ? "Command failed" : text)
+                self.commandState = .failed(text.isEmpty ? LW("Command failed") : text)
             }
         }
     }
@@ -391,12 +466,12 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     func sendAudioCommand(fileURL: URL, duration: TimeInterval? = nil) {
         guard let session else {
             try? FileManager.default.removeItem(at: fileURL)
-            DispatchQueue.main.async { self.commandState = .failed("WatchConnectivity unsupported") }
+            DispatchQueue.main.async { self.commandState = .failed(LW("WatchConnectivity unsupported")) }
             return
         }
         guard session.activationState == .activated else {
             try? FileManager.default.removeItem(at: fileURL)
-            DispatchQueue.main.async { self.commandState = .failed("iPhone App Not Connected") }
+            DispatchQueue.main.async { self.commandState = .failed(LW("iPhone App Not Connected")) }
             return
         }
 
@@ -413,11 +488,11 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
         audioTransfers.append(transfer)
         pendingAudioFileNames.insert(fileURL.lastPathComponent)
 
-        print("BrewPing watch: queued audio transfer \(fileURL.lastPathComponent) reachable=\(session.isReachable)")
+        WatchLog.audio.info("Queued audio transfer \(fileURL.lastPathComponent, privacy: .private) reachable=\(session.isReachable, privacy: .public)")
         // 排队成功即视为已送出：transferFile 是排队式投递，
         // 若一直停在 .sending，手机长时间离线时 UI 会永久卡住。
         // 真正的失败在 session(_:didFinish:) 里降级为 .failed。
-        DispatchQueue.main.async { self.commandState = .sent("Audio sent") }
+        DispatchQueue.main.async { self.commandState = .sent(LW("Audio sent")) }
     }
 
     // MARK: - Legacy

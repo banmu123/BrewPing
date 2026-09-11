@@ -11,10 +11,10 @@ enum WatchRecorderError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .audioSession(let detail):  return "Audio session failed: \(detail)"
-        case .recorderCreation(let detail): return "Recorder failed: \(detail)"
-        case .encodeFailed:              return "Audio encoding failed"
-        case .emptyRecording:            return "No audio captured"
+        case .audioSession(let detail):  return LW("Audio session failed: %@", detail)
+        case .recorderCreation(let detail): return LW("Recorder failed: %@", detail)
+        case .encodeFailed:              return LW("Audio encoding failed")
+        case .emptyRecording:            return LW("No audio captured")
         }
     }
 }
@@ -83,7 +83,7 @@ final class WatchAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
                 try session.setCategory(.record, mode: .default)
                 try session.setActive(true)
             } catch {
-                print("WatchAudioRecorder: audio session failed - \(error)")
+                WatchLog.audio.error("Audio session failed: \(error.localizedDescription, privacy: .private)")
                 finish(.failure(.audioSession(error.localizedDescription)))
                 return
             }
@@ -92,7 +92,7 @@ final class WatchAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         do {
             recorder = try AVAudioRecorder(url: url, settings: settings)
         } catch {
-            print("WatchAudioRecorder: recorder creation failed - \(error)")
+            WatchLog.audio.error("Recorder creation failed: \(error.localizedDescription, privacy: .private)")
             try? AVAudioSession.sharedInstance().setActive(false)
             finish(.failure(.recorderCreation(error.localizedDescription)))
             return
@@ -101,7 +101,7 @@ final class WatchAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         recorder?.delegate = self
         recorder?.isMeteringEnabled = true
         guard recorder?.record() == true else {
-            print("WatchAudioRecorder: record() returned false")
+            WatchLog.audio.error("record() returned false")
             try? AVAudioSession.sharedInstance().setActive(false)
             finish(.failure(.recorderCreation("record() returned false")))
             return
@@ -113,11 +113,11 @@ final class WatchAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         // 安全超时：即使静音检测未触发，也必须在 maxDuration 内结束并回调
         DispatchQueue.main.asyncAfter(deadline: .now() + maxDuration) { [weak self] in
             guard let self, self.isRecording else { return }
-            print("WatchAudioRecorder: force stop after \(self.maxDuration)s timeout")
+            WatchLog.audio.info("Force stop after \(self.maxDuration, privacy: .public)s timeout")
             self.stopRecording()
         }
 
-        print("WatchAudioRecorder: recording started -> \(url.lastPathComponent)")
+        WatchLog.audio.info("Recording started -> \(url.lastPathComponent, privacy: .private)")
     }
 
     /// 手动停止录音（delegate 的 audioRecorderDidFinishRecording 负责回调）
@@ -230,11 +230,11 @@ final class WatchAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
     // MARK: - AVAudioRecorderDelegate
 
     func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        print("WatchAudioRecorder: didFinishRecording successfully=\(flag)")
+        WatchLog.audio.info("didFinishRecording successfully=\(flag, privacy: .public)")
         stopLevelMonitoring()
 
         guard flag else {
-            print("WatchAudioRecorder: recording failed")
+            WatchLog.audio.error("Recording failed")
             finish(.failure(.encodeFailed))
             return
         }
@@ -245,7 +245,7 @@ final class WatchAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
         }
 
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-        print("WatchAudioRecorder: audio file size = \(size) bytes")
+        WatchLog.audio.info("Audio file size = \(size, privacy: .public) bytes")
         guard size > 0 else {
             try? FileManager.default.removeItem(at: url)
             finish(.failure(.emptyRecording))
@@ -256,7 +256,7 @@ final class WatchAudioRecorder: NSObject, ObservableObject, AVAudioRecorderDeleg
     }
 
     func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        print("WatchAudioRecorder: encode error - \(error?.localizedDescription ?? "unknown")")
+        WatchLog.audio.error("Encode error: \(error?.localizedDescription ?? "unknown", privacy: .private)")
         finish(.failure(.encodeFailed))
     }
 

@@ -16,9 +16,9 @@ enum DeviceOSType: String, Codable, CaseIterable {
 
     var label: String {
         switch self {
-        case .mac:     return "Mac"
-        case .windows: return "Win"
-        case .linux:   return "Linux"
+        case .mac:     return L("Mac")
+        case .windows: return L("Win")
+        case .linux:   return L("Linux")
         }
     }
 }
@@ -33,6 +33,15 @@ struct ManagedDevice: Identifiable, Codable, Equatable {
 
     var displayName: String {
         "\(osType.label) \(name)"
+    }
+
+    /// 是否为内置 Demo 设备。
+    ///
+    /// 用主机名判定而不是新增一个存储字段，是为了避免 `Codable` 兼容问题：
+    /// 旧版本写进 `UserDefaults` 的 JSON 里没有这个键，
+    /// 加一个非可选字段会让 `decode` 直接失败、用户设备列表被清空。
+    var isDemo: Bool {
+        host.lowercased() == DemoBackend.host
     }
 
     var baseURL: URL? {

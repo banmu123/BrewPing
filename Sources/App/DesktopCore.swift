@@ -16,6 +16,11 @@ public final class DesktopCore: ObservableObject {
     @Published public var sessionStatus: String = ""
     @Published public var activeAgentID: String = AgentManager.shared.activeAgentID
 
+    /// 当前展示中的配对码（nil 表示尚未点开）。
+    /// 配对码只在菜单栏 UI 里按需生成，不常驻内存。
+    @Published public var pairingCode: String?
+    @Published public var pairingCodeExpiresAt: Date?
+
     private var identity: DeviceIdentity?
     private var agentThread: Thread?
     private var statusTimer: Timer?
@@ -60,6 +65,46 @@ public final class DesktopCore: ObservableObject {
 
         // 轮询 Agent 是否就绪（HTTP Server 启动后 /api/status 有响应）
         startStatusPolling()
+    }
+
+    /// 生成并显示配对码，供 iPhone 首次配对使用。
+    ///
+    /// 按需触发（而不是启动就生成）：配对码是"这台 Mac 的执行权限"的等价物，
+    /// 不点开就不该存在，也不该在屏幕上停留。
+    public func revealPairingCode() {
+        pairingCode = PairingStore.shared.issuePairingCode()
+        pairingCodeExpiresAt = PairingStore.shared.pairingCodeExpiry
+    }
+
+    /// 强制轮换配对码，旧的立即作废。
+    ///
+    /// 用途：用户在菜单栏 UI 上点 "Refresh" 时。
+    /// 已经在用旧码换过 token 的设备**不受影响**（token 与码独立），
+    /// 只是未消费的旧码不能再换新 token。
+    public func regeneratePairingCode() {
+        pairingCode = PairingStore.shared.regeneratePairingCode()
+        pairingCodeExpiresAt = PairingStore.shared.pairingCodeExpiry
+    }
+
+    /// 用于 QR 码内容的 brewping:// 链接。
+    /// host 取自 `lanIP`，端口取自 `httpPort`。
+    /// `code` 可选：iPhone 端打开链接时如果带 code 会直接发起配对；不带则弹 pair sheet。
+    public func pairingURL(code: String? = nil) -> URL? {
+        guard let lanIP, let httpPort else { return nil }
+        var comps = URLComponents()
+        comps.scheme = "brewping"
+        comps.host = "pair"
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "host", value: lanIP),
+            URLQueryItem(name: "port", value: String(httpPort)),
+            URLQueryItem(name: "deviceId", value: deviceId),
+            URLQueryItem(name: "name", value: deviceName)
+        ]
+        if let code, !code.isEmpty {
+            items.append(URLQueryItem(name: "code", value: code))
+        }
+        comps.queryItems = items
+        return comps.url
     }
 
     public func stop() {

@@ -2,9 +2,23 @@ import Foundation
 
 enum HTTPAPI {
     static func handle(_ request: HTTPRequest, router: CommandRouter) -> HTTPResponse {
-        switch (request.method, request.path) {
-        case ("GET", "/api/status"):
+        // ---- 公开端点（不需要 token）----
+        // 1) 配对入口：本身就是为了换取 token，不能要求 token；
+        // 2) /api/status 只读健康检查，Mac 端自己的 DesktopCore 也要用它判活，
+        //    不泄露命令内容，因此保持公开。
+        if request.method == "POST", request.path == "/api/pair" {
+            return pairResponse(request)
+        }
+        if request.method == "GET", request.path == "/api/status" {
             return statusResponse(router.route(.status))
+        }
+
+        // ---- 其余全部要求 Bearer token（写操作还要 timestamp + nonce）----
+        if case .denied(let status, let error) = PairingStore.shared.authorize(request) {
+            return .json(status, "Unauthorized", ["success": false, "error": error])
+        }
+
+        switch (request.method, request.path) {
         case ("GET", "/api/protocol/state"):
             return protocolStateResponse()
         case ("GET", "/api/agents"):
@@ -37,6 +51,39 @@ enum HTTPAPI {
         default:
             return .json(404, "Not Found", ["success": false, "error": "not found"])
         }
+    }
+
+    /// `POST /api/pair` —— 用 6 位配对码换取长期 token。
+    ///
+    /// 请求：`{"code": "123456", "deviceName": "iPhone"}`
+    /// 响应：`{"success": true, "token": "<64 位 hex>", "deviceId": "...", "deviceName": "..."}`
+    private static func pairResponse(_ request: HTTPRequest) -> HTTPResponse {
+        guard let object = try? JSONSerialization.jsonObject(with: request.body, options: []),
+              let body = object as? [String: Any],
+              let code = body["code"] as? String, !code.isEmpty else {
+            return .json(400, "Bad Request", [
+                "success": false,
+                "error": "expected JSON body {\"code\": \"123456\"}"
+            ])
+        }
+
+        // 配对码一次性且 10 分钟过期：换不到就说明码错了或已失效，
+        // 不区分这两种情况，避免给暴力枚举提供反馈。
+        guard let token = PairingStore.shared.exchange(code: code) else {
+            return .json(401, "Unauthorized", [
+                "success": false,
+                "error": "invalid or expired pairing code"
+            ])
+        }
+
+        let identity = DeviceIdentity.loadOrCreate()
+        let deviceName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+        return .json(200, "OK", [
+            "success": true,
+            "token": token,
+            "deviceId": identity.deviceId,
+            "deviceName": deviceName
+        ] as [String: Any])
     }
 
     private static func discoveryRefreshResponse() -> HTTPResponse {

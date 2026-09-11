@@ -1,0 +1,167 @@
+/* BrewPing iOS App — Chinese (Simplified) */
+
+/* MARK: - Language */
+"Follow System" = "跟随系统";
+"Language" = "语言";
+"App-internal switch. Changes take effect immediately — no need to restart or change iOS system language." = "应用内切换。选择后立即生效，无需重启应用或更改 iOS 系统语言。";
+
+/* MARK: - Empty State / Onboarding */
+"Get started" = "开始使用";
+"No Mac connected yet" = "尚未连接 Mac";
+"BrewPing needs **%@** running on your Mac. Your iPhone is the remote control; your Mac runs the coding agents." = "BrewPing 需要你的 Mac 上运行 **%@**。iPhone 是遥控器，Mac 才是真正运行编码 Agent 的地方。";
+"Install and open %@ on your Mac." = "在 Mac 上安装并打开 %@。";
+"Keep this iPhone and your Mac on the same Wi-Fi." = "让 iPhone 与 Mac 处于同一 Wi-Fi 网络。";
+"Reveal the 6-digit pairing code in %@." = "在 %@ 中显示 6 位配对码。";
+"Tap “Add Device” below, enter the code, and save." = "点击下方“添加设备”，输入配对码并保存。";
+"Add Device" = "添加设备";
+"Try Demo Mode" = "试用演示模式";
+"No Mac at hand? Demo Mode walks through the whole flow locally, without any hardware." = "手头没有 Mac？演示模式可在本地完整走一遍流程，不需要任何硬件。";
+"Add a device first" = "请先添加设备";
+
+/* MARK: - Pairing */
+"Pairing required" = "需要配对";
+"This device is not paired yet." = "此设备尚未配对。";
+// 注意：占位符数量必须与英文一致（这里固定 2 个）且顺序不能调换 ——
+// SwiftUI 的 LocalizedStringKey 按出现顺序填充实参，不支持 %2$@ 重排，
+// 多一个 %@ 就会去读不存在的实参，直接 EXC_BAD_ACCESS (code=1)。
+"Open %@ on %@, reveal its pairing code, then enter the code for this device." = "打开 %@（位于 %@），显示配对码后在此设备上输入。";
+"Enter pairing code" = "输入配对码";
+"Make sure %@ is running on %@, and that both devices are on the same Wi-Fi." = "请确认 %@ 已在 %@ 上运行，且两台设备处于同一 Wi-Fi。";
+"Not paired with %@." = "尚未与 %@ 配对。";
+"Not paired. Enter the pairing code in this device's settings." = "尚未配对。请在此设备的设置中输入配对码。";
+"Paired successfully." = "配对成功。";
+"Pairing failed (HTTP %@)." = "配对失败（HTTP %@）。";
+"Pairing failed: %@" = "配对失败：%@";
+"6-digit pairing code" = "6 位配对码";
+"Pairing" = "配对";
+"Shown in %@ on your Mac. Required before this app can send commands. Leave empty to save the device without pairing." = "在 Mac 上的 %@ 中显示。发送指令前必须先配对。留空可仅保存设备而不配对。";
+"Add Demo Device (no Mac needed)" = "添加演示设备（无需 Mac）";
+"Invalid host or port." = "主机名或端口无效。";
+
+/* MARK: - Device Form */
+"Device Info" = "设备信息";
+"Name (e.g. Chenzk)" = "名称（例如 Chenzk）";
+"Host (IP or hostname)" = "主机（IP 或主机名）";
+"Port" = "端口";
+"System" = "系统";
+"Searching..." = "正在搜索…";
+"Auto Discover" = "自动发现";
+"Add" = "添加";
+"Edit Device" = "编辑设备";
+"Save" = "保存";
+"Cancel" = "取消";
+"Found: %@ (%@:%@)" = "已发现：%@（%@:%@）";
+"No BrewPing agent found. Make sure %@ is running and on the same Wi-Fi." = "未找到 BrewPing Agent。请确认 %@ 已运行且在同一 Wi-Fi。";
+"Edit" = "编辑";
+"Delete" = "删除";
+
+/* MARK: - Agent List */
+"AI Agents" = "AI Agents";
+"Detecting agents..." = "正在检测 Agent…";
+"No agents detected. Connect a paired Mac to list the coding agents installed on it." = "未检测到 Agent。连接已配对的 Mac 后，即可列出其上安装的编码 Agent。";
+"Default" = "默认";
+"Installed" = "已安装";
+"Not Installed" = "未安装";
+"Set Default" = "设为默认";
+"Agent names are trademarks of their respective owners. BrewPing is not affiliated with, endorsed by, or sponsored by them." = "Agent 名称均为其各自所有者的商标。BrewPing 与这些所有者不存在关联、认可或赞助关系。";
+
+/* MARK: - Session Card */
+"Active Agent" = "当前 Agent";
+"Session ID" = "会话 ID";
+"Ready — type a command below to send" = "已就绪 —— 在下方输入指令即可发送";
+"Stop Session" = "停止会话";
+"Start Session" = "开始会话";
+"Starting..." = "正在启动…";
+"Stopping..." = "正在停止…";
+"Running" = "运行中";
+"Offline" = "离线";
+"Session stopped" = "会话已停止";
+"Stop failed: %@" = "停止失败：%@";
+"Start failed: %@" = "启动失败：%@";
+"No Mac connected. Add a device first." = "未连接 Mac。请先添加设备。";
+"Switch failed (HTTP %@)" = "切换失败（HTTP %@）";
+"Switch failed: %@" = "切换失败：%@";
+
+/* MARK: - Message */
+"Message" = "消息";
+"Hello from iPhone" = "来自 iPhone 的指令";
+"Send" = "发送";
+"Start a session to enable sending." = "开始会话后才能发送指令。";
+"Add a device to enable sending." = "添加设备后才能发送指令。";
+"Can't reach %@: %@" = "无法连接 %@：%@";
+
+/* MARK: - Result */
+"Result" = "结果";
+"No message sent yet." = "还没有发送过消息。";
+"Sending..." = "正在发送…";
+"Delivered" = "已送达";
+"Working" = "正在处理";
+"Completed" = "已完成";
+"Raw screen output" = "原始屏幕输出";
+"Failed" = "失败";
+"Quota exceeded" = "额度已用完";
+"Authentication failed" = "鉴权失败";
+"Rate limited" = "请求过于频繁";
+"Network error" = "网络错误";
+"Model unavailable" = "模型不可用";
+"Provider error" = "服务商错误";
+"Timeout" = "超时";
+"Process exited" = "进程已退出";
+
+/* MARK: - OS Labels */
+"Mac" = "Mac";
+"Win" = "Windows";
+"Linux" = "Linux";
+
+/* MARK: - Command / Watch 回传文案 */
+"Pairing..." = "正在配对…";
+"Not paired with this Mac. Enter the pairing code in this device's settings." = "尚未与此 Mac 配对。请在此设备的设置中输入配对码。";
+"Status poll failed." = "状态轮询失败。";
+"Connection lost: %@" = "连接中断：%@";
+"(empty response)" = "（响应为空）";
+"(empty raw output)" = "（原始输出为空）";
+"Unknown error." = "未知错误。";
+
+/* MARK: - Help / About */
+"Keep the Mac and this iPhone on the same Wi-Fi network." = "让 Mac 与这台 iPhone 处于同一 Wi-Fi 网络。";
+"In %@, tap “Pairing Code” to reveal a 6-digit code." = "在 %@ 中点按“配对码”，即可显示 6 位数字。";
+"In this app, tap + in the device bar, enter the code, and save." = "在本 App 中点击设备栏的 +，输入配对码并保存。";
+"Help & About" = "帮助与关于";
+"Help and About" = "帮助与关于";
+"Done" = "完成";
+"How BrewPing works" = "BrewPing 如何工作";
+"BrewPing lets you monitor and control coding-agent sessions running on **your own Mac** — from your iPhone and Apple Watch, over your local network." = "BrewPing 让你通过本地网络，从 iPhone 和 Apple Watch 监控、控制运行在你**自己 Mac** 上的编码 Agent 会话。";
+"The iPhone app is the remote control." = "iPhone App 是遥控器。";
+"A Mac running %@ does the actual work." = "运行 %@ 的 Mac 负责实际执行。";
+"Set up your Mac" = "设置你的 Mac";
+"No account is required. The pairing code is exchanged once for a key that is stored in the iOS Keychain." = "无需账号。配对码仅交换一次，换取的密钥会存入 iOS 钥匙串。";
+"Try it without a Mac" = "没有 Mac 也能试用";
+"Add a Demo device to walk through the whole flow — no Mac and no hardware needed. The Demo device simulates status, agents, session control and command results locally." = "添加演示设备即可完整走一遍流程——无需 Mac、无需硬件。演示设备会在本地模拟状态、Agent、会话控制与指令结果。";
+"Add Demo Device" = "添加演示设备";
+"Privacy" = "隐私";
+"Privacy Policy" = "隐私政策";
+"BrewPing has no account, no analytics, and no third-party SDKs. Commands, agent output and voice audio stay on your iPhone and your own Mac. They are sent only to the Mac you configured, on your local network." = "BrewPing 没有账号、没有数据分析、也没有第三方 SDK。指令、Agent 输出和语音音频只保留在你的 iPhone 和自己的 Mac 上，且仅发送到你配置的 Mac，并通过本地网络传输。";
+"Support" = "支持";
+"Legal" = "法律信息";
+"About" = "关于";
+"Version" = "版本";
+
+/* MARK: - Demo 模式响应（key 由 DemoBackend 显式指定）*/
+"demo.commandResponse" = "演示模式 —— 不涉及任何 Mac。\n\n已收到指令：\n%@\n\n此响应在本地生成，便于完整查看整条链路（发送 → 已送达 → 处理中 → 已完成）。连接一台运行 %@ 的真实 Mac 即可真正执行指令。";
+"Demo Mac (Simulated)" = "演示 Mac（模拟）";
+
+
+/* MARK: - Model switching */
+"Model" = "模型";
+"Available models" = "可用模型";
+"Showing the last known models. Pull to refresh to try again." = "当前显示的是上次获取到的模型列表，下拉刷新可重试。";
+"Can't load models: %@" = "无法加载模型列表：%@";
+
+/* MARK: - 配对 v2：QR + 空状态自动发现 */
+"Scanning for %@ on this Wi-Fi..." = "正在此 Wi-Fi 下扫描 %@…";
+"No BrewPing Mac found on this Wi-Fi yet." = "本 Wi-Fi 下还没找到 BrewPing Mac。";
+"Macs on this Wi-Fi" = "此 Wi-Fi 下的 Mac";
+"If the list is empty, open %@ on your Mac and reveal the pairing code (a QR will appear)." = "若列表为空，请在 Mac 上打开 %@，并显示配对码（会同时显示一个二维码）。";
+"Add Manually" = "手动添加";
+"In %@, click the menu bar icon and tap “Show Pairing Code”. A QR code will appear." = "在 %@ 的菜单栏图标里点击「显示配对码」，会出现一个二维码。";
+"Scan the QR with your iPhone, or enter the 6-digit code in the device sheet." = "用 iPhone 扫描此二维码，或在设备表单里输入 6 位配对码。";

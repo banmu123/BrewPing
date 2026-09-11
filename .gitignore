@@ -4,6 +4,13 @@ ios/build/
 build/
 DerivedData/
 
+# 构建产物：整目录忽略。
+# 注意 ios/build-device/ 里曾存在**过期**的 .app（Info.plist 缺 NSBonjourServices、
+# 语音权限键与 CFBundleIconName），一旦被当成当前配置会对合规判断产生误导。
+build*/
+ios/build*/
+*.xcresult
+
 # Xcode user state
 ios/BrewPing.xcodeproj/project.xcworkspace/xcuserdata/
 ios/BrewPing.xcodeproj/xcuserdata/

@@ -1,0 +1,169 @@
+/* BrewPing —— English
+ *
+ * 这里显式列出全部 key，值为英文原文。
+ * 之所以不省略：`LanguageManager` 切到英文时会去找 `en.lproj`，
+ * 该目录必须真实存在，否则会退回系统语言（系统若是中文，选 English 就会无效）。
+ */
+
+/* ── Empty state ──────────────────────────────── */
+"Get started" = "Get started";
+"No Mac connected yet" = "No Mac connected yet";
+"BrewPing needs **%@** running on your Mac. Your iPhone is the remote control; your Mac runs the coding agents." = "BrewPing needs **%@** running on your Mac. Your iPhone is the remote control; your Mac runs the coding agents.";
+"Install and open %@ on your Mac." = "Install and open %@ on your Mac.";
+"Keep this iPhone and your Mac on the same Wi-Fi." = "Keep this iPhone and your Mac on the same Wi-Fi.";
+"Reveal the 6-digit pairing code in %@." = "Reveal the 6-digit pairing code in %@.";
+"Tap “Add Device” below, enter the code, and save." = "Tap “Add Device” below, enter the code, and save.";
+"Add Device" = "Add Device";
+"Try Demo Mode" = "Try Demo Mode";
+"No Mac at hand? Demo Mode walks through the whole flow locally, without any hardware." = "No Mac at hand? Demo Mode walks through the whole flow locally, without any hardware.";
+
+/* ── Pairing ──────────────────────────────────── */
+"Pairing required" = "Pairing required";
+"This device is not paired yet." = "This device is not paired yet.";
+"Open %@ on %@, reveal its pairing code, then enter the code for this device." = "Open %@ on %@, reveal its pairing code, then enter the code for this device.";
+"Enter pairing code" = "Enter pairing code";
+"Make sure %@ is running on %@, and that both devices are on the same Wi-Fi." = "Make sure %@ is running on %@, and that both devices are on the same Wi-Fi.";
+"Pairing" = "Pairing";
+"Pairing..." = "Pairing...";
+"6-digit pairing code" = "6-digit pairing code";
+"Shown in %@ on your Mac. Required before this app can send commands. Leave empty to save the device without pairing." = "Shown in %@ on your Mac. Required before this app can send commands. Leave empty to save the device without pairing.";
+"Paired successfully." = "Paired successfully.";
+"Invalid host or port." = "Invalid host or port.";
+"Pairing failed (HTTP %@)." = "Pairing failed (HTTP %@).";
+"Pairing failed: %@" = "Pairing failed: %@";
+
+/* ── Device form ──────────────────────────────── */
+"Device Info" = "Device Info";
+"Name (e.g. Chenzk)" = "Name (e.g. Chenzk)";
+"Host (IP or hostname)" = "Host (IP or hostname)";
+"Port" = "Port";
+"System" = "System";
+"Auto Discover" = "Auto Discover";
+"Searching..." = "Searching...";
+"Edit Device" = "Edit Device";
+"Cancel" = "Cancel";
+"Add" = "Add";
+"Save" = "Save";
+"Add Demo Device (no Mac needed)" = "Add Demo Device (no Mac needed)";
+"Found: %@ (%@:%@)" = "Found: %@ (%@:%@)";
+"No BrewPing agent found. Make sure %@ is running and on the same Wi-Fi." = "No BrewPing agent found. Make sure %@ is running and on the same Wi-Fi.";
+
+/* ── Agents ───────────────────────────────────── */
+"AI Agents" = "AI Agents";
+"Detecting agents..." = "Detecting agents...";
+"No agents detected. Connect a paired Mac to list the coding agents installed on it." = "No agents detected. Connect a paired Mac to list the coding agents installed on it.";
+"Default" = "Default";
+"Installed" = "Installed";
+"Not Installed" = "Not Installed";
+"Set Default" = "Set Default";
+
+/* ── Session ──────────────────────────────────── */
+"Active Agent" = "Active Agent";
+"Session ID" = "Session ID";
+"Ready — type a command below to send" = "Ready — type a command below to send";
+"Start Session" = "Start Session";
+"Stop Session" = "Stop Session";
+"Add a device first" = "Add a device first";
+"Starting..." = "Starting...";
+"Stopping..." = "Stopping...";
+"Running" = "Running";
+"Offline" = "Offline";
+"Session stopped" = "Session stopped";
+"Not paired. Enter the pairing code in this device's settings." = "Not paired. Enter the pairing code in this device's settings.";
+"Start failed: %@" = "Start failed: %@";
+"Stop failed: %@" = "Stop failed: %@";
+"Switch failed: %@" = "Switch failed: %@";
+"Switch failed (HTTP %@)" = "Switch failed (HTTP %@)";
+
+/* ── Message & result ─────────────────────────── */
+"Message" = "Message";
+"Hello from iPhone" = "Hello from iPhone";
+"Send" = "Send";
+"Sending..." = "Sending...";
+"Start a session to enable sending." = "Start a session to enable sending.";
+"Add a device to enable sending." = "Add a device to enable sending.";
+"Result" = "Result";
+"No message sent yet." = "No message sent yet.";
+"Delivered" = "Delivered";
+"Working" = "Working";
+"Completed" = "Completed";
+"Failed" = "Failed";
+"Raw screen output" = "Raw screen output";
+"Quota exceeded" = "Quota exceeded";
+"Authentication failed" = "Authentication failed";
+"Rate limited" = "Rate limited";
+"Network error" = "Network error";
+"Model unavailable" = "Model unavailable";
+"Provider error" = "Provider error";
+"Timeout" = "Timeout";
+"Process exited" = "Process exited";
+
+/* ── Connection errors ────────────────────────── */
+"Not paired with %@." = "Not paired with %@.";
+"Not paired with this Mac. Enter the pairing code in this device's settings." = "Not paired with this Mac. Enter the pairing code in this device's settings.";
+"Can't reach %@: %@" = "Can't reach %@: %@";
+"No Mac connected. Add a device first." = "No Mac connected. Add a device first.";
+"Status poll failed." = "Status poll failed.";
+"Connection lost: %@" = "Connection lost: %@";
+"(empty response)" = "(empty response)";
+"(empty raw output)" = "(empty raw output)";
+"Unknown error." = "Unknown error.";
+
+/* ── Help / About ─────────────────────────────── */
+"Help and About" = "Help and About";
+"Help & About" = "Help & About";
+"How BrewPing works" = "How BrewPing works";
+"BrewPing lets you monitor and control coding-agent sessions running on **your own Mac** — from your iPhone and Apple Watch, over your local network." = "BrewPing lets you monitor and control coding-agent sessions running on **your own Mac** — from your iPhone and Apple Watch, over your local network.";
+"The iPhone app is the remote control." = "The iPhone app is the remote control.";
+"A Mac running %@ does the actual work." = "A Mac running %@ does the actual work.";
+"Set up your Mac" = "Set up your Mac";
+"Keep the Mac and this iPhone on the same Wi-Fi network." = "Keep the Mac and this iPhone on the same Wi-Fi network.";
+"In %@, tap “Pairing Code” to reveal a 6-digit code." = "In %@, tap “Pairing Code” to reveal a 6-digit code.";
+"In this app, tap + in the device bar, enter the code, and save." = "In this app, tap + in the device bar, enter the code, and save.";
+"No account is required. The pairing code is exchanged once for a key that is stored in the iOS Keychain." = "No account is required. The pairing code is exchanged once for a key that is stored in the iOS Keychain.";
+"Try it without a Mac" = "Try it without a Mac";
+"Add a Demo device to walk through the whole flow — no Mac and no hardware needed. The Demo device simulates status, agents, session control and command results locally." = "Add a Demo device to walk through the whole flow — no Mac and no hardware needed. The Demo device simulates status, agents, session control and command results locally.";
+"Add Demo Device" = "Add Demo Device";
+"Privacy" = "Privacy";
+"Privacy Policy" = "Privacy Policy";
+"BrewPing has no account, no analytics, and no third-party SDKs. Commands, agent output and voice audio stay on your iPhone and your own Mac. They are sent only to the Mac you configured, on your local network." = "BrewPing has no account, no analytics, and no third-party SDKs. Commands, agent output and voice audio stay on your iPhone and your own Mac. They are sent only to the Mac you configured, on your local network.";
+"Support" = "Support";
+"Legal" = "Legal";
+"About" = "About";
+"Version" = "Version";
+"Done" = "Done";
+"Language" = "Language";
+"Follow System" = "Follow System";
+"Agent names are trademarks of their respective owners. BrewPing is not affiliated with, endorsed by, or sponsored by them." = "Agent names are trademarks of their respective owners. BrewPing is not affiliated with, endorsed by, or sponsored by them.";
+
+/* ── Language ─────────────────────────────────── */
+"App-internal switch. Changes take effect immediately — no need to restart or change iOS system language." = "App-internal switch. Changes take effect immediately — no need to restart or change iOS system language.";
+
+/* ── Device context menu ──────────────────────── */
+"Edit" = "Edit";
+"Delete" = "Delete";
+
+/* ── OS labels (shown as part of device display name) ── */
+"Mac" = "Mac";
+"Win" = "Win";
+"Linux" = "Linux";
+
+/* ── Demo mode ────────────────────────────────── */
+"demo.commandResponse" = "Demo mode — no Mac involved.\n\nReceived command:\n%@\n\nThis response is generated locally so the full flow can be reviewed (Sending → Delivered → Working → Completed). Connect a real Mac running %@ to execute commands for real.";
+"Demo Mac (Simulated)" = "Demo Mac (Simulated)";
+
+
+/* MARK: - Model switching */
+"Model" = "Model";
+"Available models" = "Available models";
+"Showing the last known models. Pull to refresh to try again." = "Showing the last known models. Pull to refresh to try again.";
+"Can't load models: %@" = "Can't load models: %@";
+
+/* MARK: - Pairing v2: QR + Auto Discover on empty state */
+"Scanning for %@ on this Wi-Fi..." = "Scanning for %@ on this Wi-Fi...";
+"No BrewPing Mac found on this Wi-Fi yet." = "No BrewPing Mac found on this Wi-Fi yet.";
+"Macs on this Wi-Fi" = "Macs on this Wi-Fi";
+"If the list is empty, open %@ on your Mac and reveal the pairing code (a QR will appear)." = "If the list is empty, open %@ on your Mac and reveal the pairing code (a QR will appear).";
+"Add Manually" = "Add Manually";
+"In %@, click the menu bar icon and tap “Show Pairing Code”. A QR code will appear." = "In %@, click the menu bar icon and tap “Show Pairing Code”. A QR code will appear.";
+"Scan the QR with your iPhone, or enter the 6-digit code in the device sheet." = "Scan the QR with your iPhone, or enter the 6-digit code in the device sheet.";
