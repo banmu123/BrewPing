@@ -106,6 +106,10 @@ public final class DesktopCore: ObservableObject {
     /// 用于 QR 码内容的 brewping:// 链接。
     /// host 取自 `lanIP`，端口取自 `httpPort`。
     /// `code` 可选：iPhone 端打开链接时如果带 code 会直接发起配对；不带则弹 pair sheet。
+    ///
+    /// `osType` 让 iPhone 不必猜主机类型（不带上就会在设备列表里被默认成 Mac，见
+    /// `ios/BrewPing/ContentView.swift` 的 `consumePairAction`）。
+    /// 取值固定为字符串 `mac`（与 iOS `DeviceOSType.rawValue` 对齐，此处不引用 iOS 类型）。
     public func pairingURL(code: String? = nil) -> URL? {
         guard let lanIP, let httpPort else { return nil }
         var comps = URLComponents()
@@ -115,7 +119,8 @@ public final class DesktopCore: ObservableObject {
             URLQueryItem(name: "host", value: lanIP),
             URLQueryItem(name: "port", value: String(httpPort)),
             URLQueryItem(name: "deviceId", value: deviceId),
-            URLQueryItem(name: "name", value: deviceName)
+            URLQueryItem(name: "name", value: deviceName),
+            URLQueryItem(name: "osType", value: "mac")
         ]
         if let code, !code.isEmpty {
             items.append(URLQueryItem(name: "code", value: code))

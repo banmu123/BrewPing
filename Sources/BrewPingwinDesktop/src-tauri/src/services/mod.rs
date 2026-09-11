@@ -1,7 +1,12 @@
+pub mod agent_config;
 pub mod agent_discovery;
+pub mod approval_gate;
+pub mod danger_pattern;
 pub mod device_identity;
 pub mod http_server;
 pub mod lan_address;
 pub mod mdns_broadcast;
+pub mod model_prefs;
+pub mod pairing_store;
 pub mod terminal_state;
 pub mod tray;

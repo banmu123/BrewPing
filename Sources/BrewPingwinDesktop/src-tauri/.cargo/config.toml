@@ -1,0 +1,17 @@
+# 关闭增量编译。
+#
+# 原因：本项目 lib target 由 Tauri 生成为 `--crate-type staticlib --crate-type cdylib
+# --crate-type rlib` 三合一 + `-C debuginfo=2`，rustc 1.90 在这个组合下叠加增量编译会
+# 触发已知 ICE（内部编译器 panic）：
+#
+#   thread 'rustc' panicked at compiler\rustc_metadata\src\rmeta\encoder.rs:2407:51:
+#   no entry found for key
+#
+# 一旦某次构建被中途打断（Ctrl-C、杀进程、端口占用退出），
+# target/debug/incremental 里的缓存就会被写坏，之后每次构建都稳定 ICE，
+# 表现为「代码没动，突然编译不过」。
+#
+# 关掉增量编译可彻底规避；代价是本 crate 每次全量重编（依赖已缓存，影响很小）。
+# 若想恢复增量编译，删掉本文件并删除 target/debug/incremental 即可。
+[build]
+incremental = false

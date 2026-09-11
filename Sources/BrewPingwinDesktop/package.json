@@ -13,7 +13,8 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-shell": "^2",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-qr-code": "^2.2.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

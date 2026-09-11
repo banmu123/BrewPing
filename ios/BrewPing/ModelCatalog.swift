@@ -43,6 +43,12 @@ struct ModelOption: Identifiable, Equatable {
     let available: Bool
 }
 
+/// 模型接口返回了非预期状态码。
+/// 401（未配对）/ 404 / 501（主机没实现该接口）在调用点单独处理，不会走到这里。
+private enum ModelLoadFailure: Error {
+    case badStatus(Int)
+}
+
 // MARK: - ModelStore
 
 /// 当前 Agent 的可切换模型列表 + 当前生效模型。
@@ -59,6 +65,14 @@ final class ModelStore: ObservableObject {
     @Published private(set) var activeModelID: String?
     /// 拉取失败时的提示。**失败不清空 models**，保留上次可用的列表与默认模型。
     @Published private(set) var loadError: String?
+    /// 这台主机是否**没有实现**模型接口（HTTP 404 / 501）。
+    ///
+    /// 与 `loadError` 的区别很重要：这**不是**错误，只是"这台主机没得选"。
+    /// 早期桌面端（如 Windows 端最初版本）没有 `/api/agents/{id}/models`，
+    /// 若不单独识别，响应体解不出 JSON，用户只会看到一句
+    /// "未能读取数据，因为它的格式不正确" —— 既看不懂也误导人。
+    /// 识别出来后清空列表、入口按 `canSwitch` 自然隐藏，不报错。
+    @Published private(set) var unsupported = false
     /// 切换失败时的提示。
     @Published private(set) var notice: String?
 
@@ -70,7 +84,10 @@ final class ModelStore: ObservableObject {
     private var loadedKey: String?
 
     /// 是否值得展示切换入口：0 个或只有 1 个模型时没有可选项。
-    var canSwitch: Bool { models.count > 1 }
+    ///
+    /// `unsupported`（主机没实现这个接口）时列表必然为空，这里显式写出来，
+    /// 免得以后有人看到 `models` 为空却分不清是"这台机器没配模型"还是"这台主机没有这个接口"。
+    var canSwitch: Bool { !unsupported && models.count > 1 }
 
     /// 当前生效模型的展示名；列表里没有时直接显示 id（比如配置里新增了模型但还没刷新）。
     var activeModelName: String? {
@@ -87,8 +104,8 @@ final class ModelStore: ObservableObject {
         currentAgentID = agentID
 
         guard let device else {
-            models = []
-            activeModelID = nil
+            clearModels()
+            unsupported = false
             loadError = nil
             loadedKey = nil
             return
@@ -102,23 +119,41 @@ final class ModelStore: ObservableObject {
             path: "/api/agents/\(agentID)/models",
             timeout: 10
         ) else {
-            models = []
-            activeModelID = nil
+            clearModels()
+            unsupported = false
+            loadError = nil
             loadedKey = nil
             return
         }
 
         do {
             let (data, response) = try await BrewPingHTTP.session.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+
             if BrewPingHTTP.isUnauthorized(response) {
                 // 没配对：不是模型数据的问题，交给界面上原有的未配对提示处理，
                 // 这里静默清空即可，避免重复弹两种错误。
-                models = []
-                activeModelID = nil
+                clearModels()
+                unsupported = false
                 loadError = nil
                 loadedKey = nil
                 return
             }
+
+            // 404 / 501 = 这台主机**没有这个接口**（尚未实现该路由的桌面端）。
+            // 与"请求出错"区分开：这不是错误，只是没得选。
+            // 计入 loadedKey 是刻意的 —— 否则 5 秒一次的轮询会反复去撞一个不存在的路由。
+            if statusCode == 404 || statusCode == 501 {
+                clearModels()
+                loadError = nil
+                unsupported = true
+                loadedKey = key
+                BrewPingLog.net.info("Model list unsupported by host (HTTP \(statusCode, privacy: .public))")
+                return
+            }
+
+            guard statusCode == 200 else { throw ModelLoadFailure.badStatus(statusCode) }
+
             let decoded = try JSONDecoder().decode(ModelsResponse.self, from: data)
             models = Self.flatten(decoded)
             activeModelID = Self.resolveActive(
@@ -127,17 +162,47 @@ final class ModelStore: ObservableObject {
                 localFallback: localSelection(deviceID: device.id, agentID: agentID)
             )
             loadError = nil
+            unsupported = false
             loadedKey = key
             // OSLog 的插值是 @autoclosure，直接引用 self 的属性会报
             // "reference to property in closure requires explicit use of 'self'"，先取局部变量。
             let count = models.count
             BrewPingLog.net.info("Loaded \(count, privacy: .public) models for \(agentID, privacy: .public)")
         } catch {
-            // 关键：失败**不清空**已有列表。用户已经看到的选项不该因为一次网络抖动消失，
-            // 主流程（发命令）也完全不受影响。
-            loadError = L("Can't load models: %@", error.localizedDescription)
+            // 关键：**同一台主机**上失败不清空已有列表（一次网络抖动不该让选项消失）。
+            // 但设备 / Agent 已经换了的话，旧列表属于别的主机，留着就是错的 ——
+            // 会让人以为新主机有这些模型，点了必然失败。
+            if loadedKey != key {
+                clearModels()
+            }
+            unsupported = false
+            loadError = Self.loadErrorMessage(for: error)
             BrewPingLog.net.error("Load models failed: \(error.localizedDescription, privacy: .private)")
         }
+    }
+
+    /// 把失败原因翻成用户能看懂的一句话。
+    ///
+    /// 三件事必须分开说：**主机没实现该接口** ≠ **返回体结构不对** ≠ **网络不通**。
+    /// 混在一起时用户只会看到系统级原文（"未能读取数据，因为它的格式不正确"），
+    /// 既定位不到原因，也像是 App 坏了。
+    private static func loadErrorMessage(for error: Error) -> String {
+        if let failure = error as? ModelLoadFailure {
+            switch failure {
+            case .badStatus(let code):
+                return L("Can't load models: %@", "HTTP \(code)")
+            }
+        }
+        if error is DecodingError {
+            // 200 却解不出 JSON：主机实现了路由但结构不是我们认识的（版本不匹配）。
+            return L("This host doesn't support model lists. Update the desktop app.")
+        }
+        return L("Can't load models: %@", error.localizedDescription)
+    }
+
+    private func clearModels() {
+        models = []
+        activeModelID = nil
     }
 
     /// 设备或 Agent 变了 —— 下次必须重新拉，否则会沿用上一个 Agent 的模型。

@@ -21,6 +21,28 @@ enum DeviceOSType: String, Codable, CaseIterable {
         case .linux:   return L("Linux")
         }
     }
+
+    /// 从外部字符串解析主机类型（`brewping://pair?...` 深链、mDNS TXT `platform` 等）。
+    ///
+    /// 大小写不敏感、容忍空白，并接受两套命名：
+    ///  - 本 App 自己的短名：`mac` / `windows` / `linux`（深链 `osType` 参数用这套）；
+    ///  - 各端 `platform` 字段的原生写法：`macOS` / `darwin` / `windows` / `linux`
+    ///    （`Sources/App/BonjourAdvertiser.swift` 与 Windows 端 `mdns_broadcast.rs` 广播的 TXT）。
+    ///
+    /// **缺失或无法识别一律回落 `.mac`** —— 这是加该字段之前的历史行为，
+    /// 保证老版本桌面端发出的（不带该信息的）发现记录/深链仍能正常使用，
+    /// 不会因解析失败而丢设备。
+    static func parse(_ raw: String?) -> DeviceOSType {
+        guard let raw else { return .mac }
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "windows", "win", "win32", "win64": return .windows
+        case "linux", "gnu/linux":               return .linux
+        case "mac", "macos", "mac os", "mac os x", "darwin", "osx":
+            return .mac
+        default:
+            return .mac
+        }
+    }
 }
 
 /// 一台被管理的电脑

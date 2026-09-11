@@ -12,7 +12,11 @@ pub struct TrayHandles {
     pub port_item: Arc<MenuItem<tauri::Wry>>,
     pub device_item: Arc<MenuItem<tauri::Wry>>,
     pub ip_item: Arc<MenuItem<tauri::Wry>>,
+    pub pairing_item: Arc<MenuItem<tauri::Wry>>,
 }
+
+/// 未揭示配对码时的占位文本（不点开就不该看到码）。
+const PAIRING_PLACEHOLDER: &str = "配对码：—— 点击「显示配对码」";
 
 /// Generate a 32x32 RGBA coffee cup icon.
 fn create_icon_rgba() -> Vec<u8> {
@@ -57,6 +61,29 @@ fn pixel_color(x: usize, y: usize, _size: usize) -> (u8, u8, u8, u8) {
     (0, 0, 0, 0) // transparent
 }
 
+/// 把运行时状态映射成托盘文案。
+///
+/// 与 macOS `MenuBarView.runtimeBadge` 的语义一致：
+/// `starting` 单独区分出来，避免把"还没启动完"显示成"离线"。
+fn runtime_label(app: &AppHandle) -> &'static str {
+    use crate::RuntimeState;
+    let Some(core) = app.try_state::<crate::DesktopCore>() else {
+        return "未启动";
+    };
+    // 运行时状态用 std::sync::RwLock（同步读），这里不会跨 await 持有，安全。
+    let state = core
+        .runtime_state
+        .read()
+        .map(|s| *s)
+        .unwrap_or(RuntimeState::Idle);
+    match state {
+        RuntimeState::Online => "在线",
+        RuntimeState::Starting => "正在启动…",
+        RuntimeState::Offline => "离线",
+        RuntimeState::Idle => "未启动",
+    }
+}
+
 /// Create and configure the system tray icon with context menu.
 pub fn setup_system_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let status_item = MenuItemBuilder::with_id("status", "状态：启动中...")
@@ -75,8 +102,14 @@ pub fn setup_system_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Erro
         .enabled(false)
         .build(app)?;
 
+    let pairing_item = MenuItemBuilder::with_id("pairing_info", PAIRING_PLACEHOLDER)
+        .enabled(false)
+        .build(app)?;
+
     let separator1 = tauri::menu::PredefinedMenuItem::separator(app)?;
     let show_item = MenuItemBuilder::with_id("show", "显示主窗口").build(app)?;
+    let show_pairing_item =
+        MenuItemBuilder::with_id("show_pairing", "显示配对码").build(app)?;
     let refresh_item = MenuItemBuilder::with_id("refresh_agents", "刷新代理列表").build(app)?;
     let separator2 = tauri::menu::PredefinedMenuItem::separator(app)?;
     let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
@@ -86,8 +119,10 @@ pub fn setup_system_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Erro
         .item(&device_item)
         .item(&ip_item)
         .item(&port_item)
+        .item(&pairing_item)
         .item(&separator1)
         .item(&show_item)
+        .item(&show_pairing_item)
         .item(&refresh_item)
         .item(&separator2)
         .item(&quit_item)
@@ -108,7 +143,28 @@ pub fn setup_system_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Erro
                     let _ = window.set_focus();
                 }
             }
+            // 与 macOS 菜单栏「Show Pairing Code」等价：
+            // 揭示（或复用未过期的）配对码，并把主窗口拉出来展示二维码。
+            "show_pairing" => {
+                if let Some(core) = app.try_state::<crate::DesktopCore>() {
+                    let code = core.state.pairing.issue_pairing_code();
+                    let _ = update_tray_pairing(app, Some(&code));
+                }
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+                // 通知前端自动展开配对面板。
+                let _ = app.emit("pairing-revealed", ());
+            }
             "refresh_agents" => {
+                if let Some(core) = app.try_state::<crate::DesktopCore>() {
+                    let agents_lock = core.state.agents.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let discovered = crate::services::agent_discovery::discover();
+                        *agents_lock.write().await = discovered;
+                    });
+                }
                 let _ = app.emit("refresh-agents", ());
             }
             "quit" => {
@@ -126,6 +182,7 @@ pub fn setup_system_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Erro
         port_item: Arc::new(port_item),
         device_item: Arc::new(device_item),
         ip_item: Arc::new(ip_item),
+        pairing_item: Arc::new(pairing_item),
     });
 
     Ok(())
@@ -152,5 +209,24 @@ pub fn update_tray_status(
         let _ = handles
             .ip_item
             .set_text(format!("IP：{}", ip));
+    }
+}
+
+/// 按运行时状态刷新托盘的状态文案（保持托盘与主窗口指示一致）。
+pub fn refresh_tray_runtime_state(app: &AppHandle) {
+    let label = runtime_label(app);
+    if let Some(handles) = app.try_state::<TrayHandles>() {
+        let _ = handles.status_item.set_text(format!("状态：{}", label));
+    }
+}
+
+/// Update the pairing-code menu row. `None` 表示尚未揭示 / 已失效。
+pub fn update_tray_pairing(app: &AppHandle, code: Option<&str>) {
+    if let Some(handles) = app.try_state::<TrayHandles>() {
+        let text = match code {
+            Some(code) if !code.is_empty() => format!("配对码：{}", code),
+            _ => PAIRING_PLACEHOLDER.to_string(),
+        };
+        let _ = handles.pairing_item.set_text(text);
     }
 }

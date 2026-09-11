@@ -390,3 +390,287 @@ body {
     padding: 6px 10px;
   }
 }
+
+/* ─── Runtime State Badge ───────────────────────────────────────────────── */
+/* 与 macOS MenuBarView.runtimeBadge 对齐：
+   online = 绿点、starting = 灰点（"还没好"）、offline/idle = 红点（"真的没起来"）。 */
+
+.runtime-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  flex-shrink: 0;
+  padding-right: 10px;
+}
+
+.runtime-badge .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.runtime-badge .dot.online {
+  background: var(--term-green);
+}
+
+.runtime-badge .dot.starting {
+  background: rgba(255, 255, 255, 0.45);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.runtime-badge .dot.offline {
+  background: var(--term-red);
+}
+
+.runtime-badge .label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.runtime-badge .label.online {
+  color: var(--term-green);
+}
+
+.runtime-badge .label.starting {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.runtime-badge .label.offline {
+  color: var(--term-red);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+/* ─── Bar Buttons（配对 / 授权入口） ────────────────────────────────────── */
+
+.bar-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid rgba(46, 128, 57, 0.35);
+  border-radius: 3px;
+  color: rgba(77, 217, 102, 0.8);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 10px;
+  padding: 3px 8px;
+  margin-left: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.bar-btn:hover {
+  background: rgba(77, 217, 102, 0.08);
+}
+
+.bar-btn.active {
+  background: rgba(77, 217, 102, 0.14);
+  border-color: var(--term-green);
+  color: var(--term-green);
+}
+
+.bar-btn.alert {
+  border-color: var(--term-amber);
+  color: var(--term-amber);
+}
+
+.bar-btn .badge-count {
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--term-amber);
+  color: #1a1a1a;
+  font-size: 9px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── Panels（配对 / 授权抽屉） ─────────────────────────────────────────── */
+
+.panel {
+  flex-shrink: 0;
+  max-height: 58vh;
+  overflow-y: auto;
+  padding: 10px 14px 12px;
+  background: #131313;
+  border-bottom: 1px solid rgba(77, 217, 102, 0.18);
+}
+
+.panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.panel::-webkit-scrollbar-thumb {
+  background: rgba(46, 128, 57, 0.25);
+  border-radius: 2px;
+}
+
+.panel-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: rgba(77, 217, 102, 0.75);
+  margin-bottom: 8px;
+}
+
+.panel-title.sub {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(46, 128, 57, 0.15);
+  color: rgba(46, 128, 57, 0.85);
+}
+
+.panel-hint {
+  font-size: 10px;
+  line-height: 1.5;
+  color: rgba(77, 217, 102, 0.65);
+  margin-top: 6px;
+}
+
+.panel-hint.dim {
+  color: rgba(46, 128, 57, 0.6);
+  word-break: break-all;
+}
+
+.panel-btn {
+  background: transparent;
+  border: 1px solid rgba(46, 128, 57, 0.4);
+  border-radius: 3px;
+  color: rgba(77, 217, 102, 0.85);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 10px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.panel-btn:hover {
+  background: rgba(77, 217, 102, 0.1);
+}
+
+.panel-btn.active {
+  background: rgba(77, 217, 102, 0.16);
+  border-color: var(--term-green);
+  color: var(--term-green);
+  font-weight: 600;
+}
+
+.panel-btn.primary {
+  border-color: var(--term-green);
+  color: var(--term-green);
+}
+
+.panel-btn.danger {
+  border-color: rgba(255, 115, 102, 0.5);
+  color: var(--term-red);
+}
+
+.panel-btn.danger:hover {
+  background: rgba(255, 115, 102, 0.12);
+}
+
+.panel-btn.wide {
+  width: 100%;
+  padding: 8px;
+  font-size: 11px;
+}
+
+.panel-error {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  background: rgba(255, 115, 102, 0.12);
+  border-bottom: 1px solid rgba(255, 115, 102, 0.35);
+  color: var(--term-red);
+  font-size: 10px;
+  cursor: pointer;
+  word-break: break-all;
+}
+
+/* ─── Pairing Panel ─────────────────────────────────────────────────────── */
+
+.pairing-code-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pairing-code {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  color: var(--term-text);
+  user-select: text;
+}
+
+.qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.qr-box {
+  padding: 8px;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid rgba(46, 128, 57, 0.3);
+  display: inline-flex;
+  line-height: 0;
+}
+
+/* ─── Approval Panel ────────────────────────────────────────────────────── */
+
+.mode-row {
+  display: flex;
+  gap: 6px;
+}
+
+.approval-item {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid rgba(255, 184, 77, 0.35);
+  border-radius: 4px;
+  background: rgba(255, 184, 77, 0.05);
+}
+
+.approval-text {
+  font-size: 11px;
+  color: var(--term-text);
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+
+.approval-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.reason-chip {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(255, 184, 77, 0.18);
+  color: var(--term-amber);
+}
+
+.approval-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+

@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::process::Command;
 
 /// Agent definition from the static catalog.
@@ -204,10 +204,27 @@ fn extract_version(raw: &str) -> String {
     for (i, c) in chars.iter() {
         if c.is_ascii_digit() {
             let rest = &first_line[*i..];
-            // Find end of version (space, newline, or non-version char after initial digits/dots)
-            let end = rest
-                .find(|c: char| !c.is_ascii_digit() && c != '.' && c != '-' && c != '+')
-                .unwrap_or(rest.len());
+            // 版本体 = 数字与点；一旦出现 `-` / `+`（pre-release / build metadata），
+            // 其后允许字母数字，直到空格、换行或其它分隔符为止。
+            // 例：`1.2.3-beta.1` → 全量保留；`1.2.3+build5 (sha abc)` → 到空格为止。
+            let mut end = 0usize;
+            let mut in_suffix = false;
+            for (idx, ch) in rest.char_indices() {
+                let allowed = if ch.is_ascii_digit() || ch == '.' {
+                    true
+                } else if ch == '-' || ch == '+' {
+                    in_suffix = true;
+                    true
+                } else if in_suffix && ch.is_ascii_alphanumeric() {
+                    true
+                } else {
+                    false
+                };
+                if !allowed {
+                    break;
+                }
+                end = idx + ch.len_utf8();
+            }
             if end > 0 {
                 return rest[..end].to_string();
             }

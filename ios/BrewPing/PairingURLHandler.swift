@@ -4,7 +4,10 @@ import Combine
 /// 处理从 Mac 端 QR 码或外部点击 `brewping://pair?...` 链接唤起 App 的入口。
 ///
 /// URL schema:
-///     brewping://pair?host=<ip-or-name>&port=<port>&deviceId=<mac-deviceId>&code=<6digit>&name=<display>
+///     brewping://pair?host=<ip-or-name>&port=<port>&deviceId=<host-deviceId>&osType=<mac|windows|linux>&code=<6digit>&name=<display>
+///
+/// `osType` 由桌面端在深链里给出（Mac 发 `mac`、Windows 发 `windows`）。
+/// **缺失或无法识别时回落 `.mac`**，这样老版本桌面端发的深链照旧可用。
 ///
 /// 设计要点：
 ///  - `BrewPingApp` 通过 `.onOpenURL` 拿到 URL（系统**最早**的入口），
@@ -20,9 +23,11 @@ final class PairingURLHandler: ObservableObject {
     struct Action: Equatable {
         let host: String
         let port: String
-        let deviceId: String   // Mac 端 PairingStore 里的 deviceId，用于去重
+        let deviceId: String   // 主机端 PairingStore 里的 deviceId，用于去重
         let code: String       // 可空：用户可能只点"扫码 + 输码"，已点过的话码已经在 sheet 里
         let suggestedName: String
+        /// 主机类型；深链未携带或值未知时为 `.mac`。
+        let osType: DeviceOSType
     }
 
     @Published var pendingAction: Action?
@@ -50,7 +55,8 @@ final class PairingURLHandler: ObservableObject {
             port: port,
             deviceId: deviceId,
             code: code,
-            suggestedName: name
+            suggestedName: name,
+            osType: DeviceOSType.parse(dict["osType"])
         )
         BrewPingLog.discovery.info("Pair URL accepted host=\(host, privacy: .private) deviceId=\(deviceId, privacy: .private)")
     }

@@ -4,6 +4,8 @@ import UIKit
 struct StatusResponse: Decodable {
     let status: String?
     let host: String?
+    /// 当前生效（默认）Agent 的 id。**这是权威值**，切换默认 Agent 后随之变化。
+    let defaultAgent: String?
     let session: SessionBrief?
 }
 
@@ -67,8 +69,16 @@ struct ContentView: View {
     @State private var hostName = ""
     @State private var sessionState: SessionState = .offline
     @State private var sessionID = ""
+    /// **当前生效（默认）Agent** 的 id —— 由 `/api/status` 的 `defaultAgent` 给出。
+    /// 展示名、模型列表、Watch 同步都以它为准。
+    /// 注意不要用 `session.agent` 代替：`session` 描述的是"正在跑的会话"，
+    /// 主机切换默认 Agent 时会把会话置空（Windows 桌面端就是这样），
+    /// 用它会导致切了默认 Agent 之后界面纹丝不动。
     @State private var sessionAgentIDFromStatus = "opencode"
     @State private var sessionAgentNameFromStatus = "OpenCode"
+    /// 运行中会话所属的 Agent（`session.agent`），无会话时为 `"opencode"`。
+    /// 只用来判断"要不要显示会话启停按钮"，不参与展示当前 Agent。
+    @State private var runningSessionAgentID = "opencode"
     @State private var sessionMessage = ""
     /// 与 Mac 通信失败的可读原因。原来这些错误只被吞掉（`catch { online = false }`），
     /// 审核员看到的是"界面一直离线但没有任何解释"。
@@ -262,7 +272,8 @@ struct ContentView: View {
                     handleDiscoveredHost(host)
                 } label: {
                     HStack(alignment: .center, spacing: 10) {
-                        Image(systemName: "macstudio")
+                        // 图标跟随广播方声明的主机类型（Mac/Win/Linux），不再写死 macstudio。
+                        Image(systemName: host.osType.icon)
                             .font(.title3)
                             .foregroundStyle(.blue)
                             .frame(width: 28)
@@ -322,23 +333,28 @@ struct ContentView: View {
         }
     }
 
-    /// 用户在自动发现列表里点了一台 Mac。
+    /// 用户在自动发现列表里点了一台主机。
     /// 流程：先 addDevice（host/port 已知）→ 弹出 pair sheet（只填 6 位码）→ 提交即配对。
     private func handleDiscoveredHost(_ host: BonjourDiscovery.DiscoveredHost) {
         // 已存在同 host+port 的设备？直接进 pair sheet 走老路径
-        if let existing = deviceStore.devices.first(where: {
+        if var existing = deviceStore.devices.first(where: {
             $0.host.caseInsensitiveCompare(host.host) == .orderedSame
             && $0.port == String(host.port)
         }) {
+            // 顺手用广播里的 platform 纠正历史误标（早期版本一律存成 Mac）。
+            if existing.osType != host.osType {
+                existing.osType = host.osType
+                deviceStore.updateDevice(existing)
+            }
             beginEditing(existing)
             return
         }
-        // 新建设备
+        // 新建设备：主机类型取自 TXT 记录的 platform，不再硬编码 .mac。
         let device = ManagedDevice.new(
             name: host.name,
             host: host.host,
             port: String(host.port),
-            osType: .mac
+            osType: host.osType
         )
         deviceStore.addDevice(device)
         deviceStore.setActive(device.id)
@@ -355,7 +371,13 @@ struct ContentView: View {
             && $0.port == normalizedPort
         })
         let device: ManagedDevice
-        if let existing {
+        if var existing {
+            // 已存在的设备顺手自愈：主机类型以深链为准。
+            // 历史版本不带 osType，Windows 主机被存成了 Mac，这里正好纠正过来。
+            if existing.osType != action.osType {
+                existing.osType = action.osType
+                deviceStore.updateDevice(existing)
+            }
             device = existing
             deviceStore.setActive(device.id)
         } else {
@@ -363,7 +385,7 @@ struct ContentView: View {
                 name: action.suggestedName,
                 host: action.host,
                 port: normalizedPort,
-                osType: .mac
+                osType: action.osType
             )
             deviceStore.addDevice(device)
             deviceStore.setActive(device.id)
@@ -869,7 +891,13 @@ struct ContentView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            if activeAgentID == "opencode" {
+            // 会话启停按钮的显示条件：
+            //  - 正在跑会话 → 必须显示（否则切到非 OpenCode 的默认 Agent 后就停不掉了）；
+            //  - 没有会话时，按"会话型 Agent"判断，保持既有语义（OpenCode 需要显式开会话，
+            //    headless Agent 是发一条执行一条）。
+            // 这里**不能**用 `activeAgentID`：它现在跟的是默认 Agent，而默认 Agent 是
+            // headless 时并不代表这台主机不需要会话（Windows 端发命令就要求先有会话）。
+            if sessionState == .running || runningSessionAgentID == "opencode" {
                 actionButton
             } else {
                 HStack(spacing: 6) {
@@ -886,6 +914,32 @@ struct ContentView: View {
 
     private var activeAgentID: String { sessionAgentIDFromStatus }
     private var activeAgentName: String { sessionAgentNameFromStatus }
+
+    /// 当前默认 Agent 的 id：**以 `/api/status` 的 `defaultAgent` 为准**。
+    ///
+    /// 为什么不用 `session.agent`：`session` 描述的是"正在跑的会话"，
+    /// 主机切换默认 Agent 时会把会话置空，于是 `session.agent` 读到的永远是旧值/缺失值
+    /// （Windows 桌面端就是这种实现），表现为"切了默认 Agent，iOS 这边纹丝不动"。
+    /// 老版本服务端没有 `defaultAgent` 字段时才退回 `session.agent`，再退回 `opencode`。
+    private static func resolvedActiveAgentID(from decoded: StatusResponse) -> String {
+        if let id = decoded.defaultAgent, !id.isEmpty { return id }
+        if let id = decoded.session?.agent, !id.isEmpty { return id }
+        return "opencode"
+    }
+
+    /// 解析默认 Agent 的展示名。
+    /// 顺序：① `/api/status` 附带的 `agentName`（仅当它描述的确实是这个 Agent）
+    /// ② `/api/agents` 列表里的 `name`（没有运行中会话时只能靠它）
+    /// ③ 退回 id 本身（列表还没拉到时短暂可见，不算错误）
+    private func resolvedActiveAgentName(id: String, from brief: SessionBrief?) -> String {
+        if let brief, brief.agent == id, let name = brief.agentName, !name.isEmpty {
+            return name
+        }
+        if let match = agents.first(where: { $0.id == id }), !match.name.isEmpty {
+            return match.name
+        }
+        return id
+    }
 
     /// 模型切换入口，放在会话页顶部（Agent 名下方）。
     /// **只在真的有得选时才出现** —— 0 个（没配或没拿到）或 1 个（没得选）时隐藏，
@@ -1159,6 +1213,7 @@ struct ContentView: View {
         sessionID = ""
         sessionAgentIDFromStatus = "opencode"
         sessionAgentNameFromStatus = "OpenCode"
+        runningSessionAgentID = "opencode"
         sessionMessage = ""
         statusError = nil
         submitter.reset()
@@ -1226,8 +1281,12 @@ struct ContentView: View {
             hostName = decoded.host ?? ""
             statusError = nil
             sessionID = decoded.session?.id ?? ""
-            sessionAgentIDFromStatus = decoded.session?.agent ?? "opencode"
-            sessionAgentNameFromStatus = decoded.session?.agentName ?? "OpenCode"
+            // 会话侧（只喂给会话启停按钮的门控）
+            runningSessionAgentID = decoded.session?.agent ?? "opencode"
+            // 默认 Agent 侧（展示 / 模型列表 / Watch 都用它）。
+            let defaultAgentID = Self.resolvedActiveAgentID(from: decoded)
+            sessionAgentIDFromStatus = defaultAgentID
+            sessionAgentNameFromStatus = resolvedActiveAgentName(id: defaultAgentID, from: decoded.session)
             let serverStatus = decoded.session?.status ?? ""
             if !lifecycleBusy {
                 sessionState = (serverStatus == "running") ? .running : .offline
@@ -1257,13 +1316,11 @@ struct ContentView: View {
                 sessionState = .offline
                 sessionID = ""
             }
-            sessionAgentIDFromStatus = "opencode"
-            sessionAgentNameFromStatus = "OpenCode"
+            // 请求失败时**保留**上一次已知的默认 Agent：这一次没拿到新信息，
+            // 没必要把标题打回 "OpenCode" 再等下一次轮询改回来（会闪）。
+            runningSessionAgentID = "opencode"
             watchBridge.currentOnline = false
             watchBridge.currentSessionState = ""
-            watchBridge.currentAgentName = "OpenCode"
-            watchBridge.currentAgentMode = "session"
-            watchBridge.currentAgentID = "opencode"
             watchBridge.pushStatus(online: false, sessionStateRaw: "")
         }
     }
@@ -1286,6 +1343,12 @@ struct ContentView: View {
             let decoded = try JSONDecoder().decode(AgentsResponse.self, from: data)
             agents = decoded.agents ?? []
             agentsUnauthorized = false
+            // `/api/status` 只在有运行中会话时才带得住 agentName，
+            // 列表到位后把当前 Agent 的展示名补齐（否则会短暂显示成 id）。
+            if let match = agents.first(where: { $0.id == sessionAgentIDFromStatus }),
+               !match.name.isEmpty {
+                sessionAgentNameFromStatus = match.name
+            }
         } catch {
             agents = []
         }

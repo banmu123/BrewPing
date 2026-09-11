@@ -13,6 +13,9 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         let name: String
         let host: String
         let port: UInt16
+        /// 主机类型，取自服务 TXT 记录里的 `platform`。
+        /// Mac 广播 `macOS`、Windows 端广播 `windows`；缺省或未知回落 `.mac`。
+        let osType: DeviceOSType
     }
 
     @Published var discoveredHosts: [DiscoveredHost] = []
@@ -25,11 +28,15 @@ final class BonjourDiscovery: NSObject, ObservableObject {
     private var timer: Timer?
     /// 仅在主队列读写：resolveNew 在主队列触发，NetService 回调也投递到主线程 run loop
     private var resolvers: [String: NetService] = [:]
+    /// 服务实例名 → 从 TXT 记录读出的主机类型。
+    /// `NetServiceDelegate` 的回调不携带 TXT，所以在浏览阶段先存下来，解析完成时取用。
+    private var pendingOS: [String: DeviceOSType] = [:]
 
     func startSearching() {
         stopSearching()
         isSearching = true
         discoveredHosts = []
+        pendingOS = [:]
 
         let params = NWParameters()
         params.includePeerToPeer = true
@@ -66,6 +73,7 @@ final class BonjourDiscovery: NSObject, ObservableObject {
             service.stop()
         }
         resolvers.removeAll()
+        pendingOS.removeAll()
     }
 
     /// 只结束浏览，保留在途解析
@@ -83,6 +91,8 @@ final class BonjourDiscovery: NSObject, ObservableObject {
     private func resolveNew(_ results: Set<NWBrowser.Result>) {
         for result in results {
             guard case let .service(name, _, _, _) = result.endpoint else { continue }
+            // TXT 只在这里拿得到（NWBrowser.Result 上），先记下来给 finishResolve 用。
+            pendingOS[name] = Self.osType(from: result.metadata)
             guard resolvers[name] == nil else { continue }
             guard !discoveredHosts.contains(where: { $0.id == name }) else { continue }
 
@@ -98,6 +108,7 @@ final class BonjourDiscovery: NSObject, ObservableObject {
             service.delegate = nil
             service.stop()
         }
+        let osType = pendingOS.removeValue(forKey: name) ?? .mac
 
         guard let host, !host.isEmpty, port > 0 else {
             // 设备名可能包含用户自己的电脑名，标记 .private。
@@ -106,8 +117,16 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         }
 
         discoveredHosts.removeAll { $0.id == name }
-        discoveredHosts.append(DiscoveredHost(id: name, name: name, host: host, port: port))
+        discoveredHosts.append(DiscoveredHost(id: name, name: name, host: host, port: port, osType: osType))
         BrewPingLog.discovery.info("Resolved \(name, privacy: .private) -> \(host, privacy: .private):\(Int(port), privacy: .public)")
+    }
+
+    /// 从 Bonjour TXT 记录里读主机类型。
+    /// 广播方（`Sources/App/BonjourAdvertiser.swift` 与 Windows 端 `mdns_broadcast.rs`）
+    /// 在 `platform` 里写各自的原生 OS 名（`macOS` / `windows`），交给 `DeviceOSType.parse` 归一化。
+    private static func osType(from metadata: NWBrowser.Result.Metadata) -> DeviceOSType {
+        guard case let .bonjour(txt) = metadata else { return .mac }
+        return DeviceOSType.parse(txt.get("platform"))
     }
 
     /// 优先返回 IPv4 字面量（URLSession 直连最稳），失败时回退到 mDNS 主机名

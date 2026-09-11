@@ -156,6 +156,7 @@
 "Available models" = "可用模型";
 "Showing the last known models. Pull to refresh to try again." = "当前显示的是上次获取到的模型列表，下拉刷新可重试。";
 "Can't load models: %@" = "无法加载模型列表：%@";
+"This host doesn't support model lists. Update the desktop app." = "这台主机不支持模型列表，请更新桌面端。";
 
 /* MARK: - 配对 v2：QR + 空状态自动发现 */
 "Scanning for %@ on this Wi-Fi..." = "正在此 Wi-Fi 下扫描 %@…";

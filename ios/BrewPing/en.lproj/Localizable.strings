@@ -158,6 +158,7 @@
 "Available models" = "Available models";
 "Showing the last known models. Pull to refresh to try again." = "Showing the last known models. Pull to refresh to try again.";
 "Can't load models: %@" = "Can't load models: %@";
+"This host doesn't support model lists. Update the desktop app." = "This host doesn't support model lists. Update the desktop app.";
 
 /* MARK: - Pairing v2: QR + Auto Discover on empty state */
 "Scanning for %@ on this Wi-Fi..." = "Scanning for %@ on this Wi-Fi...";

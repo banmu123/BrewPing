@@ -1,6 +1,8 @@
 use axum::{
-    extract::Path,
+    extract::{Path, Request, State},
     http::StatusCode,
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -10,8 +12,12 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use super::agent_config;
 use super::agent_discovery::{AgentEntry, AgentEntryApi};
+use super::approval_gate::{ApprovalGate, ApprovalMode, Decision, PendingApproval};
 use super::device_identity::DeviceIdentity;
+use super::model_prefs::ModelPrefs;
+use super::pairing_store::{AuthDecision, PairingStore};
 use super::terminal_state::{AgentStatus, OutputType, TerminalManager};
 
 /// Shared application state for the HTTP server.
@@ -25,6 +31,12 @@ pub struct AppState {
     pub session: Arc<RwLock<Option<SessionInfo>>>,
     pub terminal: TerminalManager,
     pub command_store: CommandStore,
+    /// 配对与鉴权（与 macOS `PairingStore.shared` 对应）。
+    pub pairing: Arc<PairingStore>,
+    /// 授权网关（与 macOS `ApprovalGate.shared` 对应）。
+    pub approval: Arc<ApprovalGate>,
+    /// 用户通过 App 选定的默认模型（与 macOS `AgentManager._defaultModels` 对应）。
+    pub model_prefs: Arc<ModelPrefs>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -123,6 +135,49 @@ struct MessageBody {
     text: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct PairBody {
+    #[serde(default)]
+    code: String,
+    #[serde(default, rename = "deviceName")]
+    #[allow(dead_code)]
+    device_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApprovalModeBody {
+    mode: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApprovalDecisionBody {
+    action: String,
+}
+
+/// `POST /api/agents/models/default` 的请求体。
+/// `modelId` 缺省 / 为空 = 清除该 Agent 的模型偏好（回到配置文件里的值）。
+#[derive(Debug, Deserialize)]
+struct SetModelBody {
+    #[serde(rename = "agentId")]
+    agent_id: String,
+    #[serde(rename = "modelId", default)]
+    model_id: Option<String>,
+}
+
+/// `POST /api/message` 命中危险模式时的响应（与 macOS `pendingApprovalResponse` 一致）。
+#[derive(Serialize)]
+struct PendingApprovalResponse {
+    success: bool,
+    status: &'static str,
+    approval: PendingApproval,
+}
+
+/// 统一构造 JSON 响应（含自定义状态码）。
+fn json_response<T: Serialize>(status: u16, body: T) -> Response {
+    let status = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    (status, Json(body)).into_response()
+}
+
 // --- Response types ---
 
 #[derive(Serialize)]
@@ -142,7 +197,7 @@ struct AgentsResponse {
 }
 
 #[derive(Serialize)]
-struct SuccessResponse {
+pub struct SuccessResponse {
     success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "defaultAgent")]
@@ -159,18 +214,67 @@ struct SuccessResponse {
     error: Option<String>,
 }
 
+/// 鉴权中间件：与 macOS `HTTPAPI.handle` 顶部的判定等价。
+///
+/// 公开端点（不需要 token）：
+///  1. `POST /api/pair` —— 本身就是用来换取 token 的入口；
+///  2. `GET /api/status` —— 只读健康检查，桌面端自己也用它判活，
+///     不泄露命令内容，因此保持公开。
+/// 其余全部要求 `Authorization: Bearer <token>`，写操作还要 timestamp + nonce。
+async fn auth_middleware(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    let method = req.method().as_str().to_string();
+    let path = req.uri().path().to_string();
+    let is_public = (method == "POST" && path == "/api/pair")
+        || (method == "GET" && path == "/api/status");
+
+    if !is_public {
+        if let AuthDecision::Denied { status, error } = state.pairing.authorize(&method, req.headers())
+        {
+            return json_response(status, serde_json::json!({ "success": false, "error": error }));
+        }
+    }
+    next.run(req).await
+}
+
 /// Build the axum router with all API routes.
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/api/status", get(handle_status))
         .route("/api/agents", get(handle_agents))
         .route("/api/agents/default", post(handle_set_default_agent))
+        .route("/api/agents/{agent_id}/models", get(handle_agent_models))
+        .route("/api/agents/models/default", post(handle_set_default_model))
+        .route("/api/pair", post(handle_pair))
         .route("/api/message", post(handle_send_message))
         .route("/api/message/{id}", get(handle_get_message))
+        .route(
+            "/api/approvals/mode",
+            get(handle_get_approval_mode).post(handle_set_approval_mode),
+        )
+        .route("/api/approvals", get(handle_list_approvals))
+        .route("/api/approvals/{id}", post(handle_decide_approval))
         .route("/api/session/start", post(handle_start_session))
         .route("/api/session/stop", post(handle_stop_session))
         .route("/api/discovery/refresh", post(handle_discovery_refresh))
+        .fallback(handle_not_found)
+        .route_layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .with_state(state)
+}
+
+/// 未知路由统一返回 JSON。
+///
+/// axum 默认的 404 是**空 body**：客户端把它们当 JSON 解析时会得到
+/// "The data couldn't be read because it isn't in the correct format."
+/// —— 明明只是"这台主机没有这个接口"，却报成"返回数据格式不正确"，非常误导。
+/// 统一回一个带 `error` 字段的 JSON，客户端就能给出准确提示。
+async fn handle_not_found(method: axum::http::Method, uri: axum::http::Uri) -> Response {
+    json_response(
+        404,
+        serde_json::json!({
+            "success": false,
+            "error": format!("no such endpoint: {} {}", method, uri.path()),
+        }),
+    )
 }
 
 /// Start the HTTP server on the given port (with fallback).
@@ -249,6 +353,102 @@ async fn handle_agents(
     })
 }
 
+// ─── Models (模型列表 / 切换) ─────────────────────────────────────────────────
+
+/// `GET /api/agents/{agent_id}/models` —— 列出某个 Agent 真实配置里的 Provider / Model。
+///
+/// 响应结构与 macOS `HTTPAPI.agentModelsResponse` **逐字段对齐**（iOS `ModelsResponse` 依赖它）：
+/// ```json
+/// { "agentId": "opencode",
+///   "providers": [ { "id","name","baseURL"?,"models":[{"id","name","available","isActive","isDefault"}] } ],
+///   "activeModelId": "...", "preferredModelId": "..." }
+/// ```
+/// `activeModelId` = 配置文件里正在用的；`preferredModelId` = 用户通过 App 选过的（权威）。
+async fn handle_agent_models(
+    Path(agent_id): Path<String>,
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Response {
+    // 与 macOS 一致：目录之外的 agent id 直接 404，不返回空列表
+    // （空列表的语义是"这个 Agent 没有可选模型"，两者不能混）。
+    if !agent_config::is_known_agent(&agent_id) {
+        return json_response(
+            404,
+            serde_json::json!({ "success": false, "error": "unknown agent" }),
+        );
+    }
+
+    let config = agent_config::discover(&agent_id);
+    let preferred = state.model_prefs.get(&agent_id);
+
+    let providers: Vec<serde_json::Value> = config
+        .providers
+        .iter()
+        .map(|provider| {
+            let models: Vec<serde_json::Value> = provider
+                .models
+                .iter()
+                .map(|model| {
+                    serde_json::json!({
+                        "id": model.id,
+                        "name": model.name,
+                        "available": model.available,
+                        "isActive": model.is_active,
+                        "isDefault": preferred.as_deref() == Some(model.id.as_str()),
+                    })
+                })
+                .collect();
+            let mut value = serde_json::json!({
+                "id": provider.id,
+                "name": provider.name,
+                "models": models,
+            });
+            if let Some(base) = &provider.base_url {
+                value["baseURL"] = serde_json::Value::String(base.clone());
+            }
+            value
+        })
+        .collect();
+
+    json_response(
+        200,
+        serde_json::json!({
+            "agentId": agent_id,
+            "providers": providers,
+            "activeModelId": config.active_model_id,
+            "preferredModelId": preferred,
+        }),
+    )
+}
+
+/// `POST /api/agents/models/default` —— 记住用户选定的默认模型。
+///
+/// 与 macOS 行为一致：**不改写 Agent 自己的配置文件**（那些文件只读），
+/// 只记"用户偏好"，在启动该 Agent 时以 `--model <id>` 传下去（见 `submit_command`）。
+async fn handle_set_default_model(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Json(body): Json<SetModelBody>,
+) -> Response {
+    if body.agent_id.trim().is_empty() {
+        return json_response(
+            400,
+            serde_json::json!({
+                "success": false,
+                "error": "expected JSON body {\"agentId\": \"...\", \"modelId\": \"...\"}"
+            }),
+        );
+    }
+    state.model_prefs.set(&body.agent_id, body.model_id.as_deref());
+    log::info!("Default model for '{}' set to {:?}", body.agent_id, body.model_id);
+    json_response(
+        200,
+        serde_json::json!({
+            "success": true,
+            "agentId": body.agent_id,
+            "modelId": body.model_id,
+        }),
+    )
+}
+
 async fn handle_set_default_agent(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(body): Json<SetAgentBody>,
@@ -325,11 +525,55 @@ async fn handle_stop_session(
     })
 }
 
-/// POST /api/message — submit a command and execute it via TerminalManager.
+/// POST /api/message —— 提交命令并交由 TerminalManager 执行。
+///
+/// 授权门卫：safe 模式命中危险模式 / askAll 模式下挂起，返回 `pending_approval`
+/// 让手机端弹确认；未命中则放行。auto 模式永远放行。
+/// 判定点必须在「写进 TerminalState 之前」，与 macOS `HTTPAPI.messageResponse` 一致。
 async fn handle_send_message(
-    axum::extract::State(state): axum::extract::State<AppState>,
+    State(state): State<AppState>,
     Json(body): Json<MessageBody>,
-) -> Result<Json<SuccessResponse>, StatusCode> {
+) -> Response {
+    if body.text.trim().is_empty() {
+        return json_response(
+            400,
+            serde_json::json!({ "success": false, "error": "text is empty" }),
+        );
+    }
+
+    match state.approval.check(&body.text) {
+        Decision::Pending(approval) => pending_approval_response(approval),
+        Decision::Allow => match submit_command(&state, &body.text).await {
+            Ok(response) => Json(response).into_response(),
+            Err(status) => json_response(
+                status.as_u16(),
+                serde_json::json!({
+                    "success": false,
+                    "error": "no active session — start a session first"
+                }),
+            ),
+        },
+    }
+}
+
+/// 命中危险模式时的响应体（`status` 为 `pending_approval`，携带领取确认的命令）。
+fn pending_approval_response(approval: PendingApproval) -> Response {
+    json_response(
+        200,
+        PendingApprovalResponse {
+            success: true,
+            status: "pending_approval",
+            approval,
+        },
+    )
+}
+
+/// 公共执行入口：把命令正文写进 TerminalState 并提交给 agent。
+/// `handle_send_message`（直接放行）与 `handle_decide_approval`（用户批准后）共用，
+/// 保证两条路径的 TerminalState 回显与响应结构完全一致。
+///
+/// 桌面端 Tauri 命令（用户在主窗口批准）也复用它，避免出现第二条执行路径。
+pub async fn submit_command(state: &AppState, text: &str) -> Result<SuccessResponse, StatusCode> {
     let session = state.session.read().await;
     if session.is_none() {
         return Err(StatusCode::BAD_REQUEST);
@@ -341,7 +585,7 @@ async fn handle_send_message(
     let command_id = format!("cmd_{}", &uuid::Uuid::new_v4().to_string()[..8]);
     log::info!(
         "Message received: '{}' -> {} (command: {}, agent: {})",
-        body.text,
+        text,
         sid,
         command_id,
         agent_id
@@ -354,7 +598,7 @@ async fn handle_send_message(
     {
         let mut map = state.terminal.agents.write().await;
         if let Some(term) = map.get_mut(&agent_id) {
-            term.append_line(&format!("> {}", body.text), OutputType::System);
+            term.append_line(&format!("> {}", text), OutputType::System);
         }
     }
 
@@ -362,9 +606,11 @@ async fn handle_send_message(
     let terminal = state.terminal.clone();
     let command_store = state.command_store.clone();
     let agents = state.agents.read().await.clone();
-    let text = body.text.clone();
     let cmd_id = command_id.clone();
     let aid = agent_id.clone();
+    let text = text.to_string();
+    // 用户选定的默认模型（可能为 None）。必须在 spawn 之前取好：闭包里拿不到 `state`。
+    let selected_model = state.model_prefs.get(&agent_id);
 
     tokio::spawn(async move {
         command_store.set_working(&cmd_id).await;
@@ -432,6 +678,7 @@ async fn handle_send_message(
 
             let exec_clone = executable.clone();
             let text_clone = text.clone();
+            let model_clone = selected_model.clone();
             let aid_clone = aid.clone();
             let terminal_clone = terminal.clone();
             let cmd_clone = cmd_id.clone();
@@ -439,8 +686,14 @@ async fn handle_send_message(
 
             let result = tokio::task::spawn_blocking(move || {
                 let mut cmd = std::process::Command::new(&exec_clone);
-                cmd.arg(&text_clone)
-                    .stdout(std::process::Stdio::piped())
+                cmd.arg(&text_clone);
+                // 用户在 App 里选过模型就显式传给 CLI：`--model <id>`，
+                // 与 macOS `CLIAgentImplementations.swift` 的追加顺序一致（排在提示词之后）。
+                // 没选过就不加参数，沿用 Agent 自己配置文件里的设置 —— 不自作主张。
+                if let Some(model) = &model_clone {
+                    cmd.arg("--model").arg(model);
+                }
+                cmd.stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped());
 
                 #[cfg(windows)]
@@ -546,18 +799,19 @@ async fn handle_send_message(
         }
     });
 
-    Ok(Json(SuccessResponse {
+    Ok(SuccessResponse {
         success: true,
         default_agent: None,
         session_id: Some(sid),
         status: Some("queued".to_string()),
         command_id: Some(command_id),
         error: None,
-    }))
+    })
 }
 
 #[derive(Serialize)]
 struct CommandStatusResponse {
+    #[serde(rename = "commandId")]
     command_id: String,
     #[serde(rename = "sessionId")]
     session_id: String,
@@ -638,6 +892,143 @@ async fn handle_discovery_refresh(
     })
 }
 
+// ─── Pairing (配对) ──────────────────────────────────────────────────────────
+
+/// POST /api/pair —— 用 6 位配对码换取长期 token。
+///
+/// 请求：`{"code": "123456", "deviceName": "iPhone"}`
+/// 响应：`{"success": true, "token": "<64 位 hex>", "deviceId": "...", "deviceName": "..."}`
+///
+/// 注意：这是**唯一**不需要鉴权头的业务接口（见 `auth_middleware`）。
+async fn handle_pair(State(state): State<AppState>, Json(body): Json<PairBody>) -> Response {
+    if body.code.trim().is_empty() {
+        return json_response(
+            400,
+            serde_json::json!({
+                "success": false,
+                "error": "expected JSON body {\"code\": \"123456\"}"
+            }),
+        );
+    }
+
+    // 配对码一次性且 10 分钟过期：换不到就说明码错了或已失效，
+    // 不区分这两种情况，避免给暴力枚举提供反馈。
+    let Some(token) = state.pairing.exchange(&body.code) else {
+        return json_response(
+            401,
+            serde_json::json!({
+                "success": false,
+                "error": "invalid or expired pairing code"
+            }),
+        );
+    };
+
+    json_response(
+        200,
+        serde_json::json!({
+            "success": true,
+            "token": token,
+            "deviceId": state.identity.device_id,
+            "deviceName": super::device_identity::get_device_name(),
+        }),
+    )
+}
+
+// ─── Approval (授权确认) ─────────────────────────────────────────────────────
+
+/// GET /api/approvals/mode —— 读取当前授权模式。
+async fn handle_get_approval_mode(State(state): State<AppState>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "success": true,
+        "mode": state.approval.mode().as_str(),
+    }))
+}
+
+/// POST /api/approvals/mode —— 切换授权模式。
+async fn handle_set_approval_mode(
+    State(state): State<AppState>,
+    Json(body): Json<ApprovalModeBody>,
+) -> Response {
+    let Some(mode) = ApprovalMode::parse(&body.mode) else {
+        return json_response(
+            400,
+            serde_json::json!({
+                "success": false,
+                "error": "expected JSON body {\"mode\": \"safe\"|\"askAll\"|\"auto\"}"
+            }),
+        );
+    };
+    state.approval.set_mode(mode);
+    log::info!("Approval mode set to: {}", mode.as_str());
+    json_response(
+        200,
+        serde_json::json!({ "success": true, "mode": mode.as_str() }),
+    )
+}
+
+/// GET /api/approvals —— 列出全部待确认命令。
+async fn handle_list_approvals(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let approvals = state.approval.pending_approvals();
+    Json(serde_json::json!({ "success": true, "approvals": approvals }))
+}
+
+/// POST /api/approvals/{id} —— 用户对某条挂起命令做出决定。
+///
+/// 请求：`{"action": "approve" | "deny" | "always_approve"}`
+/// `approve` / `always_approve` 会复用 `submit_command` 立即执行正文。
+async fn handle_decide_approval(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    Json(body): Json<ApprovalDecisionBody>,
+) -> Response {
+    if id.is_empty() || id.starts_with("mode") {
+        return json_response(
+            404,
+            serde_json::json!({ "success": false, "error": "unknown approval" }),
+        );
+    }
+
+    let Some(resolution) = state.approval.decide(&id, &body.action) else {
+        return json_response(
+            404,
+            serde_json::json!({ "success": false, "error": "unknown or expired approval" }),
+        );
+    };
+
+    match resolution.action.as_str() {
+        "deny" => json_response(
+            200,
+            serde_json::json!({ "success": true, "status": "denied" }),
+        ),
+        "approve" | "always_approve" => {
+            let Some(text) = resolution.text else {
+                return json_response(
+                    409,
+                    serde_json::json!({
+                        "success": false,
+                        "error": "approval has no command text"
+                    }),
+                );
+            };
+            // 复用与 message 相同的执行路径，保证回显与响应一致。
+            match submit_command(&state, &text).await {
+                Ok(response) => Json(response).into_response(),
+                Err(status) => json_response(
+                    status.as_u16(),
+                    serde_json::json!({
+                        "success": false,
+                        "error": "no active session — start a session first"
+                    }),
+                ),
+            }
+        }
+        _ => json_response(
+            400,
+            serde_json::json!({ "success": false, "error": "unknown action" }),
+        ),
+    }
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -651,6 +1042,13 @@ mod tests {
     use std::time::Duration;
 
     static NEXT_PORT: AtomicU16 = AtomicU16::new(19500);
+
+    /// 集成测试使用的固定 token。
+    ///
+    /// 真实路径下 token 是随机生成并落盘的，测试无法预先得知；
+    /// 而裸 TCP 测试体必须自己拼鉴权头，因此这里注入一个可预期的 token。
+    const TEST_TOKEN: &str =
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     fn next_port() -> u16 {
         // start_server 会依次尝试 port..port+3，步长 8 保证并行测试互不冲突
@@ -666,6 +1064,26 @@ mod tests {
             executable: executable.map(|s| s.to_string()),
             version: if installed { Some("1.0.0".into()) } else { None },
         }
+    }
+
+    /// 每个测试用例独立的授权状态文件，避免污染真实 `~/.brewping/approval.json`。
+    fn approval_test_path() -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "brewping-http-approval-{}.json",
+            uuid::Uuid::new_v4().simple()
+        ));
+        path
+    }
+
+    /// 同上：模型偏好的测试文件也必须隔离，否则会写到用户真实的 `~/.brewping/models.json`。
+    fn model_prefs_test_path() -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "brewping-http-models-{}.json",
+            uuid::Uuid::new_v4().simple()
+        ));
+        path
     }
 
     fn test_state() -> AppState {
@@ -685,33 +1103,69 @@ mod tests {
             session: Arc::new(RwLock::new(None)),
             terminal: TerminalManager::new(),
             command_store: CommandStore::new(),
+            pairing: Arc::new(PairingStore::with_fixed_token(TEST_TOKEN)),
+            approval: Arc::new(ApprovalGate::with_path(approval_test_path())),
+            model_prefs: Arc::new(ModelPrefs::with_path(model_prefs_test_path())),
         }
     }
 
     struct TestServer {
         port: u16,
+        state: AppState,
         _handle: tokio::task::JoinHandle<()>,
     }
 
     async fn spawn_server() -> TestServer {
-        let (port, handle) = start_server(test_state(), next_port(), None)
+        let state = test_state();
+        let (port, handle) = start_server(state.clone(), next_port(), None)
             .await
             .expect("HTTP 服务应能成功绑定端口");
         TestServer {
             port,
+            state,
             _handle: handle,
         }
     }
 
     /// 最小化 HTTP/1.1 客户端：直接使用裸 TCP，避免引入额外测试依赖。
+    /// 默认携带合法鉴权头（绝大多数接口都需要）。
     fn request(port: u16, method: &str, path: &str, body: Option<&str>) -> (u16, String) {
+        request_authorized(port, method, path, body, true)
+    }
+
+    /// 不携带鉴权头的请求，用于验证 401。
+    fn request_anonymous(port: u16, method: &str, path: &str, body: Option<&str>) -> (u16, String) {
+        request_authorized(port, method, path, body, false)
+    }
+
+    fn request_authorized(
+        port: u16,
+        method: &str,
+        path: &str,
+        body: Option<&str>,
+        authorized: bool,
+    ) -> (u16, String) {
         let payload = body.unwrap_or("");
         let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("连接 HTTP 服务失败");
         stream
             .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
+
+        let auth_headers = if authorized {
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("系统时间早于 UNIX 纪元")
+                .as_secs();
+            format!(
+                "Authorization: Bearer {TEST_TOKEN}\r\nX-BrewPing-Timestamp: {timestamp}\r\nX-BrewPing-Nonce: {}\r\n",
+                uuid::Uuid::new_v4()
+            )
+        } else {
+            String::new()
+        };
+
         let raw_req = format!(
-            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\n{auth_headers}Content-Length: {}\r\nConnection: close\r\n\r\n{payload}",
             payload.as_bytes().len()
         );
         stream.write_all(raw_req.as_bytes()).unwrap();
@@ -1070,5 +1524,309 @@ mod tests {
         ids.sort();
         ids.dedup();
         assert_eq!(ids.len(), 3, "并发命令 ID 不应重复");
+    }
+
+    // ─── 鉴权（对齐 macOS PairingStore） ──────────────────────────────────────
+
+    // TC-HT-15  受保护接口无 token → 401；公开接口无需 token
+    // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
+    // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn protected_endpoints_require_token() {
+        let srv = spawn_server().await;
+
+        // 公开：GET /api/status
+        let (code, raw) = request_anonymous(srv.port, "GET", "/api/status", None);
+        assert_eq!(code, 200, "健康检查必须保持公开");
+        assert_eq!(json(&raw)["status"], "online");
+
+        // 受保护：读接口
+        let (code, raw) = request_anonymous(srv.port, "GET", "/api/agents", None);
+        assert_eq!(code, 401);
+        assert_eq!(json(&raw)["success"], false);
+
+        // 受保护：写接口
+        let (code, _) = request_anonymous(srv.port, "POST", "/api/session/start", None);
+        assert_eq!(code, 401, "写操作无 token 必须拒绝");
+
+        // 授权接口同样受保护
+        let (code, _) = request_anonymous(srv.port, "GET", "/api/approvals", None);
+        assert_eq!(code, 401);
+
+        // 带上 token 后一切正常
+        let (code, _) = get(srv.port, "/api/agents");
+        assert_eq!(code, 200);
+    }
+
+    // TC-HT-16  配对端点：无鉴权可访问，配对码一次性
+    // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
+    // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn pair_endpoint_exchanges_code_for_token() {
+        let srv = spawn_server().await;
+
+        // 尚未生成配对码：任何码都换不到 token
+        let (code, raw) = request_anonymous(
+            srv.port,
+            "POST",
+            "/api/pair",
+            Some(r#"{"code":"000000"}"#),
+        );
+        assert_eq!(code, 401);
+        assert_eq!(json(&raw)["success"], false);
+
+        // 生成配对码后正常兑换（注意：本接口不需要鉴权头）
+        let pairing_code = srv.state.pairing.issue_pairing_code();
+        let body = format!(r#"{{"code":"{pairing_code}","deviceName":"iPhone"}}"#);
+        let (code, raw) = request_anonymous(srv.port, "POST", "/api/pair", Some(&body));
+        assert_eq!(code, 200);
+        let v = json(&raw);
+        assert_eq!(v["success"], true);
+        assert_eq!(v["token"], TEST_TOKEN);
+        assert_eq!(v["deviceId"], "bp_win_00000000");
+        assert!(
+            !v["deviceName"].as_str().unwrap().is_empty(),
+            "响应必须带设备名"
+        );
+
+        // 一次性：同一个码不能重复兑换
+        let (code, _) = request_anonymous(srv.port, "POST", "/api/pair", Some(&body));
+        assert_eq!(code, 401, "配对码必须一次性");
+    }
+
+    // ─── 授权模式 / 待确认队列（对齐 macOS ApprovalGate） ─────────────────────
+
+    // TC-HT-17  授权模式默认 safe，可读写，非法值拒绝
+    // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
+    // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn approval_mode_read_write() {
+        let srv = spawn_server().await;
+
+        let (code, v) = get(srv.port, "/api/approvals/mode");
+        assert_eq!(code, 200);
+        assert_eq!(v["mode"], "safe", "默认档位必须是 safe");
+
+        let (code, v) = post(srv.port, "/api/approvals/mode", r#"{"mode":"askAll"}"#);
+        assert_eq!(code, 200);
+        assert_eq!(v["success"], true);
+        assert_eq!(v["mode"], "askAll");
+
+        let (_, v) = get(srv.port, "/api/approvals/mode");
+        assert_eq!(v["mode"], "askAll", "模式必须真正落库");
+
+        let (code, v) = post(srv.port, "/api/approvals/mode", r#"{"mode":"yolo"}"#);
+        assert_eq!(code, 400, "非法档位必须 400");
+        assert_eq!(v["success"], false);
+    }
+
+    // TC-HT-18  危险命令挂起 → approve 后复用同一执行路径
+    // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
+    // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn dangerous_message_is_pended_then_executed_on_approve() {
+        let srv = spawn_server().await;
+        post(srv.port, "/api/session/start", "");
+
+        let (code, v) = post(srv.port, "/api/message", r#"{"text":"rm -rf /"}"#);
+        assert_eq!(code, 200);
+        assert_eq!(v["success"], true);
+        assert_eq!(v["status"], "pending_approval");
+        assert_eq!(v["approval"]["text"], "rm -rf /");
+        assert_eq!(v["approval"]["reasons"][0]["code"], "rm_root");
+        assert!(v["approval"]["createdAt"].is_string());
+        let id = v["approval"]["id"].as_str().unwrap().to_string();
+        assert!(id.starts_with("apv_"), "审批 ID 前缀应为 apv_");
+
+        // 挂起期间在列表中可见
+        let (_, list) = get(srv.port, "/api/approvals");
+        assert_eq!(list["approvals"].as_array().unwrap().len(), 1);
+
+        // 批准后立即执行，响应结构与 /api/message 完全一致
+        let (code, v) = post(
+            srv.port,
+            &format!("/api/approvals/{id}"),
+            r#"{"action":"approve"}"#,
+        );
+        assert_eq!(code, 200);
+        assert_eq!(v["success"], true);
+        let cmd = v["commandId"].as_str().unwrap().to_string();
+        assert!(cmd.starts_with("cmd_"), "命令 ID 前缀应为 cmd_");
+
+        // 处理后 pending 被消费
+        let (_, list) = get(srv.port, "/api/approvals");
+        assert_eq!(list["approvals"].as_array().unwrap().len(), 0);
+    }
+
+    // TC-HT-19  deny 只回 status，不产生任何命令
+    // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
+    // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn deny_does_not_execute_command() {
+        let srv = spawn_server().await;
+        post(srv.port, "/api/session/start", "");
+
+        let (_, v) = post(
+            srv.port,
+            "/api/message",
+            r#"{"text":"git push --force origin main"}"#,
+        );
+        assert_eq!(v["status"], "pending_approval");
+        assert_eq!(v["approval"]["reasons"][0]["code"], "force_push");
+        let id = v["approval"]["id"].as_str().unwrap().to_string();
+
+        let (code, v) = post(
+            srv.port,
+            &format!("/api/approvals/{id}"),
+            r#"{"action":"deny"}"#,
+        );
+        assert_eq!(code, 200);
+        assert_eq!(v["status"], "denied");
+        assert!(v["commandId"].is_null(), "拒绝后不得返回 commandId");
+
+        let (_, list) = get(srv.port, "/api/approvals");
+        assert_eq!(list["approvals"].as_array().unwrap().len(), 0);
+    }
+
+    // TC-HT-20  always_approve 生效于后续命令；auto 模式全量放行
+    // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
+    // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn always_approve_and_auto_mode() {
+        let srv = spawn_server().await;
+        post(srv.port, "/api/session/start", "");
+
+        // safe 下 sudo 挂起 → always_approve 把 sudo 写入白名单并立即执行
+        let (_, v) = post(srv.port, "/api/message", r#"{"text":"sudo ls"}"#);
+        assert_eq!(v["status"], "pending_approval");
+        let id = v["approval"]["id"].as_str().unwrap().to_string();
+        let (code, v) = post(
+            srv.port,
+            &format!("/api/approvals/{id}"),
+            r#"{"action":"always_approve"}"#,
+        );
+        assert_eq!(code, 200);
+        assert!(v["commandId"].is_string(), "always_approve 也应立即执行");
+
+        // 同样命中的命令再来一次 → 直接放行
+        let (code, v) = post(srv.port, "/api/message", r#"{"text":"sudo ls"}"#);
+        assert_eq!(code, 200);
+        assert_eq!(v["status"], "queued", "白名单内的 code 不应再挂起");
+
+        // auto 模式下即使是最危险的命令也直接放行
+        let (code, v) = post(srv.port, "/api/approvals/mode", r#"{"mode":"auto"}"#);
+        assert_eq!(code, 200);
+        let (code, v) = post(srv.port, "/api/message", r#"{"text":"rm -rf /"}"#);
+        assert_eq!(code, 200);
+        assert_eq!(v["status"], "queued", "auto 模式必须放行");
+    }
+
+    // TC-HT-21  边界：未知 approval id → 404
+    // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
+    // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn unknown_approval_id_returns_404() {
+        let srv = spawn_server().await;
+        let (code, v) = post(
+            srv.port,
+            "/api/approvals/apv_ghost",
+            r#"{"action":"approve"}"#,
+        );
+        assert_eq!(code, 404);
+        assert_eq!(v["success"], false);
+    }
+
+    // TC-HT-22  交互：授权模式与 /api/message 的联动在会话未启动时也不得 panic
+    // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
+    // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn approval_and_session_interaction() {
+        let srv = spawn_server().await;
+
+        // 无会话 + 危险命令：先过门卫（与 macOS 判定点一致），返回 pending
+        let (code, v) = post(srv.port, "/api/message", r#"{"text":"rm -rf /"}"#);
+        assert_eq!(code, 200);
+        assert_eq!(v["status"], "pending_approval");
+
+        // 批准时仍无会话 → 409/400 且不得 panic
+        let id = v["approval"]["id"].as_str().unwrap().to_string();
+        let (code, _) = post(
+            srv.port,
+            &format!("/api/approvals/{id}"),
+            r#"{"action":"approve"}"#,
+        );
+        assert!((400..500).contains(&code), "无会话时批准应返回 4xx，实际 {code}");
+
+        // 普通命令在无会话时仍按原契约返回 400
+        let (code, _) = post(srv.port, "/api/message", r#"{"text":"hello"}"#);
+        assert_eq!(code, 400);
+    }
+
+    // TC-HT-23  模型列表：响应结构与 iOS `ModelsResponse` 逐字段对齐
+    // NOTE: 必须使用多线程运行时（理由同上）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn agent_models_response_matches_ios_contract() {
+        let srv = spawn_server().await;
+        let (code, v) = get(srv.port, "/api/agents/opencode/models");
+        assert_eq!(code, 200);
+        assert_eq!(v["agentId"], "opencode");
+        assert!(v["providers"].is_array(), "providers 必须是数组");
+        // 两个可空字段必须存在（可为 null），否则 iOS 解不出 preferredModelId
+        assert!(v.get("activeModelId").is_some(), "缺少 activeModelId");
+        assert!(v.get("preferredModelId").is_some(), "缺少 preferredModelId");
+    }
+
+    // TC-HT-24  目录外的 agent id：404 且带 error（不能返回空列表冒充"没有模型"）
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn unknown_agent_models_returns_404() {
+        let srv = spawn_server().await;
+        let (code, v) = get(srv.port, "/api/agents/no-such-agent/models");
+        assert_eq!(code, 404);
+        assert_eq!(v["success"], false);
+        assert!(v["error"].is_string());
+    }
+
+    // TC-HT-25  切换默认模型：POST 后 GET 必须回读得到 preferredModelId（与设备无关，稳定可验）
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn set_default_model_is_persisted_and_read_back() {
+        let srv = spawn_server().await;
+        let (code, v) = post(
+            srv.port,
+            "/api/agents/models/default",
+            r#"{"agentId":"opencode","modelId":"glm-5.2"}"#,
+        );
+        assert_eq!(code, 200);
+        assert_eq!(v["success"], true);
+        assert_eq!(v["modelId"], "glm-5.2");
+
+        let (code, v) = get(srv.port, "/api/agents/opencode/models");
+        assert_eq!(code, 200);
+        assert_eq!(v["preferredModelId"], "glm-5.2", "偏好必须能被回读");
+
+        // 其它 Agent 不受影响
+        let (_, other) = get(srv.port, "/api/agents/codex/models");
+        assert!(other["preferredModelId"].is_null(), "不应串到别的 Agent");
+    }
+
+    // TC-HT-26  未知路由必须返回 JSON 而不是空 body。
+    // 这是"iPhone 提示无法加载模型列表：格式不正确"的直接病根 ——
+    // 空 body 让客户端的 JSON 解析失败，把"没有这个接口"报成了"数据格式错误"。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn unknown_route_returns_json_not_empty_body() {
+        let srv = spawn_server().await;
+        let (code, raw) = request_anonymous(srv.port, "GET", "/api/definitely-not-here", None);
+        assert_eq!(code, 404);
+        let parsed: serde_json::Value =
+            serde_json::from_str(&raw).expect("404 响应体必须是可解析的 JSON");
+        assert_eq!(parsed["success"], false);
+        assert!(parsed["error"].is_string());
+    }
+
+    // TC-HT-27  模型接口同样受鉴权保护（未配对时 401，而不是泄露本机配置）
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn agent_models_requires_auth() {
+        let srv = spawn_server().await;
+        let (code, _) = request_anonymous(srv.port, "GET", "/api/agents/opencode/models", None);
+        assert_eq!(code, 401);
     }
 }
