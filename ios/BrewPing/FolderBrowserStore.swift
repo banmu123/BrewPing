@@ -92,6 +92,9 @@ final class FolderBrowserStore: ObservableObject {
 
     var pathSeparator: String { roots?.pathSeparator ?? "\\" }
 
+    /// 主机全部盘符（仅 Windows 有；作为浏览页的「此电脑」快捷跳转区）。
+    var driveRoots: [String] { roots?.drives ?? [] }
+
     // MARK: 根列表
 
     /// 打开浏览页的第一步：拿 roots（home + 盘符），随后自动落在 home。

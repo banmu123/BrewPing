@@ -242,3 +242,4 @@
 "Symbolic link" = "符号链接";
 "Working Folder Entry" = "工作目录";
 "Working Folder Entry Hint" = "该 Agent 尚未支持工作目录";
+"Drives" = "盘符";

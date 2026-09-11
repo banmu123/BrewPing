@@ -124,6 +124,27 @@ struct FolderBrowserView: View {
                 }
             }
 
+            // 「此电脑」：主机盘符快捷跳转（C:\ / D:\ / …），任意层级都能直达。
+            if !store.driveRoots.isEmpty {
+                Section {
+                    ForEach(store.driveRoots, id: \.self) { drive in
+                        Button {
+                            Task { await store.browse(drive, showHidden: store.showsHidden) }
+                        } label: {
+                            Label {
+                                // 盘符是主机数据，不翻译。
+                                Text(verbatim: drive)
+                            } icon: {
+                                Image(systemName: "internaldrive.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Drives")
+                }
+            }
+
             Section {
                 ForEach(store.entries) { entry in
                     Button {
