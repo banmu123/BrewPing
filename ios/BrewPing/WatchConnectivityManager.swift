@@ -25,6 +25,11 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
     /// 与 agents 走同一条通道，手表不自己发请求。
     var knownModels: [[String: String]] = []
     var activeModelID: String = ""
+    /// `knownModels` 对应的 Agent id。
+    /// 手表据此判断"这份模型列表是否属于我当前选的 Agent" —— 模型是 per-Agent 的配置
+    /// （Mac 端 `GET /api/agents/<agentId>/models`），切 Agent 后必须整份换掉，
+    /// 否则会显示上一个 Agent 的模型。
+    var knownModelsAgent: String = ""
 
     /// App 是否在前台（由 ContentView 按 `scenePhase` 维护）。
     /// 用于决定"收到手表语音后要不要在本机回放一遍"：
@@ -59,6 +64,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
                 "activeDevice": activeDeviceID,
                 "models": knownModels,
                 "activeModelId": activeModelID,
+                "modelsAgent": knownModelsAgent,
                 // 语言偏好：手表照抄 iPhone 的设置，避免两端各维护一份。
                 LanguageManager.syncKey: UserDefaults.standard
                     .string(forKey: LanguageManager.storageKey) ?? AppLanguage.system.rawValue
@@ -207,6 +213,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
                 "activeDevice": activeDeviceID,
                 "models": knownModels,
                 "activeModelId": activeModelID,
+                "modelsAgent": knownModelsAgent,
                 LanguageManager.syncKey: UserDefaults.standard
                     .string(forKey: LanguageManager.storageKey) ?? AppLanguage.system.rawValue
             ])
@@ -304,7 +311,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
             }
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-            Task {
+            Task { [weak self] in
                 do {
                     let (data, response) = try await BrewPingHTTP.session.data(for: request)
                     if BrewPingHTTP.isUnauthorized(response) {
@@ -314,11 +321,46 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
                     let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
                     let success = json?["success"] as? Bool ?? false
                     BrewPingLog.watch.info("Switch to \(agentId, privacy: .public) -> \(success ? "OK" : "failed", privacy: .public)")
+                    if success {
+                        // 模型是 per-Agent 的配置：Agent 一换，模型列表必须整份跟着换。
+                        // 这里立刻拉取新 Agent 的模型并推给手表，否则手表会继续显示
+                        // 上一个 Agent 的模型，直到下一轮 2s 轮询才（可能）纠正。
+                        await self?.refreshModelsAndPush(for: agentId, device: device)
+                    }
                 } catch {
                     BrewPingLog.watch.error("Switch agent error: \(error.localizedDescription, privacy: .private)")
                 }
             }
         }
+    }
+
+    /// Agent 切换成功后，立刻拉取该 Agent 的模型列表并推给手表。
+    ///
+    /// `ModelStore.refresh` 内部按 `device/agentID` 去重，所以这里必然会真正发请求；
+    /// 拉完立即走 `pushStatus` 推送，把手表的模型区从"上一个 Agent 的"换成"当前 Agent 的"。
+    ///
+    /// 标 `@MainActor`：`ModelStore` 是 `@MainActor` 隔离的，属性只能在主线程读。
+    @MainActor
+    private func refreshModelsAndPush(for agentId: String, device: ManagedDevice) async {
+        // 关键：先把本地"当前 Agent"同步成新值，再推送。
+        // `currentAgentID` 平时只在 2s 轮询的 `refreshStatus()` 里更新，
+        // 所以刚切完时它还是**旧值**；直接 pushStatus 会把旧 activeAgent 推给手表，
+        // 手表刚切过去就被弹回上一个 Agent（2026-09-11 实际踩到）。
+        currentAgentID = agentId
+        if let name = knownAgents.first(where: { $0["id"] == agentId })?["name"] {
+            currentAgentName = name
+        }
+        currentAgentMode = (agentId == "opencode") ? "session" : "headless"
+
+        await ModelStore.shared.refresh(device: device, agentID: agentId)
+        knownModels = ModelStore.shared.models.map { ["id": $0.id, "name": $0.name] }
+        activeModelID = ModelStore.shared.activeModelID ?? ""
+        knownModelsAgent = agentId
+        pushStatus(online: currentOnline ?? false, sessionStateRaw: currentSessionState ?? "")
+
+        // 通知 iPhone 界面立即刷新 Agent 列表（刷新列表里的 "Default" 标记）。
+        // App 在后台时监听不生效，由 5s 状态轮询的变化检测兜底。
+        NotificationCenter.default.post(name: .watchDidSwitchAgent, object: nil)
     }
 
     /// 切换 Mac 端当前 Agent 的默认模型（`POST /api/agents/models/default`）。
@@ -649,4 +691,10 @@ final class WatchAudioPlayback: NSObject, AVAudioPlayerDelegate {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         BrewPingLog.audio.error("Audio playback decode error: \(error?.localizedDescription ?? "unknown", privacy: .private)")
     }
+}
+
+extension Notification.Name {
+    /// 手表切换了 Mac 端 Agent。iPhone 界面据此**立即**刷新 Agent 列表，
+    /// 让列表里的 "Default" 标记跟上（否则要等下一轮 5s 轮询）。
+    static let watchDidSwitchAgent = Notification.Name("BrewPing.WatchDidSwitchAgent")
 }

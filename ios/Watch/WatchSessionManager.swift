@@ -114,6 +114,13 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     private var audioTransfers: [WCSessionFileTransfer] = []
     private var pendingAudioFileNames: Set<String> = []
 
+    /// 用户刚在手表上切过的 Agent（等待 iPhone / Mac 确认）。
+    ///
+    /// 服务端切换需要时间往返，这期间 iPhone 推回的 `activeAgent` 可能还是旧值；
+    /// 用它挡住覆盖，避免"切过去又被弹回来"。
+    private var pendingAgentSwitch: String?
+    private var pendingAgentSwitchAt: Date?
+
     func activate() {
         guard let session, session.activationState != .activated else { return }
         session.delegate = self
@@ -148,7 +155,21 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
             }
             if let activeId = context["activeAgent"] as? String,
                let idx = self.agents.firstIndex(where: { $0.id == activeId }) {
-                self.activeAgentIndex = idx
+                if let pending = self.pendingAgentSwitch, pending != activeId {
+                    // 用户刚切过 Agent、服务端尚未确认：忽略这个滞后的旧值。
+                    // 超过 5 秒仍未确认则放弃保护（说明切换大概失败了，接受服务端状态）。
+                    if let t = self.pendingAgentSwitchAt,
+                       Date().timeIntervalSince(t) < 5 {
+                        // 保持本地选择
+                    } else {
+                        self.pendingAgentSwitch = nil
+                        self.activeAgentIndex = idx
+                    }
+                } else {
+                    // 没有待确认切换，或服务端已确认到目标 Agent：接受并解除保护。
+                    self.pendingAgentSwitch = nil
+                    self.activeAgentIndex = idx
+                }
             }
             // 同步设备列表
             if let deviceList = context["devices"] as? [[String: String]] {
@@ -174,10 +195,28 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     /// 解析 iPhone 同步过来的模型列表。
-    /// - Note: 列表为空时**保留**上一次的结果 —— iPhone 可能只是这一轮没拉到，
-    ///   不该让手表上已经显示的选项凭空消失。
+    ///
+    /// 模型是 **per-Agent** 的配置（Mac 端 `GET /api/agents/<agentId>/models`），
+    /// 所以必须校验这份列表属于哪个 Agent：
+    ///  - 属于当前 Agent → 正常应用；
+    ///  - 属于**别的** Agent → 整份清空，绝不把上一个 Agent 的模型留在界面上。
+    ///
+    /// 而 `list` 为空时**保留**上一次结果 —— iPhone 可能只是这一轮没拉到，
+    /// 不该让手表上已经显示的选项凭空消失；"属于别的 Agent"是另一回事，必须清空。
     private func applyModels(from context: [String: Any]) {
         guard let list = context["models"] as? [[String: String]] else { return }
+
+        // 归属校验：列表对应的 Agent 与手表当前选的 Agent 不一致 → 清空。
+        // `activeAgentID` 在 `switchToAgent` 里是**立即**更新的，
+        // 所以切 Agent 的瞬间就会命中这里，不会短暂显示错位的模型。
+        if let modelsAgent = context["modelsAgent"] as? String,
+           !modelsAgent.isEmpty,
+           modelsAgent != activeAgentID {
+            models = []
+            activeModelIndex = 0
+            return
+        }
+
         let parsed = list.compactMap { dict -> WatchModel? in
             guard let id = dict["id"], let name = dict["name"] else { return nil }
             return WatchModel(id: id, name: name)
@@ -217,6 +256,9 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
         let agent = agents[index]
         let agentId = agent.id
         agentName = agent.name
+        // 记下本地意图，在收到服务端确认前不让滞后的回推覆盖（见 applyContext）。
+        pendingAgentSwitch = agentId
+        pendingAgentSwitchAt = Date()
 
         guard let session, session.activationState == .activated, session.isReachable else { return }
         session.sendMessage(
