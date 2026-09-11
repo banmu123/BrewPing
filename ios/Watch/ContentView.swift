@@ -208,10 +208,31 @@ struct ContentView: View {
                     RoundedRectangle(cornerRadius: 6)
                         .fill(Color.white.opacity(0.08))
                 )
+                // 横向滑动切换：与左右两个 chevron 按钮并存。
+                //
+                // 用 `simultaneousGesture` 而不是 `gesture`：后者会抢掉两个按钮的点击，
+                // 让"点箭头"也一起失效。
+                //
+                // 关键过滤条件 `abs(dx) > abs(dy)`：只认"明确横向"的滑动，
+                // 纵向手势继续交给最外层 ScrollView。这正是模型区此前"划不动"的根因——
+                // 区里原本没有任何手势识别，横向拖拽被外层 ScrollView 吃掉；
+                // 而如果改用 TabView(.page) 内嵌，则纵向滚动与横向翻页会互相抢手势，同样失效。
+                .contentShape(RoundedRectangle(cornerRadius: 6))
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 20)
+                        .onEnded { value in
+                            let dx = value.translation.width
+                            let dy = value.translation.height
+                            // abs(dx) > 30：过滤抖动与误触；abs(dx) > abs(dy)：排除斜向/纵向滚动。
+                            guard abs(dx) > 30, abs(dx) > abs(dy) else { return }
+                            // 向左滑（dx < 0）看下一个模型，向右滑看上一个。
+                            sessionManager.stepModel(by: dx < 0 ? 1 : -1)
+                        }
+                )
 
                 // 有多个模型时才提示可以切换
                 if sessionManager.models.count > 1 {
-                    Text("← switch model →")
+                    Text("← swipe model →")
                         .font(.system(size: 7))
                         .foregroundStyle(.tertiary)
                 }

@@ -54,4 +54,4 @@
 
 
 /* MARK: - Model switching */
-"← switch model →" = "← 左右切换模型 →";
+"← swipe model →" = "← 左右滑动切换模型 →";
