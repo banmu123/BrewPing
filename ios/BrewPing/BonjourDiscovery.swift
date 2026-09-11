@@ -124,9 +124,12 @@ final class BonjourDiscovery: NSObject, ObservableObject {
     /// 从 Bonjour TXT 记录里读主机类型。
     /// 广播方（`Sources/App/BonjourAdvertiser.swift` 与 Windows 端 `mdns_broadcast.rs`）
     /// 在 `platform` 里写各自的原生 OS 名（`macOS` / `windows`），交给 `DeviceOSType.parse` 归一化。
+    ///
+    /// 取值用 `NWTXTRecord` 的**下标**（`subscript(String) -> String?`）；
+    /// 该类型没有 `get(_:)` 方法（只有 `getEntry(for:)`，返回的是 `Entry` 枚举，不是字符串）。
     private static func osType(from metadata: NWBrowser.Result.Metadata) -> DeviceOSType {
         guard case let .bonjour(txt) = metadata else { return .mac }
-        return DeviceOSType.parse(txt.get("platform"))
+        return DeviceOSType.parse(txt["platform"])
     }
 
     /// 优先返回 IPv4 字面量（URLSession 直连最稳），失败时回退到 mDNS 主机名
