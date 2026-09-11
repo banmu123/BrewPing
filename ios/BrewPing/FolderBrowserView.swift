@@ -206,7 +206,7 @@ struct FolderBrowserView: View {
                 }
             }
         } message: {
-            Text("Workdir set alert message", pendingSelection?.absolutePath ?? "")
+            Text(verbatim: L("Workdir set alert message", pendingSelection?.absolutePath ?? ""))
         }
     }
 
