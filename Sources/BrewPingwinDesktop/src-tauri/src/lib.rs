@@ -380,44 +380,10 @@ async fn send_command(
     }
     let _ = app.emit("terminal-updated", ());
 
-    // Route based on agent type
-    if agent_id == "opencode" {
-        // Session agent: route through session management
-        let session = core.state.session.read().await;
-        if session.is_none() {
-            let mut map = core.terminal.agents.write().await;
-            if let Some(state) = map.get_mut(&agent_id) {
-                state.append_line("Error: no active session — start a session first", OutputType::Error);
-            }
-            let _ = app.emit("terminal-updated", ());
-            return Ok(());
-        }
-        drop(session);
-
-        let command_id = format!("cmd_{}", &uuid::Uuid::new_v4().to_string()[..8]);
-        let agent_name = {
-            let agents = core.state.agents.read().await;
-            agents
-                .iter()
-                .find(|a| a.id == agent_id)
-                .map(|a| a.name.clone())
-                .unwrap_or_else(|| "OpenCode".to_string())
-        };
-
-        {
-            let mut map = core.terminal.agents.write().await;
-            if let Some(state) = map.get_mut(&agent_id) {
-                state.append_line(
-                    &format!("Message sent to {}", agent_name),
-                    OutputType::System,
-                );
-            }
-        }
-        let _ = app.emit("terminal-updated", ());
-        return Ok(());
-    }
-
-    // Non-session agent: run CLI executable
+    // ── Headless CLI 一次性执行 ─────────────────────────────────────────────
+    // 桌面端与手机端共用同一语义：每条消息起一个 headless CLI 进程拿完整回复。
+    // 不走 session（Windows 端没有会话机制），opencode 用 `run` 子命令即可 headless。
+    // 参数约定与 macOS `CLIAgentImplementations.executionArguments` 逐字对齐。
     let agents = core.state.agents.read().await;
     let agent_entry = agents.iter().find(|a| a.id == agent_id).cloned();
     drop(agents);
@@ -484,14 +450,44 @@ async fn send_command(
     let terminal = core.terminal.clone();
     let agent_id_clone = agent_id.clone();
     let executable_clone = executable.clone();
-    let text_clone = text.clone();
     let workdir_clone = selected_workdir.clone();
     let app_clone = app.clone();
+
+    // 各 Agent 的 headless 参数（对齐 macOS `CLIAgentImplementations`）。
+    // 用户选过模型就在提示词之后追加 `--model <id>`（与 macOS 顺序一致）。
+    let mut args: Vec<String> = match agent_id.as_str() {
+        "claude-code" => vec![
+            "-p".to_string(),
+            text.clone(),
+            "--output-format".to_string(),
+            "text".to_string(),
+        ],
+        "codex" => vec![
+            "exec".to_string(),
+            "--skip-git-repo-check".to_string(),
+            "-s".to_string(),
+            "workspace-write".to_string(),
+            text.clone(),
+        ],
+        "aider" => vec![
+            "--message".to_string(),
+            text.clone(),
+            "--yes-always".to_string(),
+            "--no-auto-commits".to_string(),
+        ],
+        // opencode 与其它未知 agent：headless 一次性运行（opencode run <message..>）
+        _ => vec!["run".to_string(), text.clone()],
+    };
+    if let Some(model) = core.state.model_prefs.get(&agent_id) {
+        args.push("--model".to_string());
+        args.push(model);
+    }
+    let args_clone = args.clone();
 
     // Use spawn_blocking for synchronous process execution
     tokio::task::spawn_blocking(move || {
         let mut cmd = std::process::Command::new(&executable_clone);
-        cmd.arg(&text_clone)
+        cmd.args(&args_clone)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         // ★ 关键一行：注入用户选定的工作目录（子进程级，不用 set_current_dir）。
@@ -573,6 +569,76 @@ async fn clear_terminal(
     if let Some(state) = map.get_mut(&agent_id) {
         state.clear_output();
     }
+    Ok(())
+}
+
+/// List the models of an agent (desktop composer entry point).
+///
+/// Mirrors `http_server::handle_agent_models`: reads the real config files,
+/// and includes the user's preferred model (if any). Unknown agents return Err.
+#[tauri::command]
+async fn get_agent_models(
+    core: tauri::State<'_, DesktopCore>,
+    agent_id: String,
+) -> Result<serde_json::Value, String> {
+    if !services::agent_config::is_known_agent(&agent_id) {
+        return Err("unknown agent".to_string());
+    }
+    let config = services::agent_config::discover(&agent_id);
+    let preferred = core.state.model_prefs.get(&agent_id);
+
+    let providers: Vec<serde_json::Value> = config
+        .providers
+        .iter()
+        .map(|provider| {
+            let models: Vec<serde_json::Value> = provider
+                .models
+                .iter()
+                .map(|model| {
+                    serde_json::json!({
+                        "id": model.id,
+                        "name": model.name,
+                        "available": model.available,
+                        "isActive": model.is_active,
+                        "isDefault": preferred.as_deref() == Some(model.id.as_str()),
+                    })
+                })
+                .collect();
+            let mut value = serde_json::json!({
+                "id": provider.id,
+                "name": provider.name,
+                "models": models,
+            });
+            if let Some(base) = &provider.base_url {
+                value["baseURL"] = serde_json::Value::String(base.clone());
+            }
+            value
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "agentId": agent_id,
+        "providers": providers,
+        "activeModelId": config.active_model_id,
+        "preferredModelId": preferred,
+    }))
+}
+
+/// Set the user's preferred model for an agent (persisted in ~/.brewping).
+///
+/// Mirrors `handle_set_default_model`: does NOT rewrite the agent's config file,
+/// only records the preference, which is passed as `--model <id>` when spawning.
+#[tauri::command]
+async fn set_default_model(
+    core: tauri::State<'_, DesktopCore>,
+    agent_id: String,
+    model_id: Option<String>,
+) -> Result<(), String> {
+    if agent_id.trim().is_empty() {
+        return Err("agentId is empty".to_string());
+    }
+    core.state.model_prefs.set(&agent_id, model_id.as_deref());
+    log::info!("Default model for '{}' set to {:?}", agent_id, model_id);
     Ok(())
 }
 
@@ -794,6 +860,8 @@ pub fn run() {
             switch_active_agent,
             send_command,
             clear_terminal,
+            get_agent_models,
+            set_default_model,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

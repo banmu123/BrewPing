@@ -1,159 +1,176 @@
-/* ─── BrewPing Win Desktop — Terminal Theme ────────────────────────────────────
-   Matches macOS BrewPingDesktop terminal aesthetic:
-   dark background, green phosphor text, monospaced font.
+/* ─── BrewPing Win Desktop — Latte Theme ─────────────────────────────────────
+   拿铁奶白咖啡风格。设计令牌体系对齐《Lody Windows 桌面端界面样式规范》：
+   - 全部令牌为 HSL 通道值定义在 :root（规范 §2 形式），shadcn/ui 同名约定；
+   - Tailwind v4（@tailwindcss/vite），@theme inline 映射为 bg-* / text-* 工具类；
+   - 组件体系 shadcn/ui（cva 变体 + cn() 合成类名）。
+   本次改动仅限视觉层：布局尺寸、DOM 结构、交互行为与改动前完全一致。
 ───────────────────────────────────────────────────────────────────────────── */
 
+@import "tailwindcss";
+
+/* ─── 设计令牌（奶白 → 米色 → 浅棕 → 暖咖，低饱和） ────────────────────────── */
+
 :root {
-  --term-bg: #0f0f0f;
-  --term-bar-bg: #141414;
-  --term-green: #4dd966;
-  --term-green-dim: #2e8039;
-  --term-amber: #ffb84d;
-  --term-red: #ff7366;
-  --term-cyan: #66ccff;
-  --term-text: rgba(255, 255, 255, 0.92);
-  --term-text-dim: rgba(255, 255, 255, 0.5);
-  --term-border: rgba(46, 128, 57, 0.15);
+  /* 表面 */
+  --background: 40 44% 97%;            /* 奶白画布 */
+  --foreground: 24 32% 22%;            /* 深咖主文本 */
+  --card: 42 50% 99%;                  /* 卡片：比画布更亮的奶泡 */
+  --card-foreground: 24 32% 22%;
+  --popover: 42 50% 99%;
+  --popover-foreground: 24 32% 22%;
+
+  /* 品牌：暖咖 */
+  --primary: 24 45% 40%;
+  --primary-foreground: 42 55% 98%;
+
+  /* 次级 / 弱化 */
+  --secondary: 36 38% 91%;             /* 米色 */
+  --secondary-foreground: 24 32% 26%;
+  --muted: 38 33% 92%;
+  --muted-foreground: 27 20% 44%;
+  --accent: 34 42% 88%;                /* 悬停面：浅棕 */
+  --accent-foreground: 24 32% 24%;
+
+  /* 语义 */
+  --destructive: 10 55% 44%;           /* 暖红陶土 */
+  --destructive-foreground: 42 55% 98%;
+  --success: 96 28% 36%;               /* 抹茶绿（低饱和，勿改回翠绿） */
+  --warning: 33 75% 42%;               /* 焦糖琥珀 */
+
+  /* 边框 / 输入族（规范 §2.1：浅色下 --input 是凹陷灰面，
+     可编辑控件一律 bg-input-field，由 --input-border 划界） */
+  --border: 33 26% 85%;
+  --input: 36 30% 88%;
+  --input-field: 42 55% 99%;
+  --input-border: 33 24% 80%;
+  --ring: 24 45% 40%;
+
+  /* 终端区（拿铁纸面：奶油底 + 咖啡字） */
+  --terminal-bg: 39 38% 95%;
+  --terminal-foreground: 24 30% 26%;
+
+  /* ── 布局规格令牌 ── */
+  /* z 阶梯（布局规格 §8：全部走变量，禁裸值） */
+  --z-editor-gutter: 10;
+  --z-editor-selection: 20;
+  --z-editor-cursor: 30;
+  --z-editor-hover: 50;
+  --z-dialog-overlay: 70;
+  --z-dialog: 80;
+  --z-popover: 80;
+  --z-command-palette: 85;
+  --z-tooltip: 90;
+  --z-image-viewer: 95;
+  --z-toast: 100;
+  --z-drag-strip: 10;
+  --z-sash: 20;
+  --z-composer: 40;
+  /* 控件标准高 36px（布局规格 §5） */
+  --control-h: 36px;
+  /* 间距基数 4px（Tailwind 默认即此，显式声明对齐规格 §0） */
+
+  /* 代码块背景（markdown 渲染用） */
+  --code: 38 36% 93%;
+  --code-foreground: 24 30% 24%;
+  --code-border: 33 24% 82%;
+
+  /* Shiki CSS 变量主题（拿铁语法高亮色板，规格 §5.2 模式：
+     token 化结果与主题解耦，变量即时生效） */
+  --brewping-shiki-background: hsl(var(--code));
+  --brewping-shiki-foreground: hsl(24 30% 24%);
+  --brewping-shiki-keyword: hsl(262 40% 46%);      /* 熏紫 */
+  --brewping-shiki-string: hsl(150 35% 32%);       /* 抹茶 */
+  --brewping-shiki-number: hsl(24 70% 42%);        /* 焦糖 */
+  --brewping-shiki-comment: hsl(27 15% 48%);       /* 奶咖灰 */
+  --brewping-shiki-function: hsl(210 45% 40%);     /* 靛蓝 */
+  --brewping-shiki-variable: hsl(330 40% 42%);     /* 玫瑰棕 */
+  --brewping-shiki-title: hsl(24 55% 38%);         /* 暖咖标题 */
+  --brewping-shiki-attr: hsl(24 70% 42%);
+  --brewping-shiki-builtin: hsl(262 40% 46%);
+  --brewping-shiki-constant: hsl(24 70% 42%);
+  --brewping-shiki-operator: hsl(27 20% 40%);
+  --brewping-shiki-punctuation: hsl(27 18% 50%);
+  --brewping-shiki-type: hsl(150 35% 30%);
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* 令牌 → Tailwind 工具类映射（inline：工具类处保留 var 引用） */
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-success: hsl(var(--success));
+  --color-warning: hsl(var(--warning));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-input-field: hsl(var(--input-field));
+  --color-input-border: hsl(var(--input-border));
+  --color-ring: hsl(var(--ring));
+  /* 规范 §5.2："airy, not heavy"，暖色投影 */
+  --shadow-xs: 0 1px 2px hsl(30 20% 20% / 0.08);
+  --shadow-panel: 0 1px 2px hsl(30 20% 20% / 0.06), 0 10px 30px hsl(30 20% 20% / 0.08);
+  --font-mono: "Cascadia Code", "SF Mono", "Consolas", "Fira Code", ui-monospace, monospace;
 }
 
-html, body, #root {
-  height: 100%;
-  overflow: hidden;
+/* ─── 基础层 ─────────────────────────────────────────────────────────────── */
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html, body, #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    /* 规范 §3.1 字体栈（自托管字体不引入，回退系统栈）；正文基准 14px / 1.45（规格 §3.2） */
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
+      "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+
+  /* 规范 §6.8：桌面手感 —— 按钮光标是 default，不是 pointer */
+  button, [role="button"] {
+    cursor: default;
+  }
+
+  *:focus {
+    outline: none !important;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.25);
+  }
 }
 
-body {
-  font-family: "SF Mono", "Cascadia Code", "Consolas", "Fira Code", monospace;
-  background: var(--term-bg);
-  color: var(--term-green);
-  -webkit-font-smoothing: antialiased;
-  user-select: none;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
-/* ─── App Shell ─────────────────────────────────────────────────────────── */
-
-.app-shell {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  background: var(--term-bg);
-}
-
-/* ─── Agent Tab Bar (matches macOS AgentTabView) ────────────────────────── */
-
-.agent-tab-bar {
-  display: flex;
-  align-items: center;
-  height: 34px;
-  background: #111111;
-  border-bottom: 1px solid var(--term-border);
-  flex-shrink: 0;
-  padding: 0 14px;
-  gap: 0;
-}
-
-.agent-tab-bar .logo {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-right: 16px;
-  padding-right: 16px;
-  border-right: 1px solid rgba(46, 128, 57, 0.2);
-}
-
-.agent-tab-bar .logo .emoji {
-  font-size: 11px;
-}
-
-.agent-tab-bar .logo .brand {
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(77, 217, 102, 0.85);
-  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
-}
-
-.agent-tab-bar .tabs {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  flex: 1;
-}
-
-.agent-tab {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 12px;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  border-radius: 3px;
-  font-size: 11px;
-  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
-  color: rgba(46, 128, 57, 0.65);
-  transition: background 0.1s;
-}
-
-.agent-tab:hover {
-  background: rgba(77, 217, 102, 0.05);
-}
-
-.agent-tab.active {
-  background: rgba(77, 217, 102, 0.08);
-  color: var(--term-green);
-  font-weight: 600;
-}
-
-.agent-tab .status-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.agent-tab .status-dot.idle {
-  background: rgba(46, 128, 57, 0.5);
-}
-
-.agent-tab .status-dot.running {
-  background: var(--term-green);
-}
-
-.agent-tab .status-dot.error {
-  background: var(--term-red);
-}
-
-.agent-tab .status-dot.stopped {
-  background: var(--term-amber);
-}
-
-.agent-tab-bar .online-indicator {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-}
-
-.agent-tab-bar .online-indicator .dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--term-green);
-  opacity: 0.8;
-}
-
-.agent-tab-bar .online-indicator .label {
-  font-size: 9px;
-  font-weight: 500;
-  color: rgba(46, 128, 57, 0.7);
-}
-
-/* ─── Terminal Output ───────────────────────────────────────────────────── */
+/* ─── 终端区（数据驱动类名，App.tsx 逻辑依赖这些类名，勿改名） ────────────── */
 
 .terminal-output {
   flex: 1;
@@ -162,26 +179,34 @@ body {
   padding: 8px 14px 12px;
   position: relative;
   scroll-behavior: smooth;
+  background: hsl(var(--terminal-bg));
+  color: hsl(var(--terminal-foreground));
+  font-family: var(--font-mono);
 }
 
-.terminal-output::-webkit-scrollbar {
-  width: 4px;
+/* 规范 §6.7 滚动条：细胶囊，暖咖 */
+.terminal-output::-webkit-scrollbar,
+.panel-scroll::-webkit-scrollbar {
+  width: 6px;
 }
 
-.terminal-output::-webkit-scrollbar-track {
+.terminal-output::-webkit-scrollbar-track,
+.panel-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.terminal-output::-webkit-scrollbar-thumb {
-  background: rgba(46, 128, 57, 0.2);
-  border-radius: 2px;
+.terminal-output::-webkit-scrollbar-thumb,
+.panel-scroll::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.35);
+  border-radius: 999px;
 }
 
-.terminal-output::-webkit-scrollbar-thumb:hover {
-  background: rgba(46, 128, 57, 0.4);
+.terminal-output::-webkit-scrollbar-thumb:hover,
+.panel-scroll::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.55);
 }
 
-/* Empty state */
+/* 空状态 */
 .terminal-empty {
   display: flex;
   flex-direction: column;
@@ -191,26 +216,26 @@ body {
 
 .terminal-empty .prompt {
   font-size: 12px;
-  color: var(--term-green-dim);
+  color: hsl(var(--primary) / 0.75);
 }
 
 .terminal-empty .hint {
   font-size: 12px;
-  color: rgba(46, 128, 57, 0.7);
+  color: hsl(var(--muted-foreground) / 0.9);
 }
 
 .terminal-empty .hint-dim {
   font-size: 11px;
-  color: rgba(46, 128, 57, 0.5);
+  color: hsl(var(--muted-foreground) / 0.65);
 }
 
 .terminal-empty .divider {
   font-size: 10px;
-  color: rgba(46, 128, 57, 0.15);
+  color: hsl(var(--muted-foreground) / 0.25);
   margin-top: 4px;
 }
 
-/* Output lines */
+/* 输出行 */
 .output-line {
   font-size: 12px;
   line-height: 1.5;
@@ -221,37 +246,37 @@ body {
 }
 
 .output-line .prompt-prefix {
-  color: var(--term-green);
+  color: hsl(var(--primary));
+  font-weight: 600;
 }
 
 .output-line.normal {
-  color: rgba(77, 217, 102, 0.85);
+  color: hsl(24 25% 32%);
 }
 
 .output-line.system {
-  color: rgba(46, 128, 57, 0.8);
+  color: hsl(27 20% 46%);
 }
 
-.output-line.system.source-ios {
-  color: var(--term-cyan);
-}
-
+/* iOS / Watch 来源：焦糖色高亮（替代原 cyan） */
+.output-line.system.source-ios,
 .output-line.system.source-watch {
-  color: var(--term-cyan);
+  color: hsl(28 55% 40%);
 }
 
 .output-line.system.user-input {
-  color: var(--term-text);
+  color: hsl(24 35% 22%);
+  font-weight: 500;
 }
 
 .output-line.error {
-  color: var(--term-amber);
+  color: hsl(var(--warning));
 }
 
-/* Blinking cursor */
+/* 闪烁光标 */
 .blinking-cursor {
   font-size: 12px;
-  color: var(--term-green);
+  color: hsl(var(--primary));
   opacity: 0.8;
   animation: blink 0.8s ease-in-out infinite;
 }
@@ -261,7 +286,7 @@ body {
   50% { opacity: 0.2; }
 }
 
-/* Scanline overlay */
+/* 扫描线（换成暖棕，极淡） */
 .scanline-overlay {
   position: absolute;
   top: 0;
@@ -273,13 +298,13 @@ body {
     to bottom,
     transparent 0px,
     transparent 2px,
-    rgba(0, 0, 0, 0.06) 2px,
-    rgba(0, 0, 0, 0.06) 3px
+    hsl(28 30% 30% / 0.025) 2px,
+    hsl(28 30% 30% / 0.025) 3px
   );
   opacity: 0.5;
 }
 
-/* ─── No Agent Placeholder ──────────────────────────────────────────────── */
+/* ─── 无 Agent / 启动占位 ───────────────────────────────────────────────── */
 
 .no-agent-placeholder {
   flex: 1;
@@ -288,389 +313,188 @@ body {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  background: var(--term-bg);
+  background: hsl(var(--terminal-bg));
+  color: hsl(var(--terminal-foreground));
 }
 
 .no-agent-placeholder .prompt {
   font-size: 12px;
-  color: var(--term-green-dim);
+  color: hsl(var(--primary) / 0.75);
 }
 
 .no-agent-placeholder .message {
   font-size: 13px;
-  color: rgba(46, 128, 57, 0.7);
+  color: hsl(27 20% 46%);
 }
 
 .no-agent-placeholder .hint {
   font-size: 11px;
-  color: rgba(46, 128, 57, 0.5);
+  color: hsl(var(--muted-foreground) / 0.65);
 }
 
-/* ─── Input Bar (matches macOS inputBar) ────────────────────────────────── */
+/* ─── 状态点（agent tab / runtime badge 共用） ───────────────────────────── */
 
-.input-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  background: var(--term-bar-bg);
-  border-top: 1px solid rgba(77, 217, 102, 0.12);
-  flex-shrink: 0;
-}
-
-.input-bar .prompt-char {
-  font-size: 13px;
-  font-weight: bold;
-  color: var(--term-green);
-  flex-shrink: 0;
-}
-
-.input-bar input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  font-size: 12px;
-  font-family: "SF Mono", "Cascadia Code", "Consolas", "Fira Code", monospace;
-  color: var(--term-text);
-  caret-color: var(--term-green);
-}
-
-.input-bar input::placeholder {
-  color: rgba(46, 128, 57, 0.35);
-}
-
-.input-bar .send-btn {
-  background: transparent;
-  border: none;
-  font-size: 10px;
-  font-weight: 600;
-  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
-  cursor: pointer;
-  padding: 4px 8px;
-  color: rgba(46, 128, 57, 0.5);
-  transition: color 0.15s;
-}
-
-.input-bar .send-btn.enabled {
-  color: var(--term-green);
-}
-
-.input-bar .send-btn.enabled:hover {
-  color: rgba(77, 217, 102, 1);
-}
-
-.input-bar .send-btn:disabled {
-  cursor: default;
-  opacity: 0.4;
-}
-
-/* ─── Responsive ────────────────────────────────────────────────────────── */
-
-@media (max-width: 480px) {
-  .agent-tab-bar {
-    padding: 0 8px;
-  }
-
-  .agent-tab-bar .logo {
-    margin-right: 8px;
-    padding-right: 8px;
-  }
-
-  .agent-tab {
-    padding: 6px 8px;
-    font-size: 10px;
-  }
-
-  .terminal-output {
-    padding: 6px 10px;
-  }
-
-  .input-bar {
-    padding: 6px 10px;
-  }
-}
-
-/* ─── Runtime State Badge ───────────────────────────────────────────────── */
-/* 与 macOS MenuBarView.runtimeBadge 对齐：
-   online = 绿点、starting = 灰点（"还没好"）、offline/idle = 红点（"真的没起来"）。 */
-
-.runtime-badge {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-left: auto;
-  flex-shrink: 0;
-  padding-right: 10px;
-}
-
-.runtime-badge .dot {
-  width: 6px;
-  height: 6px;
+.status-dot,
+.runtime-dot {
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-.runtime-badge .dot.online {
-  background: var(--term-green);
-}
+.status-dot.idle { background: hsl(var(--muted-foreground) / 0.45); }
+.status-dot.running { background: hsl(var(--success)); }
+.status-dot.error { background: hsl(var(--destructive)); }
+.status-dot.stopped { background: hsl(var(--warning)); }
 
-.runtime-badge .dot.starting {
-  background: rgba(255, 255, 255, 0.45);
+.runtime-dot.online { background: hsl(var(--success)); }
+.runtime-dot.starting {
+  background: hsl(var(--muted-foreground) / 0.55);
   animation: pulse 1.2s ease-in-out infinite;
 }
+.runtime-dot.offline { background: hsl(var(--destructive)); }
 
-.runtime-badge .dot.offline {
-  background: var(--term-red);
-}
-
-.runtime-badge .label {
+.runtime-label {
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.5px;
 }
 
-.runtime-badge .label.online {
-  color: var(--term-green);
-}
-
-.runtime-badge .label.starting {
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.runtime-badge .label.offline {
-  color: var(--term-red);
-}
+.runtime-label.online { color: hsl(var(--success)); }
+.runtime-label.starting { color: hsl(var(--muted-foreground) / 0.75); }
+.runtime-label.offline { color: hsl(var(--destructive)); }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.25; }
 }
 
-/* ─── Bar Buttons（配对 / 授权入口） ────────────────────────────────────── */
-
-.bar-btn {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  background: transparent;
-  border: 1px solid rgba(46, 128, 57, 0.35);
-  border-radius: 3px;
-  color: rgba(77, 217, 102, 0.8);
-  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
-  font-size: 10px;
-  padding: 3px 8px;
-  margin-left: 6px;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background 0.12s, border-color 0.12s;
+/* 「正在思考」占位指示点（composer 上方，agent 运行中但还没有输出时显示） */
+.thinking-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  animation: pulse 1.2s ease-in-out infinite;
 }
 
-.bar-btn:hover {
-  background: rgba(77, 217, 102, 0.08);
+/* ─── Markdown 渲染样式（对应渲染栈规格 §10.2 MARKDOWN_BASE_CLASSNAME） ──────
+   Streamdown 输出包裹在 .markdown-body 内（className="space-y-0" 覆盖其默认间距），
+   间距全部落在下面的规则上。整段搬移、勿拆抄（规格红线 §13.3）。 */
+
+.markdown-body {
+  /* 段落 */
+}
+.markdown-body p {
+  margin-top: 0 !important;
+  margin-bottom: 0.75rem !important;
+}
+.markdown-body > :first-child { margin-top: 0 !important; }
+.markdown-body > :last-child { margin-bottom: 0 !important; }
+/* 紧跟列表的段落收紧 */
+.markdown-body p:has(+ ul),
+.markdown-body p:has(+ ol) { margin-bottom: 0.5rem !important; }
+
+/* 标题：字号锚定 --markdown-* 变量（规格 §10.3），逐级递减 */
+.markdown-body h1 {
+  margin-top: 1.5rem !important; margin-bottom: 0.5rem !important;
+  font-size: var(--markdown-h1-font-size, 1.29em) !important;
+  font-weight: 600; line-height: 1.3; letter-spacing: -0.01em;
+}
+.markdown-body h2 {
+  margin-top: 1.25rem !important; margin-bottom: 0.5rem !important;
+  font-size: var(--markdown-h2-font-size, 1.14em) !important;
+  font-weight: 600; line-height: 1.35;
+}
+.markdown-body h3, .markdown-body h4 {
+  margin-top: 1rem !important; margin-bottom: 0.375rem !important;
+  font-size: var(--markdown-small-heading-font-size, 0.93em) !important;
+  font-weight: 600;
+}
+.markdown-body h5, .markdown-body h6 {
+  margin-top: 1rem !important; margin-bottom: 0.375rem !important;
+  font-size: var(--markdown-small-heading-font-size, 0.93em) !important;
+  font-weight: 600;
+}
+.markdown-body h5 { text-transform: uppercase; letter-spacing: 0.03em; }
+.markdown-body h6 { text-transform: uppercase; letter-spacing: 0.03em; color: hsl(var(--muted-foreground)); }
+
+/* 列表（视觉重构，规格 §10.2）：标记改伪元素，ol 保留计数器语义 */
+.markdown-body ul, .markdown-body ol {
+  margin-top: 0 !important; margin-bottom: 0.75rem !important;
+  padding-left: 1.25rem !important; list-style: none !important;
+}
+.markdown-body li { margin-top: 0.5rem !important; }
+.markdown-body li > p { display: inline; }
+.markdown-body ul > li { position: relative; padding-left: 0.25rem; }
+.markdown-body ul > li::before {
+  content: ""; position: absolute; left: 0; top: 0.6em;
+  width: 5px; height: 5px; border-radius: 999px; background: currentColor;
+}
+.markdown-body ol { counter-reset: none; }
+.markdown-body ol > li { position: relative; padding-left: 0.25rem; counter-increment: list-item; }
+.markdown-body ol > li::before {
+  content: counter(list-item) ".";
+  position: absolute; left: -1.1rem; top: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; text-align: right;
 }
 
-.bar-btn.active {
-  background: rgba(77, 217, 102, 0.14);
-  border-color: var(--term-green);
-  color: var(--term-green);
+/* 引用：左缘 2px + muted，压制默认 italic（规格 §10.2） */
+.markdown-body blockquote {
+  margin: 0.75rem 0 !important;
+  border-left: 2px solid hsl(var(--border));
+  padding-left: 0.75rem; font-style: normal;
+  color: hsl(var(--muted-foreground));
 }
 
-.bar-btn.alert {
-  border-color: var(--term-amber);
-  color: var(--term-amber);
+/* 分隔线 */
+.markdown-body hr {
+  margin: 1.25rem 0 !important;
+  border: 0; border-top: 1px solid hsl(var(--border));
 }
 
-.bar-btn .badge-count {
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
-  border-radius: 7px;
-  background: var(--term-amber);
-  color: #1a1a1a;
-  font-size: 9px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+/* 链接：下划线偏移 + 弱化装饰色（规格 §10.2） */
+.markdown-body a {
+  text-decoration: underline; text-underline-offset: 2px;
+  text-decoration-color: hsl(var(--muted-foreground) / 0.4);
+}
+.markdown-body a:hover { text-decoration-color: hsl(var(--primary) / 0.6); }
+
+/* 代码块容器（Streamdown 控件由其自带样式渲染，这里对齐拿铁令牌） */
+.markdown-body pre {
+  background: hsl(var(--code)) !important;
+  color: hsl(var(--code-foreground));
+  border: 1px solid hsl(var(--code-border));
+  border-radius: 0.5rem;
+}
+.markdown-body pre code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.4;
 }
 
-/* ─── Panels（配对 / 授权抽屉） ─────────────────────────────────────────── */
-
-.panel {
-  flex-shrink: 0;
-  max-height: 58vh;
-  overflow-y: auto;
-  padding: 10px 14px 12px;
-  background: #131313;
-  border-bottom: 1px solid rgba(77, 217, 102, 0.18);
-}
-
-.panel::-webkit-scrollbar {
-  width: 4px;
-}
-
-.panel::-webkit-scrollbar-thumb {
-  background: rgba(46, 128, 57, 0.25);
+/* 行内代码的双保险（组件映射已加类，这里兜底） */
+.markdown-body :not(pre) > code {
+  background: hsl(var(--code));
   border-radius: 2px;
+  padding: 1px 4px;
 }
 
-.panel-title {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  color: rgba(77, 217, 102, 0.75);
-  margin-bottom: 8px;
+/* 表格 */
+.markdown-body table th { background: hsl(var(--muted) / 0.45); font-weight: 600; }
+.markdown-body table tbody tr:nth-child(even) { background: hsl(var(--muted) / 0.15); }
+.markdown-body table th, .markdown-body table td {
+  border: 1px solid hsl(var(--border) / 0.7);
+  padding: 0.375rem 0.625rem; text-align: left; vertical-align: top;
+}
+.markdown-body table code {
+  background: hsl(var(--muted) / 0.55) !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  box-shadow: none !important;
 }
 
-.panel-title.sub {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(46, 128, 57, 0.15);
-  color: rgba(46, 128, 57, 0.85);
+/* 数学公式：display 块横向滚动防撑破（规格 §6） */
+.markdown-body .katex-display {
+  margin: 1.25rem 0 !important;
+  overflow-x: auto; overflow-y: hidden;
 }
-
-.panel-hint {
-  font-size: 10px;
-  line-height: 1.5;
-  color: rgba(77, 217, 102, 0.65);
-  margin-top: 6px;
-}
-
-.panel-hint.dim {
-  color: rgba(46, 128, 57, 0.6);
-  word-break: break-all;
-}
-
-.panel-btn {
-  background: transparent;
-  border: 1px solid rgba(46, 128, 57, 0.4);
-  border-radius: 3px;
-  color: rgba(77, 217, 102, 0.85);
-  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
-  font-size: 10px;
-  padding: 4px 10px;
-  cursor: pointer;
-  transition: background 0.12s;
-}
-
-.panel-btn:hover {
-  background: rgba(77, 217, 102, 0.1);
-}
-
-.panel-btn.active {
-  background: rgba(77, 217, 102, 0.16);
-  border-color: var(--term-green);
-  color: var(--term-green);
-  font-weight: 600;
-}
-
-.panel-btn.primary {
-  border-color: var(--term-green);
-  color: var(--term-green);
-}
-
-.panel-btn.danger {
-  border-color: rgba(255, 115, 102, 0.5);
-  color: var(--term-red);
-}
-
-.panel-btn.danger:hover {
-  background: rgba(255, 115, 102, 0.12);
-}
-
-.panel-btn.wide {
-  width: 100%;
-  padding: 8px;
-  font-size: 11px;
-}
-
-.panel-error {
-  flex-shrink: 0;
-  padding: 6px 14px;
-  background: rgba(255, 115, 102, 0.12);
-  border-bottom: 1px solid rgba(255, 115, 102, 0.35);
-  color: var(--term-red);
-  font-size: 10px;
-  cursor: pointer;
-  word-break: break-all;
-}
-
-/* ─── Pairing Panel ─────────────────────────────────────────────────────── */
-
-.pairing-code-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.pairing-code {
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: 3px;
-  color: var(--term-text);
-  user-select: text;
-}
-
-.qr-wrap {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.qr-box {
-  padding: 8px;
-  background: #ffffff;
-  border-radius: 8px;
-  border: 1px solid rgba(46, 128, 57, 0.3);
-  display: inline-flex;
-  line-height: 0;
-}
-
-/* ─── Approval Panel ────────────────────────────────────────────────────── */
-
-.mode-row {
-  display: flex;
-  gap: 6px;
-}
-
-.approval-item {
-  margin-top: 8px;
-  padding: 8px;
-  border: 1px solid rgba(255, 184, 77, 0.35);
-  border-radius: 4px;
-  background: rgba(255, 184, 77, 0.05);
-}
-
-.approval-text {
-  font-size: 11px;
-  color: var(--term-text);
-  white-space: pre-wrap;
-  word-break: break-all;
-  user-select: text;
-}
-
-.approval-reasons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 6px;
-}
-
-.reason-chip {
-  font-size: 9px;
-  padding: 2px 6px;
-  border-radius: 3px;
-  background: rgba(255, 184, 77, 0.18);
-  color: var(--term-amber);
-}
-
-.approval-actions {
-  display: flex;
-  gap: 6px;
-  margin-top: 8px;
-}
-

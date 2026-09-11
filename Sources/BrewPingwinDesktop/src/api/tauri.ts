@@ -6,6 +6,7 @@ import type {
   PairingInfo,
   ApprovalMode,
   PendingApproval,
+  AgentModelsInfo,
 } from "./types";
 
 /**
@@ -134,4 +135,24 @@ export async function sendCommand(text: string): Promise<void> {
  */
 export async function clearTerminal(agentId: string): Promise<void> {
   return invoke<void>("clear_terminal", { agentId });
+}
+
+// ─── Model commands（桌面 composer 的模型切换） ──────────────────────────────
+
+/**
+ * 读取某个 Agent 的可选模型（读真实配置文件 + 用户偏好）。
+ * 未知 agent 会 reject（"unknown agent"）。
+ */
+export async function getAgentModels(agentId: string): Promise<AgentModelsInfo> {
+  return invoke<AgentModelsInfo>("get_agent_models", { agentId });
+}
+
+/**
+ * 记住某个 Agent 的用户默认模型（modelId 传 null 清除偏好）。
+ */
+export async function setDefaultModel(
+  agentId: string,
+  modelId: string | null,
+): Promise<void> {
+  return invoke<void>("set_default_model", { agentId, modelId });
 }

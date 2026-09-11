@@ -88,3 +88,30 @@ export interface PendingApproval {
   reasons: ApprovalReason[];
   createdAt: string;
 }
+
+// ─── Models (对齐 http_server::handle_agent_models 的 JSON 契约) ─────────────
+
+/// 一个可选模型。
+export interface ProviderModel {
+  id: string;
+  name: string;
+  available: boolean;
+  isActive: boolean;
+  isDefault: boolean;
+}
+
+/// 一个 Provider 及其模型。
+export interface ProviderInfo {
+  id: string;
+  name: string;
+  models: ProviderModel[];
+  baseURL?: string;
+}
+
+/// `get_agent_models` 的返回。
+export interface AgentModelsInfo {
+  agentId: string;
+  providers: ProviderInfo[];
+  activeModelId: string | null;
+  preferredModelId: string | null;
+}
