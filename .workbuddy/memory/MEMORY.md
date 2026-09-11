@@ -51,6 +51,7 @@
 - **Demo 模式**：iOS 侧通过 `DemoURLProtocol` 拦截 `demo.brewping.local`，**不改动调用方代码**；`ManagedDevice.isDemo` 靠 host 判定（故意不加 Codable 字段，避免旧 UserDefaults JSON 解码失败清空设备列表）。
 - **日志**：iOS 用 `BrewPingLog`、Watch 用 `WatchLog`，禁止裸 `print`；可能含用户内容的值标 `privacy: .private`。
 - **隐私清单**：主 App 声明 `NSPrivacyAccessedAPICategoryUserDefaults / CA92.1`；Watch 声明 `NSPrivacyAccessedAPICategoryFileTimestamp / C617.1`。用了新的 Required Reason API 时必须同步更新对应 `PrivacyInfo.xcprivacy`。
+- **🚨 新增 Swift 文件必须同步登记 `project.pbxproj`（用户 2026-09-11 明确要求永不再犯）**：本工程用**显式 PBXFileReference**（非 Xcode 16 文件夹同步），只创建 `.swift` 文件而不改工程文件 = Xcode 压根不编译它，构建报 `Cannot find 'X' in scope`（实际踩过：`FolderBrowserStore/FolderBrowserView` 漏登记）。**四处缺一不可**：① `PBXBuildFile` ② `PBXFileReference` ③ 所属 `PBXGroup` 的 `children` ④ target 的 `Sources` build phase。ID 用未占用的 24 位十六进制（现有命名风格 `AA00000100000000NNNNNNNN`，新增前先 grep 确认）。**完成后必验**：`grep -c "<新文件名>" ios/BrewPing.xcodeproj/project.pbxproj` 每个新文件 ≥ 4（四个 section 各一次），少于 4 就是漏了。
 - **Windows 桌面端（`Sources/BrewPingwinDesktop`，Tauri 2 + axum 0.8）**：
   - **HTTP 错误体必须永远是 JSON**（契约 `TC-HT-26`，`http_server.rs:1811`）。因此新增 query 参数**必须声明为 `Option<String>` 再手工解析** —— 用 axum 强类型反序列化时解析失败会返回 **400 纯文本**，直接违反该契约。
   - **所有偏好落盘 `~/.brewping/*.json`**（`device.json` / `pairing.json` / `approval.json` / `models.json`），一个偏好一个文件。`Stored` 结构体**必须带 `#[serde(default)]`**，否则老用户配置文件会让 decode 失败并清空数据。测试必须用 `with_path(temp)` 隔离，别写用户真实目录。
