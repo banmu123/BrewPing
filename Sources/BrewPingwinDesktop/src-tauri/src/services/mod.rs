@@ -1,6 +1,9 @@
 pub mod agent_config;
 pub mod agent_discovery;
 pub mod approval_gate;
+pub mod command_runner;
+pub mod conversation_api;
+pub mod conversation_store;
 pub mod danger_pattern;
 pub mod device_identity;
 pub mod folder_api;

@@ -11,6 +11,8 @@ export interface DesktopStatus {
   version: string;
   deviceId: string;
   activeAgentId: string;
+  /// 当前激活的对话 ID（多对话；草稿态/无对话为 null）。
+  activeConversationId: string | null;
   /// 三段式运行时状态（对齐 macOS DesktopCore.RuntimeState）。
   runtimeState: RuntimeState;
 }
@@ -73,22 +75,6 @@ export interface PairingInfo {
 /// 与 macOS `ApprovalMode` / iOS `Mode` rawValue 一一对应。
 export type ApprovalMode = "safe" | "askAll" | "auto";
 
-/// 一次危险命中。
-export interface ApprovalReason {
-  /// 稳定的机器可读标识（与 macOS DangerPattern 的 code 相同）。
-  code: string;
-  /// 命中的原始片段提示。
-  detail: string;
-}
-
-/// 一条等待用户确认的命令。
-export interface PendingApproval {
-  id: string;
-  text: string;
-  reasons: ApprovalReason[];
-  createdAt: string;
-}
-
 // ─── Models (对齐 http_server::handle_agent_models 的 JSON 契约) ─────────────
 
 /// 一个可选模型。
@@ -114,4 +100,38 @@ export interface AgentModelsInfo {
   providers: ProviderInfo[];
   activeModelId: string | null;
   preferredModelId: string | null;
+}
+
+// ─── Conversations（多对话管理，对齐 conversation_store.rs 的 serde 契约）────
+
+/// 一条对话消息（转录的最小单元）。
+export interface TranscriptEntry {
+  id: string;
+  role: "user" | "assistant" | "error" | "system";
+  text: string;
+  source: string | null;
+  commandId: string | null;
+  createdAtMs: number;
+}
+
+/// 列表页摘要（元数据层：不含 messages，方案 §4.1 两层分离）。
+export interface ConversationSummary {
+  id: string;
+  agentId: string;
+  title: string | null;
+  titleSource: string | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+  archived: boolean;
+  isPinned: boolean;
+  modelOverride: string | null;
+  workdirOverride: string | null;
+  /// 调度指针：非空 = 有命令在飞（isStreaming 依据，方案 §2-A4）。
+  latestCommandId: string | null;
+  messageCount: number;
+}
+
+/// 完整对话（转录层：打开对话才加载）。
+export interface Conversation extends ConversationSummary {
+  messages: TranscriptEntry[];
 }

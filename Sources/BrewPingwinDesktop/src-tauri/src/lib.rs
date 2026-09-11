@@ -3,11 +3,12 @@
 mod services;
 
 use services::agent_discovery::AgentEntryApi;
-use services::approval_gate::{ApprovalGate, ApprovalMode, PendingApproval};
+use services::approval_gate::{ApprovalGate, ApprovalMode};
+use services::conversation_store::ConversationStore;
 use services::http_server::{AppState, CommandStore};
 use services::model_prefs::ModelPrefs;
 use services::pairing_store::PairingStore;
-use services::terminal_state::{AgentStatus, AgentTerminalState, OutputType, TerminalManager};
+use services::terminal_state::{AgentTerminalState, TerminalManager};
 use services::workdir_prefs::WorkdirPrefs;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
@@ -136,7 +137,28 @@ async fn build_pairing_info(core: &DesktopCore) -> PairingInfo {
 async fn get_status(core: tauri::State<'_, DesktopCore>) -> Result<serde_json::Value, String> {
     let host = services::device_identity::get_device_name();
     let default_agent = core.state.default_agent.read().await.clone();
-    let session = core.state.session.read().await.clone();
+    // 多对话语义：session = active 对话渲染（与 HTTP /api/status 契约一致）
+    let session = {
+        let conv_id = core.state.active_conversation_id.read().await.clone();
+        match conv_id.and_then(|id| core.state.conversations.get(&id)) {
+            Some(conv) => {
+                let agents = core.state.agents.read().await;
+                let agent_name = agents
+                    .iter()
+                    .find(|a| a.id == conv.agent_id)
+                    .map(|a| a.name.clone())
+                    .unwrap_or_else(|| conv.agent_id.clone());
+                Some(serde_json::json!({
+                    "id": conv.id,
+                    "agent": conv.agent_id,
+                    "agentName": agent_name,
+                    "status": "running",
+                }))
+            }
+            None => None,
+        }
+    };
+    let active_conversation_id = core.state.active_conversation_id.read().await.clone();
     let agents = core.state.agents.read().await.clone();
     let port = *core.http_port.read().await;
     let lan_ip = core.lan_ip.read().await.clone();
@@ -166,6 +188,7 @@ async fn get_status(core: tauri::State<'_, DesktopCore>) -> Result<serde_json::V
         "host": host,
         "defaultAgent": default_agent,
         "session": session,
+        "activeConversationId": active_conversation_id,
         "agents": api_agents,
         "port": port,
         "lanIp": lan_ip,
@@ -264,42 +287,6 @@ async fn set_approval_mode(
     Ok(parsed.as_str().to_string())
 }
 
-#[tauri::command]
-async fn get_pending_approvals(
-    core: tauri::State<'_, DesktopCore>,
-) -> Result<Vec<PendingApproval>, String> {
-    Ok(core.state.approval.pending_approvals())
-}
-
-/// 桌面端直接处理一条挂起命令（与手机端 `/api/approvals/:id` 等价）。
-#[tauri::command]
-async fn decide_approval(
-    core: tauri::State<'_, DesktopCore>,
-    id: String,
-    action: String,
-) -> Result<String, String> {
-    let resolution = core
-        .state
-        .approval
-        .decide(&id, &action)
-        .ok_or_else(|| "unknown or expired approval".to_string())?;
-
-    match resolution.action.as_str() {
-        "deny" => Ok("denied".to_string()),
-        "approve" | "always_approve" => {
-            let text = resolution
-                .text
-                .ok_or_else(|| "approval has no command text".to_string())?;
-            // 复用 HTTP 层同一条执行路径，保证回显与状态机一致。
-            match services::http_server::submit_command(&core.state, &text).await {
-                Ok(_) => Ok("submitted".to_string()),
-                Err(status) => Err(format!("no active session (HTTP {})", status.as_u16())),
-            }
-        }
-        _ => Err("unknown action".to_string()),
-    }
-}
-
 /// Get the terminal state for all agents.
 #[tauri::command]
 async fn get_terminal_state(
@@ -345,218 +332,70 @@ async fn switch_active_agent(
     Ok(())
 }
 
-/// Send a command to the active agent (matches macOS sendInput).
+/// Send a command to a conversation (matches macOS sendInput).
+///
+/// 多对话路由（方案 §6.2）：`conversation_id` 缺省（前端草稿态）时创建新对话
+/// 并激活；否则发进指定对话。执行复用 HTTP 层 `submit_command` 同一条路径
+/// （写路径单一出口 + command_runner 唯一状态写入点）。返回对话 ID 供前端切换。
 #[tauri::command]
 async fn send_command(
     core: tauri::State<'_, DesktopCore>,
     text: String,
+    conversation_id: Option<String>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
-    let agent_id = core.terminal.active_agent_id.read().await.clone();
-
-    // Ensure terminal state exists
-    {
-        let mut map = core.terminal.agents.write().await;
-        if !map.contains_key(&agent_id) {
-            let agents = core.state.agents.read().await;
-            let name = agents
-                .iter()
-                .find(|a| a.id == agent_id)
-                .map(|a| a.name.clone())
-                .unwrap_or_else(|| agent_id.clone());
-            map.insert(
-                agent_id.clone(),
-                AgentTerminalState::new(agent_id.clone(), name),
-            );
-        }
+) -> Result<String, String> {
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Err("text is empty".to_string());
     }
 
-    // Show user input
-    {
-        let mut map = core.terminal.agents.write().await;
-        if let Some(state) = map.get_mut(&agent_id) {
-            state.append_line(&format!("> {}", text), OutputType::System);
-        }
-    }
-    let _ = app.emit("terminal-updated", ());
-
-    // ── Headless CLI 一次性执行 ─────────────────────────────────────────────
-    // 桌面端与手机端共用同一语义：每条消息起一个 headless CLI 进程拿完整回复。
-    // 不走 session（Windows 端没有会话机制），opencode 用 `run` 子命令即可 headless。
-    // 参数约定与 macOS `CLIAgentImplementations.executionArguments` 逐字对齐。
-    let agents = core.state.agents.read().await;
-    let agent_entry = agents.iter().find(|a| a.id == agent_id).cloned();
-    drop(agents);
-
-    let Some(agent) = agent_entry else {
-        let mut map = core.terminal.agents.write().await;
-        if let Some(state) = map.get_mut(&agent_id) {
-            state.append_line(
-                &format!("Error: agent '{}' not available", agent_id),
-                OutputType::Error,
-            );
-        }
-        let _ = app.emit("terminal-updated", ());
-        return Ok(());
-    };
-
-    let Some(ref executable) = agent.executable else {
-        let mut map = core.terminal.agents.write().await;
-        if let Some(state) = map.get_mut(&agent_id) {
-            state.append_line(
-                &format!("Error: executable not found for {}", agent_id),
-                OutputType::Error,
-            );
-            state.set_status(AgentStatus::Error);
-        }
-        let _ = app.emit("terminal-updated", ());
-        return Ok(());
-    };
-
-    // Set running
-    {
-        let mut map = core.terminal.agents.write().await;
-        if let Some(state) = map.get_mut(&agent_id) {
-            state.set_status(AgentStatus::Running);
-        }
-    }
-    let _ = app.emit("terminal-updated", ());
-
-    // ★ cwd 预检（与 http_server::submit_command 同构，方案 §5.10 要求两处一致）：
-    //   目录没了必须报 invalid_workdir，不能静默回退到进程 cwd，也不能笼统报
-    //   process_exited。is_dir 在断开的网络盘上可能阻塞，所以放进 spawn_blocking。
-    let selected_workdir = core.state.workdir_prefs.get(&agent_id);
-    if let Some(dir) = selected_workdir.as_deref() {
-        let probe = dir.to_string();
-        let dir_ok = tokio::task::spawn_blocking(move || std::path::Path::new(&probe).is_dir())
-            .await
-            .unwrap_or(false);
-        if !dir_ok {
+    // 解析目标对话：显式指定 → 校验存在且未归档；缺省 → 新建并激活。
+    let conv_id = match conversation_id.as_deref() {
+        Some(cid) => {
+            let conv = core
+                .state
+                .conversations
+                .get(cid)
+                .ok_or_else(|| format!("conversation not found: {cid}"))?;
+            if conv.archived {
+                return Err("conversation is archived — restore it first".to_string());
+            }
+            // 桌面发消息 = 把该对话设为当前对话（与 UI 视图一致）
             {
-                let mut map = core.terminal.agents.write().await;
-                if let Some(state) = map.get_mut(&agent_id) {
-                    state.append_line(
-                        &format!("Error: Workdir not available: {}", dir),
-                        OutputType::Error,
-                    );
-                    state.set_status(AgentStatus::Error);
+                let mut active = core.state.active_conversation_id.write().await;
+                if active.as_deref() != Some(cid) {
+                    *active = Some(conv.id.clone());
+                    let _ = app.emit("active-conversation-changed", conv.id.clone());
                 }
             }
-            let _ = app.emit("terminal-updated", ());
-            return Ok(());
+            conv.id
         }
-    }
-
-    let terminal = core.terminal.clone();
-    let agent_id_clone = agent_id.clone();
-    let executable_clone = executable.clone();
-    let workdir_clone = selected_workdir.clone();
-    let app_clone = app.clone();
-
-    // 各 Agent 的 headless 参数（对齐 macOS `CLIAgentImplementations`）。
-    // 用户选过模型就在提示词之后追加 `--model <id>`（与 macOS 顺序一致）。
-    let mut args: Vec<String> = match agent_id.as_str() {
-        "claude-code" => vec![
-            "-p".to_string(),
-            text.clone(),
-            "--output-format".to_string(),
-            "text".to_string(),
-        ],
-        "codex" => vec![
-            "exec".to_string(),
-            "--skip-git-repo-check".to_string(),
-            "-s".to_string(),
-            "workspace-write".to_string(),
-            text.clone(),
-        ],
-        "aider" => vec![
-            "--message".to_string(),
-            text.clone(),
-            "--yes-always".to_string(),
-            "--no-auto-commits".to_string(),
-        ],
-        // opencode 与其它未知 agent：headless 一次性运行（opencode run <message..>）
-        _ => vec!["run".to_string(), text.clone()],
+        None => {
+            let agent_id = core.terminal.active_agent_id.read().await.clone();
+            let conv = core.state.conversations.create(&agent_id);
+            {
+                let mut active = core.state.active_conversation_id.write().await;
+                *active = Some(conv.id.clone());
+            }
+            log::info!("Draft materialized as conversation {}", conv.id);
+            let _ = app.emit("conversations-changed", serde_json::json!({ "id": conv.id }));
+            let _ = app.emit("active-conversation-changed", conv.id.clone());
+            conv.id
+        }
     };
-    if let Some(model) = core.state.model_prefs.get(&agent_id) {
-        args.push("--model".to_string());
-        args.push(model);
+
+    match services::http_server::submit_command(
+        &core.state,
+        &text,
+        Some(&conv_id),
+        None,
+        Some("desktop"),
+    )
+    .await
+    {
+        Ok(_) => Ok(conv_id),
+        Err(status) => Err(format!("submit failed (HTTP {})", status.as_u16())),
     }
-    let args_clone = args.clone();
-
-    // Use spawn_blocking for synchronous process execution
-    tokio::task::spawn_blocking(move || {
-        let mut cmd = std::process::Command::new(&executable_clone);
-        cmd.args(&args_clone)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
-        // ★ 关键一行：注入用户选定的工作目录（子进程级，不用 set_current_dir）。
-        if let Some(dir) = workdir_clone.as_deref() {
-            cmd.current_dir(dir);
-        }
-
-        // Add common PATH entries on Windows
-        #[cfg(windows)]
-        {
-            if let Ok(path) = std::env::var("PATH") {
-                let home = dirs::home_dir().unwrap_or_default();
-                let extra = format!(
-                    "{}\\.local\\bin;{}\\scoop\\shims",
-                    home.display(),
-                    home.display()
-                );
-                cmd.env("PATH", format!("{};{}", extra, path));
-            }
-        }
-
-        // We need to block on async operations inside spawn_blocking
-        let rt = tokio::runtime::Handle::current();
-
-        match cmd.output() {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-
-                let mut map = rt.block_on(terminal.agents.write());
-                if let Some(state) = map.get_mut(&agent_id_clone) {
-                    if output.status.success() {
-                        let lines: Vec<&str> =
-                            stdout.split('\n').collect();
-                        for line in &lines {
-                            if !line.is_empty() {
-                                state.append_line(line, OutputType::Normal);
-                            }
-                        }
-                        if stdout.trim().is_empty() {
-                            state.append_line("(no output)", OutputType::System);
-                        }
-                    } else {
-                        state.append_line(
-                            &format!("Exit code: {}", output.status.code().unwrap_or(-1)),
-                            OutputType::Error,
-                        );
-                        if !stderr.trim().is_empty() {
-                            state.append_line(stderr.trim(), OutputType::Error);
-                        }
-                    }
-                    state.set_status(AgentStatus::Idle);
-                }
-            }
-            Err(e) => {
-                let mut map = rt.block_on(terminal.agents.write());
-                if let Some(state) = map.get_mut(&agent_id_clone) {
-                    state.append_line(
-                        &format!("Error: failed to start process: {}", e),
-                        OutputType::Error,
-                    );
-                    state.set_status(AgentStatus::Error);
-                }
-            }
-        }
-        let _ = app_clone.emit("terminal-updated", ());
-    });
-
-    Ok(())
 }
 
 /// Clear the terminal output for an agent.
@@ -642,6 +481,141 @@ async fn set_default_model(
     Ok(())
 }
 
+// ─── Conversation commands（多对话管理，方案 §5.2）────────────────────────────
+
+/// 列出对话（列表页数据源；pinned 优先 + updated_at 降序已由 store 排好）。
+#[tauri::command]
+async fn list_conversations(
+    core: tauri::State<'_, DesktopCore>,
+    include_archived: Option<bool>,
+) -> Result<Vec<services::conversation_store::ConversationSummary>, String> {
+    Ok(core
+        .state
+        .conversations
+        .list(include_archived.unwrap_or(false)))
+}
+
+/// 读取单个对话的完整转录。
+#[tauri::command]
+async fn get_conversation(
+    core: tauri::State<'_, DesktopCore>,
+    conversation_id: String,
+) -> Result<services::conversation_store::Conversation, String> {
+    core.state
+        .conversations
+        .get(&conversation_id)
+        .ok_or_else(|| "conversation not found".to_string())
+}
+
+/// 改名（title_source = "manual"，此后永不被自动命名覆盖）。
+#[tauri::command]
+async fn rename_conversation(
+    core: tauri::State<'_, DesktopCore>,
+    conversation_id: String,
+    title: String,
+) -> Result<(), String> {
+    core.state
+        .conversations
+        .patch(&conversation_id, Some(&title), None, None)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// 归档 / 恢复。恢复前校验 workdir_override 目录仍存在（方案 §2-A8）。
+/// 归档 active 对话时清除 active 指针（landing 态，不自动跳转）。
+#[tauri::command]
+async fn set_conversation_archived(
+    core: tauri::State<'_, DesktopCore>,
+    conversation_id: String,
+    archived: bool,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    if archived {
+        if let Some(conv) = core.state.conversations.get(&conversation_id) {
+            if let Some(cmd) = &conv.latest_command_id {
+                if core.state.command_store.is_in_flight(cmd).await {
+                    return Err("conversation has a command in flight".to_string());
+                }
+            }
+        }
+    } else if let Some(conv) = core.state.conversations.get(&conversation_id) {
+        if let Some(dir) = ConversationStore::workdir_missing(&conv) {
+            return Err(format!(
+                "workdir no longer exists: {dir} — change the working folder before restoring"
+            ));
+        }
+    }
+
+    core.state
+        .conversations
+        .patch(&conversation_id, None, Some(archived), None)
+        .map_err(|e| e.to_string())?;
+
+    if archived {
+        let mut active = core.state.active_conversation_id.write().await;
+        if active.as_deref() == Some(conversation_id.as_str()) {
+            *active = None;
+            let _ = app.emit("active-conversation-changed", serde_json::json!(null));
+        }
+    }
+    let _ = app.emit("conversations-changed", serde_json::json!({ "id": conversation_id }));
+    Ok(())
+}
+
+/// 删除（两段式：仅归档态可删）。
+#[tauri::command]
+async fn delete_conversation(
+    core: tauri::State<'_, DesktopCore>,
+    conversation_id: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    core.state
+        .conversations
+        .delete(&conversation_id)
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("conversations-changed", serde_json::json!({ "id": conversation_id }));
+    Ok(())
+}
+
+/// 切换为当前对话（归档对话必须先恢复）。
+#[tauri::command]
+async fn activate_conversation(
+    core: tauri::State<'_, DesktopCore>,
+    conversation_id: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let conv = core
+        .state
+        .conversations
+        .get(&conversation_id)
+        .ok_or_else(|| "conversation not found".to_string())?;
+    if conv.archived {
+        return Err("conversation is archived — restore it first".to_string());
+    }
+    {
+        let mut active = core.state.active_conversation_id.write().await;
+        *active = Some(conv.id.clone());
+    }
+    let _ = app.emit("active-conversation-changed", conv.id.clone());
+    Ok(())
+}
+
+/// 置顶 / 取消置顶（一次 meta patch，无级联）。
+#[tauri::command]
+async fn toggle_pin_conversation(
+    core: tauri::State<'_, DesktopCore>,
+    conversation_id: String,
+    pinned: bool,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    core.state
+        .conversations
+        .patch(&conversation_id, None, None, Some(pinned))
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("conversations-changed", serde_json::json!({ "id": conversation_id }));
+    Ok(())
+}
+
 // ─── App Entry Point ─────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -692,6 +666,16 @@ pub fn run() {
             let model_prefs = Arc::new(ModelPrefs::new());
             // 工作目录偏好同理：手机端选目录、执行命令时注入 cwd，必须是同一份。
             let workdir_prefs = Arc::new(WorkdirPrefs::new());
+            // 多对话仓库（方案 §4）：启动时做中断恢复 + 空对话清理。
+            let conversations = Arc::new(ConversationStore::new());
+
+            // 事件广播回调：把 tauri emit 包成通用 sink 注入 HTTP 层
+            // （http_server / command_runner 不依赖 tauri 类型，见 EventSink 注释）。
+            let event_app = app.handle().clone();
+            let event_sink: services::http_server::EventSink = Arc::new(move |event, payload| {
+                use tauri::Emitter;
+                let _ = event_app.emit(event, payload);
+            });
 
             let app_state = AppState {
                 identity: identity.clone(),
@@ -699,13 +683,15 @@ pub fn run() {
                 port: DEFAULT_PORT,
                 agents: Arc::new(RwLock::new(agents.clone())),
                 default_agent: Arc::new(RwLock::new(default_agent.clone())),
-                session: Arc::new(RwLock::new(None)),
+                conversations: conversations.clone(),
+                active_conversation_id: Arc::new(RwLock::new(None)),
                 terminal: terminal.clone(),
                 command_store: command_store.clone(),
                 pairing: pairing.clone(),
                 approval: approval.clone(),
                 model_prefs: model_prefs.clone(),
                 workdir_prefs: workdir_prefs.clone(),
+                app_events: Some(event_sink),
             };
 
             let core = DesktopCore {
@@ -853,8 +839,6 @@ pub fn run() {
             regenerate_pairing_code,
             get_approval_mode,
             set_approval_mode,
-            get_pending_approvals,
-            decide_approval,
             get_terminal_state,
             get_active_agent_id,
             switch_active_agent,
@@ -862,6 +846,13 @@ pub fn run() {
             clear_terminal,
             get_agent_models,
             set_default_model,
+            list_conversations,
+            get_conversation,
+            rename_conversation,
+            set_conversation_archived,
+            delete_conversation,
+            activate_conversation,
+            toggle_pin_conversation,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

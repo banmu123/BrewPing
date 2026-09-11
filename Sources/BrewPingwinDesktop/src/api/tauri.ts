@@ -5,8 +5,9 @@ import type {
   AgentTerminalState,
   PairingInfo,
   ApprovalMode,
-  PendingApproval,
   AgentModelsInfo,
+  Conversation,
+  ConversationSummary,
 } from "./types";
 
 /**
@@ -83,23 +84,6 @@ export async function setApprovalMode(mode: ApprovalMode): Promise<string> {
   return invoke<string>("set_approval_mode", { mode });
 }
 
-/**
- * 列出全部待确认命令。
- */
-export async function getPendingApprovals(): Promise<PendingApproval[]> {
-  return invoke<PendingApproval[]>("get_pending_approvals");
-}
-
-/**
- * 对某条挂起命令做出决定：approve / deny / always_approve。
- */
-export async function decideApproval(
-  id: string,
-  action: "approve" | "deny" | "always_approve",
-): Promise<string> {
-  return invoke<string>("decide_approval", { id, action });
-}
-
 // ─── Terminal commands ───────────────────────────────────────────────────────
 
 /**
@@ -124,10 +108,14 @@ export async function switchActiveAgent(agentId: string): Promise<void> {
 }
 
 /**
- * Send a command to the active agent.
+ * Send a command to a conversation.
+ * `conversationId` 缺省（草稿态）时后端创建新对话并激活；返回对话 ID。
  */
-export async function sendCommand(text: string): Promise<void> {
-  return invoke<void>("send_command", { text });
+export async function sendCommand(
+  text: string,
+  conversationId: string | null,
+): Promise<string> {
+  return invoke<string>("send_command", { text, conversationId });
 }
 
 /**
@@ -155,4 +143,58 @@ export async function setDefaultModel(
   modelId: string | null,
 ): Promise<void> {
   return invoke<void>("set_default_model", { agentId, modelId });
+}
+
+// ─── Conversation commands（多对话管理，方案 P3/P4） ─────────────────────────
+
+/**
+ * 列出对话（含归档由 includeArchived 控制；后端按 pinned 优先 + 最新活动排序）。
+ */
+export async function listConversations(
+  includeArchived: boolean,
+): Promise<ConversationSummary[]> {
+  return invoke<ConversationSummary[]>("list_conversations", {
+    includeArchived,
+  });
+}
+
+/**
+ * 读取完整对话（转录层，打开对话才加载）。
+ */
+export async function getConversation(id: string): Promise<Conversation> {
+  return invoke<Conversation>("get_conversation", { id });
+}
+
+/**
+ * 激活某对话（切换窗口；触发 active-conversation-changed 事件）。
+ */
+export async function activateConversation(id: string): Promise<void> {
+  return invoke<void>("activate_conversation", { id });
+}
+
+/**
+ * 归档 / 恢复对话（归档 = 「关闭窗口」，仍可从已归档区找回）。
+ */
+export async function setConversationArchived(
+  id: string,
+  archived: boolean,
+): Promise<void> {
+  return invoke<void>("set_conversation_archived", { id, archived });
+}
+
+/**
+ * 彻底删除对话（仅归档态允许，后端校验）。
+ */
+export async function deleteConversation(id: string): Promise<void> {
+  return invoke<void>("delete_conversation", { id });
+}
+
+/**
+ * 置顶 / 取消置顶。
+ */
+export async function togglePinConversation(
+  id: string,
+  pinned: boolean,
+): Promise<void> {
+  return invoke<void>("toggle_pin_conversation", { id, pinned });
 }

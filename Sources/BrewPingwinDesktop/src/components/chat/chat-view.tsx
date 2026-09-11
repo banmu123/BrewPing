@@ -1,44 +1,52 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { ArrowUp } from "lucide-react";
-import type { AgentTerminalState, OutputLine } from "../../api/types";
+import type { TranscriptEntry } from "../../api/types";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { Badge } from "../ui/badge";
 import { cn } from "../../lib/utils";
 import { CONVERSATION_CONTENT_WIDTH_CLASS } from "../../lib/conversation-layout";
 
-// ─── 消息模型：从终端输出行推导（单一数据源，不复制状态） ────────────────────
+// ─── 消息模型：对话转录是权威数据源（方案 §6.3）──────────────────────────────
 
 export interface ChatMessage {
-  id: number;
-  role: "user" | "assistant" | "error";
+  id: string;
+  role: "user" | "assistant" | "error" | "system";
   text: string;
 }
 
-/// 终端行 → 对话消息：
-/// - `> ` 开头的 system 行 = 用户消息（手机/手表/桌面发的指令）；
-/// - error 行 = 错误系统消息；
-/// - 其余连续行合并为一条助手消息（Markdown 增量渲染，流式观感来自轮询/事件刷新）。
-export function buildMessages(lines: OutputLine[]): ChatMessage[] {
+/// 转录条目 → 渲染消息（当前唯一映射；system 条目原样透传为系统行）。
+export function fromTranscript(entries: TranscriptEntry[]): ChatMessage[] {
+  return entries.map((e) => ({
+    id: e.id,
+    role: e.role,
+    text: e.text,
+  }));
+}
+
+/// 老数据兜底：终端行 → 对话消息（方案 §6.3 保留，不再作为主数据源）。
+export function buildMessages(
+  lines: Array<{ id: number; text: string; type: string }>,
+): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (const line of lines) {
     if (line.type === "system" && line.text.startsWith("> ")) {
-      out.push({ id: line.id, role: "user", text: line.text.slice(2) });
+      out.push({ id: String(line.id), role: "user", text: line.text.slice(2) });
     } else if (line.type === "error") {
-      out.push({ id: line.id, role: "error", text: line.text });
+      out.push({ id: String(line.id), role: "error", text: line.text });
     } else {
       const last = out[out.length - 1];
       if (last && last.role === "assistant") {
         last.text += "\n" + line.text;
       } else {
-        out.push({ id: line.id, role: "assistant", text: line.text });
+        out.push({ id: String(line.id), role: "assistant", text: line.text });
       }
     }
   }
   return out;
 }
 
-/// 从一组消息里推导会话标题（「新对话」归档时用）。
+/// 从一组消息里推导会话标题（兜底用；权威标题在后端 transcript 的 title 里）。
 export function deriveTitle(messages: ChatMessage[]): string {
   const firstUser = messages.find((m) => m.role === "user");
   const text = (firstUser?.text ?? "").trim().replace(/\s+/g, " ");
@@ -73,7 +81,7 @@ const COMPOSER_SELECT_CLASS =
 
 export { COMPOSER_SELECT_CLASS };
 
-// ─── 消息列表（当前对话与历史归档共用） ────────────────────────────────────────
+// ─── 消息列表（当前对话与历史查看共用） ────────────────────────────────────────
 
 export function MessageList({
   messages,
@@ -84,7 +92,7 @@ export function MessageList({
   agentName: string;
   isStreaming: boolean;
 }) {
-  const lastId = messages.length > 0 ? messages[messages.length - 1].id : -1;
+  const lastId = messages.length > 0 ? messages[messages.length - 1].id : "-1";
   return (
     <div className={CONVERSATION_CONTENT_WIDTH_CLASS}>
       {messages.map((msg) =>
@@ -98,6 +106,13 @@ export function MessageList({
           <div
             key={msg.id}
             className="mb-3 select-text font-mono text-xs text-warning break-all"
+          >
+            {msg.text}
+          </div>
+        ) : msg.role === "system" ? (
+          <div
+            key={msg.id}
+            className="mb-3 text-center text-[10px] text-muted-foreground/70"
           >
             {msg.text}
           </div>
@@ -127,22 +142,26 @@ export function MessageList({
 // ─── 对话视图 ────────────────────────────────────────────────────────────────
 
 export function ChatView({
-  terminal,
+  messages,
   agentName,
+  isBusy,
+  draft,
+  onDraftChange,
   onSend,
   composerToolbar,
 }: {
-  terminal: AgentTerminalState | null;
+  /** 权威转录（后端 conversation store），不再从终端行推导 */
+  messages: ChatMessage[];
   agentName: string;
+  /** 调度指针 / 终端状态驱动（方案 §6.4：latest_command_id 在飞 = busy） */
+  isBusy: boolean;
+  /** 输入草稿按对话隔离（App 层 Record<convId, string>），切换不丢失 */
+  draft: string;
+  onDraftChange: (text: string) => void;
   onSend: (text: string) => Promise<void>;
   /** composer 内的工具栏（agent / 模型 / 授权切换） */
   composerToolbar?: ReactNode;
 }) {
-  const messages = useMemo(
-    () => buildMessages(terminal?.outputLines ?? []),
-    [terminal?.outputLines],
-  );
-  const isBusy = terminal?.status === "running";
   const isStreaming =
     isBusy &&
     messages.length > 0 &&
@@ -151,7 +170,6 @@ export function ChatView({
   const showThinking =
     isBusy && (messages.length === 0 || messages[messages.length - 1].role !== "assistant");
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [draft, setDraft] = useState("");
 
   // 新消息 / 流式增长 → 贴底
   useEffect(() => {
@@ -164,7 +182,7 @@ export function ChatView({
   const submit = async () => {
     const text = draft.trim();
     if (!text || isBusy) return;
-    setDraft("");
+    onDraftChange("");
     await onSend(text);
   };
 
@@ -191,7 +209,7 @@ export function ChatView({
           <div className={COMPOSER_CARD_CLASS}>
             <textarea
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => onDraftChange(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();

@@ -2,12 +2,17 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import QRCode from "react-qr-code";
 import {
+  Archive,
+  ArchiveRestore,
   Bot,
-  ChevronDown,
+  CornerUpLeft,
   Cpu,
+  Pin,
+  PinOff,
   ShieldCheck,
-  ShieldAlert,
+  SquarePen,
   SquareTerminal,
+  Trash2,
 } from "lucide-react";
 import {
   getStatus,
@@ -18,55 +23,32 @@ import {
   regeneratePairingCode,
   getApprovalMode,
   setApprovalMode,
-  getPendingApprovals,
-  decideApproval,
   sendCommand,
   clearTerminal,
   getAgentModels,
   setDefaultModel,
+  listConversations,
+  getConversation,
+  activateConversation,
+  setConversationArchived,
+  deleteConversation,
+  togglePinConversation,
 } from "./api/tauri";
 import type {
   DesktopStatus,
   AgentTerminalState,
   PairingInfo,
   ApprovalMode,
-  PendingApproval,
   RuntimeState,
   AgentModelsInfo,
+  Conversation,
+  ConversationSummary,
 } from "./api/types";
 import { Button } from "./components/ui/button";
-import { Badge } from "./components/ui/badge";
-import {
-  ChatView,
-  MessageList,
-  buildMessages,
-  deriveTitle,
-  COMPOSER_PILL_CLASS,
-  COMPOSER_SELECT_CLASS,
-} from "./components/chat/chat-view";
+import { ChatView, fromTranscript } from "./components/chat/chat-view";
+import { ComposerDropdown } from "./components/chat/composer-dropdown";
 import { cn } from "./lib/utils";
 import "./styles/app.css";
-
-/// 危险 code → 中文文案。与 Rust 侧 `DangerPattern` 的 code 一一对应，
-/// 未知 code 兜底显示 detail（与 iOS 端 `localizedReasons()` 的策略一致）。
-const DANGER_LABELS: Record<string, string> = {
-  rm_root: "删除根目录（rm -rf /）",
-  recursive_delete: "递归删除（rm -rf）",
-  force_push: "强制推送（git push --force）",
-  git_reset_hard: "硬重置（git reset --hard）",
-  pipe_to_shell: "管道执行远程脚本（curl | sh）",
-  sudo: "提权（sudo）",
-  chmod_777: "开放全部权限（chmod 777）",
-  write_device: "写入设备文件（> /dev/）",
-  dd_disk: "磁盘裸写（dd if=）",
-  drop_table: "删除数据表（DROP TABLE）",
-  truncate_table: "清空数据表（TRUNCATE TABLE）",
-  ask_all: "所有命令都需确认（askAll 模式）",
-};
-
-function dangerText(code: string, detail: string): string {
-  return DANGER_LABELS[code] ?? (detail || code);
-}
 
 const APPROVAL_MODES: Array<{ id: ApprovalMode; label: string; summary: string }> = [
   { id: "safe", label: "safe", summary: "只拦截危险命令（默认）" },
@@ -74,18 +56,10 @@ const APPROVAL_MODES: Array<{ id: ApprovalMode; label: string; summary: string }
   { id: "auto", label: "auto", summary: "全程免确认" },
 ];
 
-// ─── 历史归档（前端内存态：新对话时快照当前会话） ──────────────────────────────
+type MainView = "chat" | "settings";
 
-interface ArchivedConversation {
-  id: string;
-  agentId: string;
-  agentName: string;
-  title: string;
-  timestamp: number;
-  messages: ReturnType<typeof buildMessages>;
-}
-
-type MainView = "chat" | "settings" | { archiveId: string };
+/// 草稿输入的存储键（尚无对话 ID 时）。
+const DRAFT_KEY = "__draft__";
 
 export default function App() {
   const [status, setStatus] = useState<DesktopStatus | null>(null);
@@ -95,12 +69,15 @@ export default function App() {
   const [view, setView] = useState<MainView>("chat");
   const [pairing, setPairing] = useState<PairingInfo | null>(null);
   const [approvalMode, setApprovalModeState] = useState<ApprovalMode>("safe");
-  const [pending, setPending] = useState<PendingApproval[]>([]);
   const [models, setModels] = useState<AgentModelsInfo | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dockOpen, setDockOpen] = useState(false);
-  const [history, setHistory] = useState<ArchivedConversation[]>([]);
+  // ─── 多对话状态（后端 conversation store 为权威，方案 P4） ─────────────────
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [activeConv, setActiveConv] = useState<Conversation | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const outputRef = useRef<HTMLDivElement>(null);
 
   // ─── Data Fetching ──────────────────────────────────────────────────────
@@ -124,44 +101,76 @@ export default function App() {
     }
   }, []);
 
-  /// 配对信息 + 授权模式 + 待确认队列：与后端同一个进程内状态，
-  /// 手机端批准后这里也会在下一个轮询周期同步到。
+  /// 配对信息 + 授权模式（composer 里的授权下拉用）：与后端同一个进程内状态。
   const refreshSecurity = useCallback(async () => {
     try {
-      const [info, mode, list] = await Promise.all([
+      const [info, mode] = await Promise.all([
         getPairingInfo(),
         getApprovalMode(),
-        getPendingApprovals(),
       ]);
       setPairing(info);
       setApprovalModeState(mode as ApprovalMode);
-      setPending(list);
     } catch {
       // 后端尚未就绪（Starting…）时静默重试
+    }
+  }, []);
+
+  /// 对话列表（含归档，侧栏三区用）。
+  const refreshConversations = useCallback(async () => {
+    try {
+      setConversations(await listConversations(true));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  /// 当前对话的完整转录（按 id 拉取，事件与轮询共用）。
+  const fetchConversation = useCallback(async (id: string) => {
+    try {
+      setActiveConv(await getConversation(id));
+    } catch {
+      // 对话可能已被删除 → 回草稿态
+      setActiveConv(null);
     }
   }, []);
 
   // Initial load
   useEffect(() => {
     const init = async () => {
-      await Promise.all([refreshStatus(), refreshTerminal(), refreshSecurity()]);
+      await Promise.all([
+        refreshStatus(),
+        refreshTerminal(),
+        refreshSecurity(),
+        refreshConversations(),
+      ]);
+      // 启动时从后端取回 active 对话（重启恢复）
+      try {
+        const st = await getStatus();
+        if (st.activeConversationId) {
+          setActiveConvId(st.activeConversationId);
+          setActiveConv(await getConversation(st.activeConversationId));
+        }
+      } catch {
+        // ignore
+      }
       setLoading(false);
     };
-    init();
-  }, [refreshStatus, refreshTerminal, refreshSecurity]);
+    void init();
+  }, [refreshStatus, refreshTerminal, refreshSecurity, refreshConversations, fetchConversation]);
 
-  // Poll: status/security 5s；终端 2s（事件为主，轮询兜底防丢事件）
+  // Poll: status/security 5s；终端 2s（事件为主，轮询兜底防丢事件）；对话列表 5s
   useEffect(() => {
     const timer = setInterval(() => {
       refreshStatus();
       refreshSecurity();
+      refreshConversations();
     }, 5000);
     const terminalTimer = setInterval(refreshTerminal, 2000);
     return () => {
       clearInterval(timer);
       clearInterval(terminalTimer);
     };
-  }, [refreshStatus, refreshSecurity, refreshTerminal]);
+  }, [refreshStatus, refreshSecurity, refreshTerminal, refreshConversations]);
 
   // Listen for backend events (matches macOS reactive updates)
   useEffect(() => {
@@ -185,6 +194,24 @@ export default function App() {
       refreshStatus();
       refreshTerminal();
     });
+    // 多对话事件
+    const unlistenConvs = listen("conversations-changed", () => {
+      refreshConversations();
+      // 当前对话内容变了（消息追加）→ 同步转录
+      setActiveConvId((id) => {
+        if (id) void fetchConversation(id);
+        return id;
+      });
+    });
+    const unlistenActiveConv = listen("active-conversation-changed", (event) => {
+      const id = (event.payload as string | null) ?? null;
+      setActiveConvId(id);
+      if (id) {
+        void fetchConversation(id);
+      } else {
+        setActiveConv(null);
+      }
+    });
 
     return () => {
       unlistenOutput.then((fn) => fn());
@@ -192,8 +219,10 @@ export default function App() {
       unlistenRuntime.then((fn) => fn());
       unlistenPairing.then((fn) => fn());
       unlistenRefresh.then((fn) => fn());
+      unlistenConvs.then((fn) => fn());
+      unlistenActiveConv.then((fn) => fn());
     };
-  }, [refreshTerminal, refreshStatus, refreshSecurity]);
+  }, [refreshTerminal, refreshStatus, refreshSecurity, refreshConversations, fetchConversation]);
 
   // ─── Models catalog（跟随当前 agent） ─────────────────────────────────────
 
@@ -223,8 +252,11 @@ export default function App() {
 
   const handleSend = (text: string) =>
     runQuietly(async () => {
-      await sendCommand(text);
-      // 事件之外再主动刷一次，保证用户气泡立刻可见
+      // conversationId = null（草稿态）时后端创建新对话并激活，返回对话 ID
+      const convId = await sendCommand(text, activeConvId);
+      setActiveConvId(convId);
+      await refreshConversations();
+      setActiveConv(await getConversation(convId));
       await refreshTerminal();
     });
 
@@ -234,12 +266,19 @@ export default function App() {
       await switchActiveAgent(agentId);
       setActiveAgentId(agentId);
       await refreshTerminal();
+      // 对话绑定 agent（方案 §6.2）：当前对话属于别的 agent 时切到草稿态，
+      // 下一条消息会以新 agent 开新对话；旧对话保留可随时切回。
+      if (activeConv && activeConv.agentId !== agentId) {
+        setActiveConvId(null);
+        setActiveConv(null);
+      }
     });
 
   const handleSelectModel = (modelId: string) =>
     runQuietly(async () => {
-      await setDefaultModel(activeAgentId, modelId === "" ? null : modelId);
-      await refreshModels(activeAgentId);
+      const agentForModel = activeConv?.agentId ?? activeAgentId;
+      await setDefaultModel(agentForModel, modelId === "" ? null : modelId);
+      await refreshModels(agentForModel);
     });
 
   const handleSetApprovalMode = (mode: ApprovalMode) =>
@@ -250,15 +289,8 @@ export default function App() {
       await refreshSecurity();
     });
 
-  const handleDecide = (id: string, action: "approve" | "deny" | "always_approve") =>
-    runQuietly(async () => {
-      await decideApproval(id, action);
-      await refreshSecurity();
-      await refreshTerminal();
-    });
-
   const handleClearTerminal = () =>
-    runQuietly(() => clearTerminal(activeAgentId));
+    runQuietly(() => clearTerminal(activeConv?.agentId ?? activeAgentId));
 
   const handleRevealPairing = () =>
     runQuietly(async () => {
@@ -278,44 +310,90 @@ export default function App() {
       window.setTimeout(() => setCopied(false), 1500);
     });
 
-  /// 「新对话」：把当前会话快照进历史（有内容才归档），然后清空终端重开。
-  const handleNewConversation = () =>
+  /// 「新对话」：进入草稿态（对齐 Lody draft——不调任何 API，无文件产生），
+  /// 发送首条消息时后端才物化对话。旧对话保留，侧栏可切回。
+  const handleNewConversation = () => {
+    setActiveConvId(null);
+    setActiveConv(null);
+    setView("chat");
+  };
+
+  const handleOpenConversation = (id: string) =>
     runQuietly(async () => {
-      const activeTerminal =
-        terminals.find((t) => t.agentId === activeAgentId) ?? null;
-      const snapshot = activeTerminal
-        ? buildMessages(activeTerminal.outputLines)
-        : [];
-      if (snapshot.length > 0) {
-        const arch: ArchivedConversation = {
-          id: `arch_${Date.now()}`,
-          agentId: activeAgentId,
-          agentName: activeTerminal?.agentName ?? activeAgentId,
-          title: deriveTitle(snapshot),
-          timestamp: Date.now(),
-          messages: snapshot,
-        };
-        setHistory((prev) => [arch, ...prev]);
-      }
-      await clearTerminal(activeAgentId);
-      await refreshTerminal();
+      await activateConversation(id);
+      setActiveConvId(id);
+      setActiveConv(await getConversation(id));
       setView("chat");
+    });
+
+  const handleArchiveConversation = (id: string) =>
+    runQuietly(async () => {
+      await setConversationArchived(id, true);
+      // 归档 active → 后端已清 active 指针；本地同步回草稿态
+      if (id === activeConvId) {
+        setActiveConvId(null);
+        setActiveConv(null);
+      }
+      await refreshConversations();
+    });
+
+  const handleRestoreConversation = (id: string) =>
+    runQuietly(async () => {
+      await setConversationArchived(id, false);
+      await refreshConversations();
+    });
+
+  const handleDeleteConversation = (id: string) =>
+    runQuietly(async () => {
+      await deleteConversation(id);
+      await refreshConversations();
+    });
+
+  const handleTogglePin = (id: string, pinned: boolean) =>
+    runQuietly(async () => {
+      await togglePinConversation(id, pinned);
+      await refreshConversations();
     });
 
   // ─── Derived State ──────────────────────────────────────────────────────
 
-  const activeTerminal = terminals.find((t) => t.agentId === activeAgentId) ?? null;
-  const activeAgentName = activeTerminal?.agentName ?? activeAgentId;
+  const convAgentId = activeConv?.agentId ?? activeAgentId;
+  const activeTerminal =
+    terminals.find((t) => t.agentId === convAgentId) ?? null;
+  const agentNameMap = new Map(
+    (status?.agents ?? []).map((a) => [a.id, a.name] as const),
+  );
+  const convAgentName =
+    agentNameMap.get(convAgentId) ?? activeConv?.agentId ?? convAgentId;
   const runtimeState: RuntimeState = status?.runtimeState ?? "idle";
   const installedAgents = (status?.agents ?? []).filter((a) => a.installed);
-  // 所有 provider 的模型摊平（模型 id 冲突时保留 provider 前缀展示，值仍用 id）
+  // 所有 provider 的模型摊平。⚠️ 不同 provider 会暴露相同模型 id（如
+  // mimo-v2.5-pro 同时来自 OpenCode Go 与小米 Token Plan），因此下拉项 key
+  // 必须带 provider 前缀（否则两条都显示选中勾），提交时再还原成原始 id。
   const modelOptions = (models?.providers ?? []).flatMap((p) =>
-    p.models.map((m) => ({ id: m.id, name: m.name, provider: p.name })),
+    p.models.map((m) => ({
+      key: `${p.id}::${m.id}`,
+      id: m.id,
+      name: m.name,
+      provider: p.name,
+    })),
   );
   const currentModelId =
     models?.preferredModelId ?? models?.activeModelId ?? "";
-  const viewingArchive =
-    typeof view === "object" ? history.find((h) => h.id === view.archiveId) ?? null : null;
+  // 选中判定用 provider 唯一 key；同 id 多 provider 时只勾第一个（后端
+  // preferredModelId 不带 provider 信息，无法区分，展示顺序取第一个命中）。
+  const currentModelKey =
+    modelOptions.find((m) => m.id === currentModelId)?.key ?? "";
+
+  // 侧栏三区：置顶 / 常规 / 归档（后端已按 pinned 优先 + 最新活动排好）
+  const activeConversations = conversations.filter((c) => !c.archived);
+  const archivedConversations = conversations.filter((c) => c.archived);
+
+  // busy：调度指针在飞（方案 §2-A4）或终端在跑
+  const isBusy =
+    activeConv?.latestCommandId != null || activeTerminal?.status === "running";
+  const messages = fromTranscript(activeConv?.messages ?? []);
+  const draft = drafts[activeConvId ?? DRAFT_KEY] ?? "";
 
   // 终端 dock 展开 + 新输出 → 自动贴底
   useEffect(() => {
@@ -336,12 +414,85 @@ export default function App() {
     );
   }
 
+  const renderConversationItem = (c: ConversationSummary, archived: boolean) => (
+    <div
+      key={c.id}
+      className={cn(
+        "group mb-0.5 flex w-full items-center gap-1 rounded-md pr-1 text-left hover:bg-accent",
+        activeConvId === c.id && !archived && "bg-accent font-medium",
+      )}
+    >
+      <button
+        className="min-w-0 flex-1 rounded-md px-1.5 py-1.5"
+        onClick={() => (archived ? undefined : void handleOpenConversation(c.id))}
+        disabled={archived}
+        title={c.title ?? "（尚未命名）"}
+      >
+        <div className="flex items-center gap-1">
+          {c.isPinned && <Pin size={10} className="shrink-0 text-primary/70" />}
+          <span className="truncate text-xs text-foreground">
+            {c.title ?? "（尚未命名）"}
+          </span>
+        </div>
+        <div className="mt-0.5 flex items-center gap-1 text-[9px] text-muted-foreground">
+          <span>{agentNameMap.get(c.agentId) ?? c.agentId}</span>
+          <span>·</span>
+          <span>{c.messageCount} 条</span>
+          <span>·</span>
+          <span>
+            {new Date(c.updatedAtMs).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+        </div>
+      </button>
+      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        {archived ? (
+          <>
+            <button
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
+              title="恢复对话"
+              onClick={() => void handleRestoreConversation(c.id)}
+            >
+              <ArchiveRestore size={13} />
+            </button>
+            <button
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              title="彻底删除"
+              onClick={() => void handleDeleteConversation(c.id)}
+            >
+              <Trash2 size={13} />
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
+              title={c.isPinned ? "取消置顶" : "置顶"}
+              onClick={() => void handleTogglePin(c.id, !c.isPinned)}
+            >
+              {c.isPinned ? <PinOff size={13} /> : <Pin size={13} />}
+            </button>
+            <button
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
+              title="关闭并归档"
+              onClick={() => void handleArchiveConversation(c.id)}
+            >
+              <Archive size={13} />
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex h-svh w-full overflow-hidden bg-background">
-      {/* ─── 左侧边栏 ─────────────────────────────────────────────────────── */}
-      <aside className="flex h-full w-52 shrink-0 flex-col border-r border-border bg-card">
-        {/* 品牌行 */}
-        <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-border px-3.5">
+      {/* ─── 左侧边栏（与主区的分界只靠底色差，不用硬分隔线） ───────────────── */}
+      <aside className="flex h-full w-52 shrink-0 flex-col border-r border-border/50 bg-card">
+        {/* 品牌行（无边框，与下方自然衔接） */}
+        <div className="flex h-11 shrink-0 items-center gap-1.5 px-3.5">
           <span className="text-[11px]">☕</span>
           <span className="font-mono text-[11px] font-semibold text-primary/90">BrewPing</span>
           <span className="ml-auto flex items-center gap-1">
@@ -352,47 +503,58 @@ export default function App() {
           </span>
         </div>
 
-        {/* 新对话 */}
-        <div className="p-2.5">
-          <Button variant="default" className="w-full" onClick={handleNewConversation}>
-            + 新对话
-          </Button>
+        {/* 新对话（轻量行样式：图标 + 文字，悬停浅棕面） */}
+        <div className="px-2 pt-2">
+          <button
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground",
+              activeConvId === null && view === "chat" && "bg-accent font-medium text-foreground",
+            )}
+            onClick={handleNewConversation}
+          >
+            <SquarePen size={14} className="shrink-0" />
+            <span>新对话</span>
+          </button>
         </div>
 
-        {/* 历史对话列表 */}
+        {/* 对话列表：置顶区 + 常规区 + 归档区 */}
         <div className="min-h-0 flex-1 overflow-y-auto panel-scroll px-2 pb-2">
-          <div className="px-1.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
-            历史对话
-          </div>
-          {history.length === 0 ? (
-            <div className="px-1.5 text-[10px] leading-relaxed text-muted-foreground/60">
-              点「新对话」会归档当前会话并开始新的
+          {activeConversations.length === 0 ? (
+            <div className="px-1.5 pt-1 text-[10px] leading-relaxed text-muted-foreground/60">
+              还没有对话。发一条消息即自动创建。
             </div>
           ) : (
-            history.map((h) => (
-              <button
-                key={h.id}
-                className={cn(
-                  "mb-0.5 w-full rounded-md px-1.5 py-1.5 text-left hover:bg-accent",
-                  typeof view === "object" && view.archiveId === h.id &&
-                    "bg-accent font-medium",
-                )}
-                onClick={() => setView({ archiveId: h.id })}
-              >
-                <div className="truncate text-xs text-foreground">{h.title}</div>
-                <div className="mt-0.5 flex items-center gap-1 text-[9px] text-muted-foreground">
-                  <span>{h.agentName}</span>
-                  <span>·</span>
-                  <span>
-                    {new Date(h.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </span>
+            <>
+              {activeConversations.some((c) => c.isPinned) && (
+                <div className="px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+                  置顶
                 </div>
-              </button>
-            ))
+              )}
+              {activeConversations
+                .filter((c) => c.isPinned)
+                .map((c) => renderConversationItem(c, false))}
+              {activeConversations.some((c) => !c.isPinned) && (
+                <div className="px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+                  对话
+                </div>
+              )}
+              {activeConversations
+                .filter((c) => !c.isPinned)
+                .map((c) => renderConversationItem(c, false))}
+            </>
+          )}
+
+          {archivedConversations.length > 0 && (
+            <>
+              <div className="mt-2 border-t border-border/60 px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground/70">
+                已归档
+              </div>
+              {archivedConversations.map((c) => renderConversationItem(c, true))}
+            </>
           )}
         </div>
 
-        {/* 底部：齿轮（设置 + 配对 + 授权详情） */}
+        {/* 底部：齿轮（设置 + 配对） */}
         <div className="shrink-0 border-t border-border p-2.5">
           <button
             className={cn(
@@ -400,15 +562,10 @@ export default function App() {
               view === "settings" && "bg-accent font-medium text-foreground",
             )}
             onClick={() => setView(view === "settings" ? "chat" : "settings")}
-            title="机器信息 / 配对码 / 授权设置"
+            title="机器信息 / 配对码"
           >
             <span className="text-sm leading-none">⚙</span>
             <span>设置与配对</span>
-            {pending.length > 0 && (
-              <Badge variant="warning" className="ml-auto h-3.5 min-w-3.5 px-1 text-[9px] leading-none">
-                {pending.length}
-              </Badge>
-            )}
           </button>
         </div>
       </aside>
@@ -429,117 +586,96 @@ export default function App() {
             status={status}
             pairing={pairing}
             copied={copied}
-            approvalMode={approvalMode}
-            pending={pending}
             runtimeState={runtimeState}
             onReveal={handleRevealPairing}
             onRegenerate={handleRegeneratePairing}
             onCopy={handleCopyCode}
-            onSetMode={handleSetApprovalMode}
-            onDecide={handleDecide}
             onClose={() => setView("chat")}
           />
-        ) : viewingArchive ? (
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex h-9 shrink-0 items-center justify-between border-b border-border bg-card px-3.5">
-              <span className="truncate text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
-                历史对话 · {viewingArchive.agentName} · {viewingArchive.title}
-              </span>
-              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setView("chat")}>
-                返回当前对话
-              </Button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto py-4 panel-scroll">
-              <MessageList
-                messages={viewingArchive.messages}
-                agentName={viewingArchive.agentName}
-                isStreaming={false}
-              />
-            </div>
-          </div>
         ) : (
           <>
+            {/* 顶栏：与内容同底色、无分隔线（参考 WorkBuddy），标题随对话自动生成 */}
+            <div className="flex h-11 shrink-0 items-center gap-2 px-4">
+              <span className="truncate text-sm font-medium text-foreground">
+                {activeConv?.title ?? "新对话"}
+              </span>
+              <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[10px] text-secondary-foreground/80">
+                {convAgentName}
+              </span>
+              <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                <span className={`runtime-dot h-1.5 w-1.5 ${runtimeState === "online" ? "online" : runtimeState === "starting" ? "starting" : "offline"}`} />
+                <span className="text-[10px] text-muted-foreground">
+                  {runtimeState === "online" ? "在线" : runtimeState === "starting" ? "启动中…" : "离线"}
+                </span>
+              </span>
+            </div>
             <ChatView
-              terminal={activeTerminal}
-              agentName={activeAgentName}
+              messages={messages}
+              agentName={convAgentName}
+              isBusy={isBusy}
+              draft={draft}
+              onDraftChange={(text) =>
+                setDrafts((prev) => ({ ...prev, [activeConvId ?? DRAFT_KEY]: text }))
+              }
               onSend={handleSend}
               composerToolbar={
-                <div className="flex min-w-0 flex-1 items-center gap-0.5">
+                <div className="flex min-w-0 flex-1 items-center gap-1">
                   {/* 切换 Agent */}
-                  <label className={COMPOSER_PILL_CLASS} title="切换 Agent">
-                    <Bot size={14} className="shrink-0" />
-                    <select
-                      className={COMPOSER_SELECT_CLASS}
-                      value={activeAgentId}
-                      onChange={(e) => handleSwitchAgent(e.target.value)}
-                    >
-                      {installedAgents.length === 0 && (
-                        <option value={activeAgentId}>{activeAgentName}</option>
-                      )}
-                      {installedAgents.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown size={12} className="shrink-0 opacity-60" />
-                  </label>
+                  <ComposerDropdown
+                    title="切换 Agent"
+                    icon={<Bot size={14} className="shrink-0" />}
+                    value={convAgentId}
+                    options={
+                      installedAgents.length === 0
+                        ? [{ value: convAgentId, label: convAgentName }]
+                        : installedAgents.map((a) => ({ value: a.id, label: a.name }))
+                    }
+                    onChange={handleSwitchAgent}
+                    triggerClassName="max-w-40"
+                  />
 
                   {/* 切换模型（agent 没有可用模型时隐藏） */}
                   {modelOptions.length > 0 && (
-                    <label className={COMPOSER_PILL_CLASS} title="选择模型">
-                      <Cpu size={14} className="shrink-0" />
-                      <select
-                        className={cn(COMPOSER_SELECT_CLASS, "max-w-44")}
-                        value={currentModelId}
-                        onChange={(e) => handleSelectModel(e.target.value)}
-                      >
-                        <option value="">跟随 Agent 配置</option>
-                        {modelOptions.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.name} · {m.provider}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown size={12} className="shrink-0 opacity-60" />
-                    </label>
+                    <ComposerDropdown
+                      title="选择模型"
+                      icon={<Cpu size={14} className="shrink-0" />}
+                      value={currentModelKey}
+                      options={[
+                        { value: "", label: "跟随 Agent 配置" },
+                        ...modelOptions.map((m) => ({
+                          value: m.key,
+                          label: m.name,
+                          description: m.provider,
+                        })),
+                      ]}
+                      onChange={(key) => {
+                        // 还原成原始模型 id 再提交（setDefaultModel 只认 id）
+                        const hit = modelOptions.find((m) => m.key === key);
+                        handleSelectModel(hit ? hit.id : "");
+                      }}
+                      triggerClassName="max-w-48"
+                    />
                   )}
 
                   {/* 切换授权模式 */}
-                  <label
-                    className={cn(
-                      COMPOSER_PILL_CLASS,
+                  <ComposerDropdown
+                    title="授权模式"
+                    icon={<ShieldCheck size={14} className="shrink-0" />}
+                    value={approvalMode}
+                    options={APPROVAL_MODES.map((m) => ({
+                      value: m.id,
+                      label: `授权 ${m.label}`,
+                      description: m.summary,
+                    }))}
+                    onChange={(v) => handleSetApprovalMode(v as ApprovalMode)}
+                    triggerClassName={cn(
+                      "max-w-36",
                       approvalMode === "askAll" && "text-warning",
                       approvalMode === "auto" && "text-success",
                     )}
-                    title="授权模式"
-                  >
-                    <ShieldCheck size={14} className="shrink-0" />
-                    <select
-                      className={COMPOSER_SELECT_CLASS}
-                      value={approvalMode}
-                      onChange={(e) => handleSetApprovalMode(e.target.value as ApprovalMode)}
-                    >
-                      {APPROVAL_MODES.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          授权 {m.label}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown size={12} className="shrink-0 opacity-60" />
-                  </label>
+                  />
 
                   <div className="ml-auto flex items-center gap-1">
-                    {pending.length > 0 && (
-                      <button
-                        className="flex h-7 items-center gap-1 rounded-lg px-2 text-xs font-medium text-warning hover:bg-warning/10"
-                        onClick={() => setView("settings")}
-                        title="有命令待确认，去设置页处理"
-                      >
-                        <ShieldAlert size={14} className="shrink-0" />
-                        待确认 {pending.length}
-                      </button>
-                    )}
                     <button
                       className={cn(
                         "flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
@@ -555,12 +691,12 @@ export default function App() {
               }
             />
 
-            {/* 终端 dock：可折叠 */}
+            {/* 终端 dock：可折叠（per-agent 原始输出，旁路角色） */}
             {dockOpen && (
               <div className="flex h-56 shrink-0 flex-col border-t border-border bg-card">
                 <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/60 px-3.5">
                   <span className="text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
-                    终端输出 · {activeAgentName}
+                    终端输出 · {convAgentName}
                   </span>
                   <div className="flex items-center gap-1.5">
                     <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={handleClearTerminal}>
@@ -606,47 +742,41 @@ export default function App() {
   );
 }
 
-// ─── 设置视图（齿轮）：机器信息 + 配对 + 授权详情 ─────────────────────────────
+// ─── 设置视图（齿轮）：机器信息 + 配对（授权入口在 composer 工具栏） ─────────
 
 function SettingsView({
   status,
   pairing,
   copied,
-  approvalMode,
-  pending,
   runtimeState,
   onReveal,
   onRegenerate,
   onCopy,
-  onSetMode,
-  onDecide,
   onClose,
 }: {
   status: DesktopStatus | null;
   pairing: PairingInfo | null;
   copied: boolean;
-  approvalMode: ApprovalMode;
-  pending: PendingApproval[];
   runtimeState: RuntimeState;
   onReveal: () => void;
   onRegenerate: () => void;
   onCopy: () => void;
-  onSetMode: (mode: ApprovalMode) => void;
-  onDecide: (id: string, action: "approve" | "deny" | "always_approve") => void;
   onClose: () => void;
 }) {
   const expiry = pairing?.expiresAt ? new Date(pairing.expiresAt).toLocaleTimeString() : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* 标题行 */}
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-border bg-card px-3.5">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.6px] text-primary/80">
-          设置与配对
-        </span>
-        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={onClose}>
+      {/* 标题行：与内容同底色、无分隔线，自然融合 */}
+      <div className="flex h-11 shrink-0 items-center justify-between px-4">
+        <span className="text-sm font-medium text-foreground">设置与配对</span>
+        <button
+          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={onClose}
+        >
+          <CornerUpLeft size={13} />
           返回对话
-        </Button>
+        </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto panel-scroll px-3.5 py-3">
@@ -739,81 +869,6 @@ function SettingsView({
             )}
           </section>
 
-          {/* ── 授权 ── */}
-          <section className="rounded-lg border border-border bg-card p-3">
-            <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
-              授权（Approval）
-            </div>
-
-            <div className="flex gap-1.5">
-              {APPROVAL_MODES.map((item) => {
-                const active = approvalMode === item.id;
-                return (
-                  <Button
-                    key={item.id}
-                    variant={active ? "secondary" : "outline"}
-                    size="sm"
-                    className={cn(active && "border-primary/45 bg-primary/10 font-semibold text-primary")}
-                    onClick={() => onSetMode(item.id)}
-                    title={item.summary}
-                  >
-                    {item.label}
-                  </Button>
-                );
-              })}
-            </div>
-            <div className="mt-1.5 break-all text-[10px] leading-relaxed text-muted-foreground/65">
-              {APPROVAL_MODES.find((m) => m.id === approvalMode)?.summary ?? ""}
-            </div>
-
-            <div className="mb-2 mt-3 border-t border-border pt-2.5 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
-              待确认命令 {pending.length > 0 ? `(${pending.length})` : ""}
-            </div>
-
-            {pending.length === 0 ? (
-              <div className="break-all text-[10px] leading-relaxed text-muted-foreground/65">
-                暂无挂起命令。
-              </div>
-            ) : (
-              pending.map((approval) => (
-                <div
-                  key={approval.id}
-                  className="mt-2 rounded-md border border-warning/35 bg-warning/5 p-2"
-                >
-                  <div className="select-text break-all whitespace-pre-wrap text-[11px] text-foreground">
-                    {approval.text}
-                  </div>
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    {approval.reasons.map((reason) => (
-                      <Badge key={reason.code} variant="warning" className="px-1.5 py-0.5 text-[9px]">
-                        {dangerText(reason.code, reason.detail)}
-                      </Badge>
-                    ))}
-                  </div>
-                  <div className="mt-2 flex gap-1.5">
-                    <Button variant="default" size="sm" onClick={() => onDecide(approval.id, "approve")}>
-                      批准
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => onDecide(approval.id, "always_approve")}>
-                      总是允许
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => onDecide(approval.id, "deny")}
-                    >
-                      拒绝
-                    </Button>
-                  </div>
-                </div>
-              ))
-            )}
-
-            <div className="mt-1.5 break-all text-[10px] leading-relaxed text-muted-foreground/65">
-              挂起命令 5 分钟内未处理会自动作废（不会执行）。
-            </div>
-          </section>
         </div>
       </div>
     </div>

@@ -170,6 +170,24 @@
   }
 }
 
+/* ─── Composer 工具栏下拉弹层（composer-dropdown.tsx） ────────────────────── */
+
+@keyframes composer-popup-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.composer-popup-in {
+  animation: composer-popup-in 0.14s ease-out;
+  transform-origin: bottom left;
+}
+
 /* ─── 终端区（数据驱动类名，App.tsx 逻辑依赖这些类名，勿改名） ────────────── */
 
 .terminal-output {

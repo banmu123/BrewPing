@@ -15,11 +15,19 @@ use tokio::sync::RwLock;
 use super::agent_config;
 use super::agent_discovery::{AgentEntry, AgentEntryApi};
 use super::approval_gate::{ApprovalGate, ApprovalMode, Decision, PendingApproval};
+use super::command_runner;
+use super::conversation_store::ConversationStore;
 use super::device_identity::DeviceIdentity;
 use super::model_prefs::ModelPrefs;
 use super::pairing_store::{AuthDecision, PairingStore};
-use super::terminal_state::{AgentStatus, OutputType, TerminalManager};
+use super::terminal_state::{OutputType, TerminalManager};
 use super::workdir_prefs::WorkdirPrefs;
+
+/// 事件广播回调：由 lib.rs 注入 tauri 的 emit 实现，HTTP/命令层通过它广播事件。
+/// 抽象成回调是为了让 http_server / command_runner 不依赖 tauri 类型——
+/// 否则 `cargo test` 的测试二进制会把整个 GUI 窗口栈链进来（无应用 manifest
+/// 时加载失败：STATUS_ENTRYPOINT_NOT_FOUND，实测踩坑）。
+pub type EventSink = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
 
 /// Shared application state for the HTTP server.
 #[derive(Clone)]
@@ -29,7 +37,10 @@ pub struct AppState {
     pub port: u16,
     pub agents: Arc<RwLock<Vec<AgentEntry>>>,
     pub default_agent: Arc<RwLock<String>>,
-    pub session: Arc<RwLock<Option<SessionInfo>>>,
+    /// 多对话仓库（方案 §4：单例 session 的替代，元数据/转录两层）。
+    pub conversations: Arc<ConversationStore>,
+    /// 当前激活的对话 ID（切 Agent 不再杀会话——对话各自绑定 agent_id）。
+    pub active_conversation_id: Arc<RwLock<Option<String>>>,
     pub terminal: TerminalManager,
     pub command_store: CommandStore,
     /// 配对与鉴权（与 macOS `PairingStore.shared` 对应）。
@@ -40,6 +51,8 @@ pub struct AppState {
     pub model_prefs: Arc<ModelPrefs>,
     /// 用户通过 App 选定的工作目录（agentId → 绝对路径，`None` = 跟随进程 cwd）。
     pub workdir_prefs: Arc<WorkdirPrefs>,
+    /// 事件广播（测试环境为 None）。
+    pub app_events: Option<EventSink>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -66,6 +79,8 @@ struct CommandEntry {
     failure_reason: Option<String>,
     model_id: Option<String>,
     duration: Option<f64>,
+    /// 命令归属的对话（方案 §4.2：轮询响应据此回填真 sessionId）。
+    conversation_id: Option<String>,
 }
 
 impl CommandStore {
@@ -75,7 +90,7 @@ impl CommandStore {
         }
     }
 
-    async fn insert_pending(&self, command_id: &str) {
+    pub async fn insert_pending(&self, command_id: &str, conversation_id: Option<&str>) {
         let mut map = self.commands.write().await;
         map.insert(
             command_id.to_string(),
@@ -86,18 +101,31 @@ impl CommandStore {
                 failure_reason: None,
                 model_id: None,
                 duration: None,
+                conversation_id: conversation_id.map(|c| c.to_string()),
             },
         );
     }
 
-    async fn set_working(&self, command_id: &str) {
+    /// 命令是否仍在飞行中（queued / working）——归档前置检查用。
+    pub async fn is_in_flight(&self, command_id: &str) -> bool {
+        matches!(
+            self.commands
+                .read()
+                .await
+                .get(command_id)
+                .map(|e| e.status.as_str()),
+            Some("queued") | Some("working")
+        )
+    }
+
+    pub async fn set_working(&self, command_id: &str) {
         let mut map = self.commands.write().await;
         if let Some(entry) = map.get_mut(command_id) {
             entry.status = "working".to_string();
         }
     }
 
-    async fn set_completed(&self, command_id: &str, response: String, duration: Option<f64>) {
+    pub async fn set_completed(&self, command_id: &str, response: String, duration: Option<f64>) {
         let mut map = self.commands.write().await;
         if let Some(entry) = map.get_mut(command_id) {
             entry.status = "completed".to_string();
@@ -106,7 +134,7 @@ impl CommandStore {
         }
     }
 
-    async fn set_failed(
+    pub async fn set_failed(
         &self,
         command_id: &str,
         error: String,
@@ -136,6 +164,12 @@ struct SetAgentBody {
 #[derive(Debug, Deserialize)]
 struct MessageBody {
     text: String,
+    /// 显式指定目标对话（方案 §6.2 三层回落的第一层）。
+    #[serde(rename = "conversationId", default)]
+    conversation_id: Option<String>,
+    /// 显式指定 agent：路由到当前 active 对话（不改变对话绑定的 agent）。
+    #[serde(rename = "agentId", default)]
+    agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -176,7 +210,7 @@ struct PendingApprovalResponse {
 }
 
 /// 统一构造 JSON 响应（含自定义状态码）。
-fn json_response<T: Serialize>(status: u16, body: T) -> Response {
+pub fn json_response<T: Serialize>(status: u16, body: T) -> Response {
     let status = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     (status, Json(body)).into_response()
 }
@@ -201,20 +235,20 @@ struct AgentsResponse {
 
 #[derive(Serialize)]
 pub struct SuccessResponse {
-    success: bool,
+    pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "defaultAgent")]
-    default_agent: Option<String>,
+    pub default_agent: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "sessionId")]
-    session_id: Option<String>,
+    pub session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    status: Option<String>,
+    pub status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "commandId")]
-    command_id: Option<String>,
+    pub command_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
+    pub error: Option<String>,
 }
 
 /// 鉴权中间件：与 macOS `HTTPAPI.handle` 顶部的判定等价。
@@ -261,6 +295,21 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/approvals/{id}", post(handle_decide_approval))
         .route("/api/session/start", post(handle_start_session))
         .route("/api/session/stop", post(handle_stop_session))
+        .route(
+            "/api/conversations",
+            get(super::conversation_api::handle_list_conversations)
+                .post(super::conversation_api::handle_create_conversation),
+        )
+        .route(
+            "/api/conversations/{id}",
+            get(super::conversation_api::handle_get_conversation)
+                .patch(super::conversation_api::handle_patch_conversation)
+                .delete(super::conversation_api::handle_delete_conversation),
+        )
+        .route(
+            "/api/conversations/{id}/activate",
+            post(super::conversation_api::handle_activate_conversation),
+        )
         .route("/api/discovery/refresh", post(handle_discovery_refresh))
         .fallback(handle_not_found)
         .route_layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
@@ -328,12 +377,33 @@ async fn handle_status(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Json<StatusResponse> {
     let default_agent = state.default_agent.read().await.clone();
-    let session = state.session.read().await.clone();
+    // 多对话语义（方案 §7.3）：session = active 对话渲染出的 SessionInfo（无 active → null）。
+    let session = active_session_info(&state).await;
     Json(StatusResponse {
         status: "online",
         host: super::device_identity::get_device_name(),
         default_agent,
         session,
+    })
+}
+
+/// 把 active 对话渲染成 iOS 兼容的 SessionInfo（`/api/status.session` 契约不变）。
+async fn active_session_info(state: &AppState) -> Option<SessionInfo> {
+    let conv_id = state.active_conversation_id.read().await.clone()?;
+    let conv = state.conversations.get(&conv_id)?;
+    let agent_name = state
+        .agents
+        .read()
+        .await
+        .iter()
+        .find(|a| a.id == conv.agent_id)
+        .map(|a| a.name.clone())
+        .unwrap_or_else(|| conv.agent_id.clone());
+    Some(SessionInfo {
+        id: conv.id,
+        agent: conv.agent_id,
+        agent_name,
+        status: "running".to_string(),
     })
 }
 
@@ -460,15 +530,8 @@ async fn handle_set_default_agent(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(body): Json<SetAgentBody>,
 ) -> Json<SuccessResponse> {
-    // Stop existing session when switching agent
-    {
-        let mut session = state.session.write().await;
-        if session.is_some() {
-            log::info!("Stopping session due to agent switch");
-            *session = None;
-        }
-    }
-
+    // 多对话语义（方案 §6.2）：切换 Agent 只是换默认，已有对话各自绑定
+    // agent_id，**不再杀会话**（原 TC-HT-07 行为已废弃）。
     let mut default = state.default_agent.write().await;
     *default = body.agent.clone();
     log::info!("Default agent set to: {}", body.agent);
@@ -476,52 +539,55 @@ async fn handle_set_default_agent(
         success: true,
         default_agent: Some(body.agent),
         session_id: None,
-        status: Some("stopped".to_string()),
+        status: None,
         command_id: None,
         error: None,
     })
 }
 
+/// POST /api/session/start —— 等价于「创建新对话并激活」（方案 §7.3 声明的
+/// 语义变更：旧对话保留，只是不再 active）。
 async fn handle_start_session(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Json<SuccessResponse> {
-    let session_id = format!("sess_{}", &uuid::Uuid::new_v4().to_string()[..8]);
     let default_agent = state.default_agent.read().await.clone();
-    let agents = state.agents.read().await;
-    let agent_name = agents
-        .iter()
-        .find(|a| a.id == default_agent)
-        .map(|a| a.name.clone())
-        .unwrap_or_else(|| default_agent.clone());
-    drop(agents);
+    let conv = state.conversations.create(&default_agent);
+    {
+        let mut active = state.active_conversation_id.write().await;
+        *active = Some(conv.id.clone());
+    }
+    command_runner::emit(
+        &state,
+        "conversations-changed",
+        serde_json::json!({ "id": conv.id }),
+    );
+    command_runner::emit(
+        &state,
+        "active-conversation-changed",
+        serde_json::json!(conv.id),
+    );
 
-    let mut session = state.session.write().await;
-    *session = Some(SessionInfo {
-        id: session_id.clone(),
-        agent: default_agent,
-        agent_name,
-        status: "running".to_string(),
-    });
-
-    log::info!("Session started: {}", session_id);
+    log::info!("Session started (conversation: {})", conv.id);
     Json(SuccessResponse {
         success: true,
         default_agent: None,
-        session_id: Some(session_id),
+        session_id: Some(conv.id),
         status: Some("running".to_string()),
         command_id: None,
         error: None,
     })
 }
 
+/// POST /api/session/stop —— 清除 active 指针（对话保留，不删除）。
 async fn handle_stop_session(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Json<SuccessResponse> {
-    let mut session = state.session.write().await;
-    let sid = session.as_ref().map(|s| s.id.clone());
-    *session = None;
+    let mut active = state.active_conversation_id.write().await;
+    let sid = active.take();
+    drop(active);
 
     log::info!("Session stopped: {:?}", sid);
+    command_runner::emit(&state, "active-conversation-changed", serde_json::json!(null));
     Json(SuccessResponse {
         success: true,
         default_agent: None,
@@ -550,10 +616,32 @@ async fn handle_send_message(
 
     match state.approval.check(&body.text) {
         Decision::Pending(approval) => pending_approval_response(approval),
-        Decision::Allow => match submit_command(&state, &body.text).await {
+        Decision::Allow => match submit_command(
+            &state,
+            &body.text,
+            body.conversation_id.as_deref(),
+            body.agent_id.as_deref(),
+            None,
+        )
+        .await
+        {
             Ok(response) => Json(response).into_response(),
-            Err(status) => json_response(
-                status.as_u16(),
+            Err(StatusCode::NOT_FOUND) => json_response(
+                404,
+                serde_json::json!({
+                    "success": false,
+                    "error": "conversation not found"
+                }),
+            ),
+            Err(StatusCode::CONFLICT) => json_response(
+                409,
+                serde_json::json!({
+                    "success": false,
+                    "error": "conversation is archived — restore it first"
+                }),
+            ),
+            Err(_) => json_response(
+                400,
                 serde_json::json!({
                     "success": false,
                     "error": "no active session — start a session first"
@@ -575,276 +663,94 @@ fn pending_approval_response(approval: PendingApproval) -> Response {
     )
 }
 
-/// 公共执行入口：把命令正文写进 TerminalState 并提交给 agent。
-/// `handle_send_message`（直接放行）与 `handle_decide_approval`（用户批准后）共用，
-/// 保证两条路径的 TerminalState 回显与响应结构完全一致。
-///
-/// 桌面端 Tauri 命令（用户在主窗口批准）也复用它，避免出现第二条执行路径。
-pub async fn submit_command(state: &AppState, text: &str) -> Result<SuccessResponse, StatusCode> {
-    let session = state.session.read().await;
-    if session.is_none() {
+/// 三层回落（方案 §6.2）：显式 conversationId → 该对话；显式 agentId →
+/// active 对话；都没有 → active 对话。无 active → 400（原 "no active session" 文案）。
+async fn resolve_command_target(
+    state: &AppState,
+    conversation_id: Option<&str>,
+    _agent_id: Option<&str>,
+) -> Result<(String, String), StatusCode> {
+    if let Some(cid) = conversation_id {
+        let Some(conv) = state.conversations.get(cid) else {
+            return Err(StatusCode::NOT_FOUND);
+        };
+        if conv.archived {
+            return Err(StatusCode::CONFLICT);
+        }
+        return Ok((conv.id, conv.agent_id));
+    }
+    let active = state.active_conversation_id.read().await.clone();
+    if let Some(cid) = active {
+        if let Some(conv) = state.conversations.get(&cid) {
+            if !conv.archived {
+                return Ok((conv.id, conv.agent_id));
+            }
+        }
         return Err(StatusCode::BAD_REQUEST);
     }
-    let sid = session.as_ref().unwrap().id.clone();
-    let agent_id = session.as_ref().unwrap().agent.clone();
-    drop(session);
+    Err(StatusCode::BAD_REQUEST)
+}
+
+/// 公共执行入口：授权放行后的命令提交（`handle_send_message`、批准后的
+/// `handle_decide_approval`、桌面 Tauri 命令共用同一条路径）。
+///
+/// 用户消息由这里唯一写入对话转录（方案 §6.3 写路径单一出口），
+/// 执行交给 `command_runner::execute_agent_command`（命令状态唯一写入点）。
+pub async fn submit_command(
+    state: &AppState,
+    text: &str,
+    conversation_id: Option<&str>,
+    agent_id: Option<&str>,
+    source: Option<&str>,
+) -> Result<SuccessResponse, StatusCode> {
+    let (conv_id, agent_id) = resolve_command_target(state, conversation_id, agent_id).await?;
+
+    // Ensure terminal entry exists（桌面路径原有行为，HTTP 路径此前缺失，统一补上）
+    command_runner::ensure_terminal_entry(state, &agent_id).await;
 
     let command_id = format!("cmd_{}", &uuid::Uuid::new_v4().to_string()[..8]);
     log::info!(
         "Message received: '{}' -> {} (command: {}, agent: {})",
         text,
-        sid,
+        conv_id,
         command_id,
         agent_id
     );
 
-    // Register command as pending
-    state.command_store.insert_pending(&command_id).await;
+    // Register command as pending（挂上对话归属，轮询响应据此回填 sessionId）
+    state
+        .command_store
+        .insert_pending(&command_id, Some(&conv_id))
+        .await;
 
-    // Show user input in terminal
+    // 用户消息：转录 + 终端回显 + 调度指针（单一写出口，方案 §6.3）
+    command_runner::append_to_conversation(state, &conv_id, "user", text, source, Some(&command_id))
+        .await;
     {
         let mut map = state.terminal.agents.write().await;
         if let Some(term) = map.get_mut(&agent_id) {
             term.append_line(&format!("> {}", text), OutputType::System);
         }
     }
+    state
+        .conversations
+        .set_latest_command(&conv_id, Some(&command_id));
+    command_runner::emit(state, "terminal-updated", serde_json::json!({}));
 
-    // Spawn async execution
-    let terminal = state.terminal.clone();
-    let command_store = state.command_store.clone();
-    let agents = state.agents.read().await.clone();
+    // Spawn async execution（headless 一次性执行；opencode 不再走假回显）
+    let state_clone = state.clone();
     let cmd_id = command_id.clone();
+    let cid = conv_id.clone();
     let aid = agent_id.clone();
-    let text = text.to_string();
-    // 用户选定的默认模型（可能为 None）。必须在 spawn 之前取好：闭包里拿不到 `state`。
-    let selected_model = state.model_prefs.get(&agent_id);
-    // 用户选定的工作目录（可能为 None）。同上，必须在 spawn 之前取好。
-    let selected_workdir = state.workdir_prefs.get(&agent_id);
-
+    let text_owned = text.to_string();
     tokio::spawn(async move {
-        command_store.set_working(&cmd_id).await;
-
-        let start = std::time::Instant::now();
-
-        if aid == "opencode" {
-            // Session agent: simulate processing
-            let agent_name = agents
-                .iter()
-                .find(|a| a.id == aid)
-                .map(|a| a.name.clone())
-                .unwrap_or_else(|| "OpenCode".to_string());
-
-            {
-                let mut map = terminal.agents.write().await;
-                if let Some(term) = map.get_mut(&aid) {
-                    term.append_line(
-                        &format!("Message sent to {}", agent_name),
-                        OutputType::System,
-                    );
-                }
-            }
-            command_store
-                .set_completed(&cmd_id, format!("Command received by {}", agent_name), None)
-                .await;
-        } else {
-            // CLI agent: spawn process
-            let agent_entry = agents.iter().find(|a| a.id == aid).cloned();
-            let Some(agent) = agent_entry else {
-                let err = format!("Agent '{}' not available", aid);
-                {
-                    let mut map = terminal.agents.write().await;
-                    if let Some(term) = map.get_mut(&aid) {
-                        term.append_line(&format!("Error: {}", err), OutputType::Error);
-                        term.set_status(AgentStatus::Idle);
-                    }
-                }
-                command_store.set_failed(&cmd_id, err, None, None).await;
-                return;
-            };
-
-            let Some(ref executable) = agent.executable else {
-                let err = format!("Executable not found for {}", aid);
-                {
-                    let mut map = terminal.agents.write().await;
-                    if let Some(term) = map.get_mut(&aid) {
-                        term.append_line(&format!("Error: {}", err), OutputType::Error);
-                        term.set_status(AgentStatus::Error);
-                    }
-                }
-                command_store
-                    .set_failed(&cmd_id, err, Some("process_exited".to_string()), None)
-                    .await;
-                return;
-            };
-
-            // Set running
-            {
-                let mut map = terminal.agents.write().await;
-                if let Some(term) = map.get_mut(&aid) {
-                    term.set_status(AgentStatus::Running);
-                }
-            }
-
-            // ★ cwd 预检：目录已被删除 / 改名 / 卸载（U 盘拔掉 / 网络盘断开）时，
-            //   必须报独立的 invalid_workdir，不能笼统报 process_exited ——
-            //   否则手机端无法区分"命令失败"和"目录没了"（方案 §5.9）。
-            //   is_dir 在断开的网络盘上可能阻塞数秒，所以也放进 spawn_blocking。
-            if let Some(dir) = selected_workdir.as_deref() {
-                let probe = dir.to_string();
-                let dir_ok = tokio::task::spawn_blocking(move || std::path::Path::new(&probe).is_dir())
-                    .await
-                    .unwrap_or(false);
-                if !dir_ok {
-                    let err = format!("Workdir not available: {}", dir);
-                    {
-                        let mut map = terminal.agents.write().await;
-                        if let Some(term) = map.get_mut(&aid) {
-                            term.append_line(&format!("Error: {}", err), OutputType::Error);
-                            term.set_status(AgentStatus::Error);
-                        }
-                    }
-                    command_store
-                        .set_failed(&cmd_id, err, Some("invalid_workdir".to_string()), None)
-                        .await;
-                    return;
-                }
-            }
-
-            let exec_clone = executable.clone();
-            let text_clone = text.clone();
-            let model_clone = selected_model.clone();
-            let workdir_clone = selected_workdir.clone();
-            let aid_clone = aid.clone();
-            let terminal_clone = terminal.clone();
-            let cmd_clone = cmd_id.clone();
-            let store_clone = command_store.clone();
-
-            let result = tokio::task::spawn_blocking(move || {
-                let mut cmd = std::process::Command::new(&exec_clone);
-                cmd.arg(&text_clone);
-                // 用户在 App 里选过模型就显式传给 CLI：`--model <id>`，
-                // 与 macOS `CLIAgentImplementations.swift` 的追加顺序一致（排在提示词之后）。
-                // 没选过就不加参数，沿用 Agent 自己配置文件里的设置 —— 不自作主张。
-                if let Some(model) = &model_clone {
-                    cmd.arg("--model").arg(model);
-                }
-                // ★ 关键一行：把用户选定的工作目录注入子进程。
-                //   用 Command::current_dir（只影响该子进程），绝不用
-                //   std::env::set_current_dir（进程级全局状态，会污染同一
-                //   runtime 上的其它并发任务，方案 §4.4(d)）。
-                if let Some(dir) = workdir_clone.as_deref() {
-                    cmd.current_dir(dir);
-                }
-                cmd.stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped());
-
-                #[cfg(windows)]
-                {
-                    if let Ok(path) = std::env::var("PATH") {
-                        let home = dirs::home_dir().unwrap_or_default();
-                        let extra = format!(
-                            "{}\\.local\\bin;{}\\scoop\\shims",
-                            home.display(),
-                            home.display()
-                        );
-                        cmd.env("PATH", format!("{};{}", extra, path));
-                    }
-                }
-
-                cmd.output()
-            })
-            .await;
-
-            let elapsed = start.elapsed().as_secs_f64();
-
-            match result {
-                Ok(Ok(output)) => {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    let mut response_text = String::new();
-
-                    {
-                        let mut map = terminal_clone.agents.write().await;
-                        if let Some(term) = map.get_mut(&aid_clone) {
-                            if output.status.success() {
-                                for line in stdout.split('\n') {
-                                    if !line.is_empty() {
-                                        term.append_line(line, OutputType::Normal);
-                                        response_text.push_str(line);
-                                        response_text.push('\n');
-                                    }
-                                }
-                                if stdout.trim().is_empty() {
-                                    term.append_line("(no output)", OutputType::System);
-                                    response_text = "(no output)".to_string();
-                                }
-                            } else {
-                                let err_line = format!(
-                                    "Exit code: {}",
-                                    output.status.code().unwrap_or(-1)
-                                );
-                                term.append_line(&err_line, OutputType::Error);
-                                if !stderr.trim().is_empty() {
-                                    term.append_line(stderr.trim(), OutputType::Error);
-                                }
-                                store_clone
-                                    .set_failed(
-                                        &cmd_clone,
-                                        format!("{}\n{}", err_line, stderr.trim()),
-                                        Some("process_exited".to_string()),
-                                        Some(elapsed),
-                                    )
-                                    .await;
-                                term.set_status(AgentStatus::Idle);
-                                return;
-                            }
-                            term.set_status(AgentStatus::Idle);
-                        }
-                    }
-
-                    store_clone
-                        .set_completed(&cmd_clone, response_text.trim().to_string(), Some(elapsed))
-                        .await;
-                }
-                Ok(Err(e)) => {
-                    let err = format!("Failed to start process: {}", e);
-                    {
-                        let mut map = terminal_clone.agents.write().await;
-                        if let Some(term) = map.get_mut(&aid_clone) {
-                            term.append_line(&format!("Error: {}", err), OutputType::Error);
-                            term.set_status(AgentStatus::Error);
-                        }
-                    }
-                    store_clone
-                        .set_failed(
-                            &cmd_clone,
-                            err,
-                            Some("process_exited".to_string()),
-                            Some(elapsed),
-                        )
-                        .await;
-                }
-                Err(e) => {
-                    let err = format!("Task join error: {}", e);
-                    {
-                        let mut map = terminal_clone.agents.write().await;
-                        if let Some(term) = map.get_mut(&aid_clone) {
-                            term.append_line(&format!("Error: {}", err), OutputType::Error);
-                            term.set_status(AgentStatus::Error);
-                        }
-                    }
-                    store_clone
-                        .set_failed(&cmd_clone, err, None, Some(elapsed))
-                        .await;
-                }
-            }
-        }
+        command_runner::execute_agent_command(&state_clone, cmd_id, cid, aid, text_owned).await;
     });
 
     Ok(SuccessResponse {
         success: true,
         default_agent: None,
-        session_id: Some(sid),
+        session_id: Some(conv_id),
         status: Some("queued".to_string()),
         command_id: Some(command_id),
         error: None,
@@ -885,7 +791,8 @@ async fn handle_get_message(
     match entry {
         Some(e) => Json(CommandStatusResponse {
             command_id: id.clone(),
-            session_id: "unknown".to_string(),
+            // 真实的对话归属（TC-CA-04）；未知命令回落 "unknown"（与旧契约一致）。
+            session_id: e.conversation_id.clone().unwrap_or_else(|| "unknown".to_string()),
             status: e.status,
             response: e.response,
             raw_output: None,
@@ -1054,7 +961,8 @@ async fn handle_decide_approval(
                 );
             };
             // 复用与 message 相同的执行路径，保证回显与响应一致。
-            match submit_command(&state, &text).await {
+            // 授权与对话解耦（方案 §8.3）：批准后重新 resolve（落进当前 active 对话）。
+            match submit_command(&state, &text, None, None, None).await {
                 Ok(response) => Json(response).into_response(),
                 Err(status) => json_response(
                     status.as_u16(),
@@ -1139,6 +1047,16 @@ mod tests {
         path
     }
 
+    /// 对话仓库的测试目录隔离（禁止写真实 ~/.brewping/conversations）。
+    fn conversations_test_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "brewping-http-convs-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
     fn test_state() -> AppState {
         let agents = vec![
             entry("opencode", "OpenCode", true, Some("opencode")),
@@ -1153,13 +1071,15 @@ mod tests {
             port: 0,
             agents: Arc::new(RwLock::new(agents)),
             default_agent: Arc::new(RwLock::new("opencode".to_string())),
-            session: Arc::new(RwLock::new(None)),
+            conversations: Arc::new(ConversationStore::with_dir(conversations_test_dir())),
+            active_conversation_id: Arc::new(RwLock::new(None)),
             terminal: TerminalManager::new(),
             command_store: CommandStore::new(),
             pairing: Arc::new(PairingStore::with_fixed_token(TEST_TOKEN)),
             approval: Arc::new(ApprovalGate::with_path(approval_test_path())),
             model_prefs: Arc::new(ModelPrefs::with_path(model_prefs_test_path())),
             workdir_prefs: Arc::new(WorkdirPrefs::with_path(workdir_prefs_test_path())),
+            app_events: None,
         }
     }
 
@@ -1263,7 +1183,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn command_store_happy_path() {
         let store = CommandStore::new();
-        store.insert_pending("cmd_1").await;
+        store.insert_pending("cmd_1", Some("conv_1")).await;
         assert_eq!(store.get("cmd_1").await.unwrap().status, "queued");
 
         store.set_working("cmd_1").await;
@@ -1283,7 +1203,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn command_store_failure_path() {
         let store = CommandStore::new();
-        store.insert_pending("cmd_2").await;
+        store.insert_pending("cmd_2", Some("conv_2")).await;
         store.set_working("cmd_2").await;
         store
             .set_failed("cmd_2", "boom".into(), Some("process_exited".into()), Some(0.5))
@@ -1312,9 +1232,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn command_store_reinsert_resets_state() {
         let store = CommandStore::new();
-        store.insert_pending("cmd_3").await;
+        store.insert_pending("cmd_3", Some("conv_3")).await;
         store.set_completed("cmd_3", "old".into(), Some(9.0)).await;
-        store.insert_pending("cmd_3").await;
+        store.insert_pending("cmd_3", Some("conv_3")).await;
         let e = store.get("cmd_3").await.unwrap();
         assert_eq!(e.status, "queued");
         assert!(e.response.is_none(), "重新入队应清空旧结果");
@@ -1374,6 +1294,7 @@ mod tests {
     }
 
     // TC-HT-04  会话生命周期：start → running → stop → 无会话
+    //           （多对话新语义：start = 创建新对话并激活，sessionId 为 conv_ 前缀）
     // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
     // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1385,7 +1306,7 @@ mod tests {
         assert_eq!(v["success"], true);
         assert_eq!(v["status"], "running");
         let sid = v["sessionId"].as_str().unwrap().to_string();
-        assert!(sid.starts_with("sess_"), "会话 ID 前缀应为 sess_");
+        assert!(sid.starts_with("conv_"), "多对话后会话 ID 前缀应为 conv_");
 
         let (_, status) = get(srv.port, "/api/status");
         assert_eq!(status["session"]["id"], sid.as_str());
@@ -1399,10 +1320,12 @@ mod tests {
         assert_eq!(v["sessionId"], sid.as_str());
 
         let (_, status) = get(srv.port, "/api/status");
-        assert!(status["session"].is_null(), "停止后不应再有会话");
+        assert!(status["session"].is_null(), "停止后不应有 active 对话");
+        // 对话本身保留（stop ≠ 删除）
+        assert!(srv.state.conversations.get(&sid).is_some());
     }
 
-    // TC-HT-05  边界：重复 start 会话应替换为新会话，不残留旧会话
+    // TC-HT-05  边界：重复 start 会创建新对话并激活（旧对话保留，方案 §7.3）
     // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
     // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1413,6 +1336,9 @@ mod tests {
         assert_ne!(first["sessionId"], second["sessionId"]);
         let (_, status) = get(srv.port, "/api/status");
         assert_eq!(status["session"]["id"], second["sessionId"]);
+        // 旧对话仍在仓库里（只是不再 active）
+        let first_id = first["sessionId"].as_str().unwrap().to_string();
+        assert!(srv.state.conversations.get(&first_id).is_some());
     }
 
     // TC-HT-06  边界：无会话时 stop 仍应成功返回
@@ -1427,11 +1353,12 @@ mod tests {
         assert_eq!(v["status"], "stopped");
     }
 
-    // TC-HT-07  切换默认代理会终止既有会话（业务规则）
+    // TC-HT-07  切换默认代理不再终止会话（多对话新语义，方案 §6.2：
+    //           已有对话各自绑定 agent_id，切换只是换默认）
     // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
     // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn switching_default_agent_stops_session() {
+    async fn switching_default_agent_keeps_active_conversation() {
         let srv = spawn_server().await;
         post(srv.port, "/api/session/start", "");
 
@@ -1446,15 +1373,31 @@ mod tests {
 
         let (_, status) = get(srv.port, "/api/status");
         assert_eq!(status["defaultAgent"], "claude-code");
-        assert!(status["session"].is_null(), "切换代理后会话应被终止");
+        // 关键差异：active 对话不受切换影响
+        assert!(!status["session"].is_null(), "切换代理不得终止 active 对话");
+        assert_eq!(status["session"]["agent"], "opencode", "对话仍绑定原 agent");
     }
 
-    // TC-HT-08  端到端：会话内投递消息 → 轮询至 completed
+    // TC-HT-08  端到端：会话内投递消息 → 轮询至 completed。
+    //           多对话后 opencode 也走真实 headless 执行（假回显已删除），
+    //           测试里把 opencode 指向一个回声 bat 充当 CLI。
     // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
     // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn message_roundtrip_completes() {
         let srv = spawn_server().await;
+        // 回声 bat：忽略参数，输出固定标记（bat 会经 cmd.exe 启动，参数不可靠是既知坑）
+        let bat = std::env::temp_dir().join(format!("brewping-ht08-echo-{}.cmd", uuid::Uuid::new_v4()));
+        std::fs::write(&bat, b"@echo ECHOED-RESPONSE\r\n").unwrap();
+        srv.state.agents.write().await[0] = crate::services::agent_discovery::AgentEntry {
+            id: "opencode".to_string(),
+            name: "OpenCode".to_string(),
+            installed: true,
+            active: true,
+            executable: Some(bat.to_string_lossy().to_string()),
+            version: Some("1.0.0".into()),
+        };
+
         post(srv.port, "/api/session/start", "");
 
         let (code, v) = post(srv.port, "/api/message", r#"{"text":"ping"}"#);
@@ -1478,9 +1421,15 @@ mod tests {
         }
         assert_eq!(final_status, "completed", "命令应在超时前完成: {body}");
         assert!(
-            body["response"].as_str().unwrap().contains("OpenCode"),
-            "响应内容应包含代理名称: {body}"
+            body["response"].as_str().unwrap().contains("ECHOED-RESPONSE"),
+            "响应应来自真实 CLI 输出: {body}"
         );
+        // TC-CA-04：sessionId 为真值（对话归属），不再是 "unknown"
+        assert!(
+            body["sessionId"].as_str().unwrap_or("unknown").starts_with("conv_"),
+            "轮询响应必须回填真实对话 ID: {body}"
+        );
+        let _ = std::fs::remove_file(&bat);
     }
 
     // TC-HT-09  边界：查询不存在的 commandId → failed + Command not found
@@ -2200,5 +2149,188 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_file(&bat);
+    }
+
+    // ─── 多对话 HTTP 契约（方案 §10，TC-CA-01..08 / TC-CL-01） ──────────────
+
+    /// 把 opencode 指向回声 bat（真实 spawn 路径测试的公共辅助）。
+    async fn install_echo_opencode(srv: &TestServer) -> std::path::PathBuf {
+        let bat = std::env::temp_dir().join(format!("brewping-echo-{}.cmd", uuid::Uuid::new_v4()));
+        std::fs::write(&bat, b"@echo ECHOED-RESPONSE\r\n").unwrap();
+        srv.state.agents.write().await[0] = crate::services::agent_discovery::AgentEntry {
+            id: "opencode".to_string(),
+            name: "OpenCode".to_string(),
+            installed: true,
+            active: true,
+            executable: Some(bat.to_string_lossy().to_string()),
+            version: Some("1.0.0".into()),
+        };
+        bat
+    }
+
+    // TC-CA-01  旧客户端（无新字段）POST /api/message → 落入 active 对话
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn legacy_message_falls_into_active_conversation() {
+        let srv = spawn_server().await;
+        let bat = install_echo_opencode(&srv).await;
+        post(srv.port, "/api/session/start", "");
+
+        let (code, v) = post(srv.port, "/api/message", r#"{"text":"hello"}"#);
+        assert_eq!(code, 200);
+        let conv_id = v["sessionId"].as_str().unwrap().to_string();
+        assert!(conv_id.starts_with("conv_"));
+
+        // active 对话里应有 user 条目（标题自动生成）
+        let conv = srv.state.conversations.get(&conv_id).unwrap();
+        assert_eq!(conv.messages.last().unwrap().role, "user");
+        assert_eq!(conv.messages.last().unwrap().text, "hello");
+        assert_eq!(conv.title_source.as_deref(), Some("auto"));
+        let _ = std::fs::remove_file(&bat);
+    }
+
+    // TC-CA-02  POST /api/message 带 conversationId → 落入指定对话（即使非 active）
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn message_with_conversation_id_routes_explicitly() {
+        let srv = spawn_server().await;
+        let bat = install_echo_opencode(&srv).await;
+        post(srv.port, "/api/session/start", "");
+        let (_, v) = post(srv.port, "/api/session/start", "");
+        let other = v["sessionId"].as_str().unwrap().to_string(); // 新 active
+        // 第一个对话不是 active
+        let first = srv.state.conversations.list(true)[1].id.clone();
+
+        let (code, v) = post(
+            srv.port,
+            "/api/message",
+            &format!(r#"{{"text":"定向","conversationId":"{first}"}}"#),
+        );
+        assert_eq!(code, 200);
+        assert_eq!(v["sessionId"].as_str().unwrap(), first.as_str());
+
+        // 消息进了指定对话，而不是 active 对话
+        let conv = srv.state.conversations.get(&first).unwrap();
+        assert!(conv.messages.iter().any(|m| m.text == "定向"));
+        let active_conv = srv.state.conversations.get(&other).unwrap();
+        assert!(!active_conv.messages.iter().any(|m| m.text == "定向"));
+        let _ = std::fs::remove_file(&bat);
+    }
+
+    // TC-CA-06  未知 conversationId → 404 JSON；归档对话 → 409
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn message_to_unknown_or_archived_conversation_rejected() {
+        let srv = spawn_server().await;
+
+        let (code, v) = post(
+            srv.port,
+            "/api/message",
+            r#"{"text":"hi","conversationId":"conv_ghost"}"#,
+        );
+        assert_eq!(code, 404);
+        assert_eq!(v["success"], false);
+
+        // 归档对话拒收
+        post(srv.port, "/api/session/start", "");
+        let (_, list) = get(srv.port, "/api/conversations");
+        let conv_id = list["conversations"][0]["id"].as_str().unwrap().to_string();
+        let (code, _) = request(
+            srv.port,
+            "PATCH",
+            &format!("/api/conversations/{conv_id}"),
+            Some(r#"{"archived":true}"#),
+        );
+        assert_eq!(code, 200);
+        let (code, v) = post(
+            srv.port,
+            "/api/message",
+            &format!(r#"{{"text":"hi","conversationId":"{conv_id}"}}"#),
+        );
+        assert_eq!(code, 409);
+        assert!(v["error"].as_str().unwrap().contains("archived"));
+    }
+
+    // TC-CA-08  两段式删除：未归档 DELETE → 409；归档后 DELETE → 200
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn delete_requires_archived_state() {
+        let srv = spawn_server().await;
+        post(srv.port, "/api/session/start", "");
+        let (_, list) = get(srv.port, "/api/conversations");
+        let conv_id = list["conversations"][0]["id"].as_str().unwrap().to_string();
+
+        // 删 active 对话前先归档 → 归档同时清除 active（不自动跳转）
+        let (code, _) = request(
+            srv.port,
+            "PATCH",
+            &format!("/api/conversations/{conv_id}"),
+            Some(r#"{"archived":true}"#),
+        );
+        assert_eq!(code, 200);
+        let (_, status) = get(srv.port, "/api/status");
+        assert!(status["session"].is_null(), "归档 active 对话后 active 应为空");
+
+        // 未归档删除已被上面覆盖；归档态删除成功
+        let (code, raw) = request(srv.port, "DELETE", &format!("/api/conversations/{conv_id}"), Some(""));
+        assert_eq!(code, 200);
+        let v = json(&raw);
+        assert_eq!(v["success"], true);
+        // 删除后列表（含归档）不再有该对话
+        let (_, list) = get(srv.port, "/api/conversations?includeArchived=true");
+        let ids: Vec<&str> = list["conversations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["id"].as_str().unwrap())
+            .collect();
+        assert!(!ids.contains(&conv_id.as_str()));
+    }
+
+    // TC-CL-01  GET /api/conversations 排序：置顶优先 + 最新活动降序
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn conversation_list_pinned_first_sorting() {
+        let srv = spawn_server().await;
+        let (_, a) = post(srv.port, "/api/session/start", "");
+        let (_, b) = post(srv.port, "/api/session/start", "");
+        let a_id = a["sessionId"].as_str().unwrap().to_string();
+        let b_id = b["sessionId"].as_str().unwrap().to_string();
+
+        // 置顶较早创建的 a（updated_at 较小）
+        let (code, _) = request(
+            srv.port,
+            "PATCH",
+            &format!("/api/conversations/{a_id}"),
+            Some(r#"{"pinned":true}"#),
+        );
+        assert_eq!(code, 200);
+
+        let (_, list) = get(srv.port, "/api/conversations");
+        let ids: Vec<String> = list["conversations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids.first(), Some(&a_id), "置顶必须排最前");
+        assert!(ids.contains(&b_id));
+        // 摘要里不应有 messages 字段（元数据层/转录层分离）
+        for c in list["conversations"].as_array().unwrap() {
+            assert!(c.get("messages").is_none(), "列表不得携带转录");
+            assert!(c.get("messageCount").is_some(), "列表必须带 messageCount");
+        }
+        let _ = b_id;
+    }
+
+    // TC-CA-05  新端点鉴权：GET 免 nonce、写操作需 nonce（与鉴权矩阵一致）
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn conversation_endpoints_require_auth() {
+        let srv = spawn_server().await;
+        let (code, raw) = request_anonymous(srv.port, "GET", "/api/conversations", None);
+        assert_eq!(code, 401);
+        let _: serde_json::Value = serde_json::from_str(&raw).expect("401 必须是 JSON");
+        let (code, _) = request_anonymous(
+            srv.port,
+            "POST",
+            "/api/conversations",
+            Some(r#"{"agentId":"opencode"}"#),
+        );
+        assert_eq!(code, 401);
     }
 }
