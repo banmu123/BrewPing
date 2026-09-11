@@ -7,6 +7,17 @@ import Combine
 public final class DesktopCore: ObservableObject {
     public static let shared = DesktopCore()
 
+    /// 三段式运行时状态。UI 用它来判断指示灯颜色 / 文案。
+    /// - `.idle`：从未启动（默认）。
+    /// - `.starting`：已经 spawn 了后台 agent 线程，但 `/api/status` 还没回过 200。
+    ///   这一段是启动最慢的环节（OpenCode 子进程启动 + HTTP server listen），可能 5-10 秒。
+    ///   UI 在此期间显示灰点 + "Starting…"，避免被误判为离线。
+    /// - `.online`：`/api/status` 返回了 `status: online`，可以接受 iOS 端的命令。
+    /// - `.offline`：曾经 online 但 `/api/status` 请求失败（agent 崩溃 / 网络抖动）。
+    public enum RuntimeState: String { case idle, starting, online, offline }
+
+    @Published public var runtimeState: RuntimeState = .idle
+    /// 旧字段，仅保留兼容（`isRunning == runtimeState == .online`）。
     @Published public var isRunning = false
     @Published public var httpPort: UInt16?
     @Published public var lanIP: String?
@@ -62,6 +73,12 @@ public final class DesktopCore: ObservableObject {
         thread.name = "BrewPing Desktop Agent"
         thread.start()
         self.agentThread = thread
+
+        // 立刻置 starting：让 UI 在 5-10 秒的 spawn 期内显示灰点 + "Starting…"，
+        // 而不是停留在默认的 .idle（被 MenuBarView 渲染成红色 Offline，让用户以为没启起来）。
+        runtimeState = .starting
+        isRunning = false
+        sessionStatus = "starting"
 
         // 轮询 Agent 是否就绪（HTTP Server 启动后 /api/status 有响应）
         startStatusPolling()
@@ -119,16 +136,40 @@ public final class DesktopCore: ObservableObject {
         // 等待线程退出
         agentThread?.cancel()
         agentThread = nil
+        runtimeState = .idle
         isRunning = false
+        sessionStatus = ""
     }
 
     private func startStatusPolling() {
-        statusTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        // 加速轮询：启动后前 5 秒每 200ms 一次，让 online 状态尽快反映到 UI。
+        // 之后回到稳定的 2s 间隔，避免无意义的网络噪声。
+        // 切到 .online 后立即停止 fast loop —— ready 后不再需要高频探测。
+        schedulePoll(intervalMs: 200, maxIterations: 25)  // 25 × 200ms = 5s
+    }
+
+    /// 启动一个高频轮询循环，跑 `maxIterations` 次或直到 `runtimeState` 离开 `.starting`。
+    private func schedulePoll(intervalMs: Int, maxIterations: Int) {
+        statusTimer?.invalidate()
+        var iteration = 0
+        statusTimer = Timer.scheduledTimer(withTimeInterval: Double(intervalMs) / 1000.0, repeats: true) { [weak self] timer in
+            iteration += 1
             Task { @MainActor in
-                await self?.refreshStatus()
+                guard let self else { timer.invalidate(); return }
+                await self.refreshStatus()
+                // 离开 starting（online/offline）就停 fast loop，或者达到上限。
+                if self.runtimeState != .starting || iteration >= maxIterations {
+                    timer.invalidate()
+                    if self.runtimeState == .online {
+                        // ready 后回到稳态 2s 轮询
+                        self.statusTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+                            Task { @MainActor in await self?.refreshStatus() }
+                        }
+                    }
+                }
             }
         }
-        // 立即刷新一次
+        // 立刻跑一次，不等第一个 tick。
         Task { @MainActor in
             await refreshStatus()
         }
@@ -136,6 +177,7 @@ public final class DesktopCore: ObservableObject {
 
     public func refreshStatus() async {
         guard let lan = LANAddress.primaryLAN() else {
+            runtimeState = .offline
             isRunning = false
             sessionStatus = "offline"
             return
@@ -152,6 +194,7 @@ public final class DesktopCore: ObservableObject {
         // 请求 /api/status 验证 Agent 是否活着
         guard let port = httpPort,
               let url = URL(string: "http://\(lan.ip):\(port)/api/status") else {
+            runtimeState = .offline
             isRunning = false
             return
         }
@@ -159,6 +202,7 @@ public final class DesktopCore: ObservableObject {
             let (data, _) = try await URLSession.shared.data(from: url)
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let status = json["status"] as? String, status == "online" {
+                runtimeState = .online
                 isRunning = true
                 sessionStatus = "online"
                 // 刷新 Agent 列表
@@ -166,12 +210,25 @@ public final class DesktopCore: ObservableObject {
                 // 同步 activeAgent
                 activeAgentID = AgentManager.shared.activeAgentID
             } else {
+                // /api/status 返回 200 但 status != online —— 还在启动中，保持 starting，
+                // 不要在 spawn 期间把它误降级成 offline，否则 fast loop 会被无意义地延长。
+                if runtimeState == .starting {
+                    sessionStatus = "starting"
+                } else {
+                    runtimeState = .offline
+                    isRunning = false
+                    sessionStatus = "offline"
+                }
+            }
+        } catch {
+            // 连接失败：HTTP server 还没 listen 时会走这里，仍属 starting 阶段。
+            if runtimeState == .starting {
+                sessionStatus = "starting"
+            } else {
+                runtimeState = .offline
                 isRunning = false
                 sessionStatus = "offline"
             }
-        } catch {
-            isRunning = false
-            sessionStatus = "offline"
         }
     }
 }

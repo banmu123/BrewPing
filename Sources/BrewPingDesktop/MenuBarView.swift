@@ -11,14 +11,7 @@ struct MenuBarView: View {
                 Text("BrewPing")
                     .font(.headline)
                 Spacer()
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(core.isRunning ? Color.green : Color.red)
-                        .frame(width: 8, height: 8)
-                    Text(core.isRunning ? "Online" : "Offline")
-                        .font(.caption)
-                        .foregroundStyle(core.isRunning ? .green : .red)
-                }
+                runtimeBadge
             }
 
             Divider()
@@ -191,5 +184,27 @@ struct MenuBarView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
+    }
+
+    /// 启动期间显示灰点 + "Starting…"，让用户能区分"还没好"和"真的没起来"。
+    /// `.online` 之前（默认 `.idle`）会被渲染成红色 Offline 是误导——其实只是 brewping
+    /// 自己进程刚拉起、agent 还没 spawn 完。`.starting` 把这段中间态显式画出来。
+    @ViewBuilder
+    private var runtimeBadge: some View {
+        HStack(spacing: 5) {
+            switch core.runtimeState {
+            case .online:
+                Circle().fill(Color.green).frame(width: 8, height: 8)
+                Text("Online").foregroundStyle(.green)
+            case .starting:
+                // 灰色 + 轻微脉动：用 .opacity 而不是 ProgressView，避免菜单栏弹窗抖动
+                Circle().fill(Color.gray).frame(width: 8, height: 8)
+                Text("Starting…").foregroundStyle(.secondary)
+            case .offline, .idle:
+                Circle().fill(Color.red).frame(width: 8, height: 8)
+                Text("Offline").foregroundStyle(.red)
+            }
+        }
+        .font(.caption)
     }
 }
