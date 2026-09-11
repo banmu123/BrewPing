@@ -136,7 +136,14 @@ final class FolderBrowserStore: ObservableObject {
 
             let decoded = try JSONDecoder().decode(BrowseRoots.self, from: data)
             roots = decoded
-            await browse(decoded.homeDir, showHidden: showsHidden)
+            // homeDir 理论上必有（服务端读 home 失败时才缺）；缺了退回第一个盘符。
+            if let home = decoded.homeDir {
+                await browse(home, showHidden: showsHidden)
+            } else if let firstDrive = decoded.drives?.first {
+                await browse(firstDrive, showHidden: showsHidden)
+            } else {
+                phase = .failed(L("Can't load folders: %@", "no home directory"))
+            }
         } catch {
             phase = .failed(Self.failureMessage(for: error))
             BrewPingLog.net.error("Load folder roots failed: \(error.localizedDescription, privacy: .private)")
