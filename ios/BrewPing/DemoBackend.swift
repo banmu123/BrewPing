@@ -260,7 +260,7 @@ final class DemoBackend {
     /// 模拟一层数据源：home → 三个项目目录（其一含 .git、其一不可读），项目下为空。
     /// 覆盖 UI 需要分辨的三种形态：普通 / git 徽章 / unreadable 置灰。
     private func browsePayload(queryItems: [String: String]) -> (Int, [String: Any]) {
-        let path = queryItems["path"].flatMap { $0.isEmpty ? nil : $0 } ?? demoHome
+        let path = queryItems["path"].flatMap { $0.isEmpty ? nil : $0 } ?? Self.demoHome
         let showHidden = ["1", "true", "TRUE", "yes"].contains(queryItems["hidden"] ?? "")
 
         func entry(_ name: String, parent: String, git: Bool = false, unreadable: Bool = false) -> [String: Any] {
