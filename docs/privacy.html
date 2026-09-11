@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrewPing — Privacy Policy</title>
+<meta name="description" content="Privacy Policy for BrewPing, a local-network remote control for AI coding agents.">
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 48px 20px 64px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+                 "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    line-height: 1.75; color: #1c1c1e; background: #ffffff;
+    -webkit-text-size-adjust: 100%;
+  }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 30px; line-height: 1.3; margin: 0 0 4px; font-weight: 600; }
+  .updated { color: #6b7280; font-size: 14px; margin: 0 0 28px; }
+  h2 { font-size: 19px; margin: 34px 0 10px; font-weight: 600; }
+  p, li { font-size: 16px; }
+  ul { padding-left: 22px; margin: 10px 0; }
+  li { margin: 4px 0; }
+  strong { font-weight: 600; }
+  hr { border: 0; border-top: 1px solid #e5e7eb; margin: 40px 0; }
+  .lang { display: flex; gap: 8px; margin-bottom: 28px; }
+  .lang button {
+    font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 8px;
+    border: 1px solid #d1d5db; background: transparent; color: inherit; cursor: pointer;
+  }
+  .lang button.active { background: #111827; color: #ffffff; border-color: #111827; }
+  footer { max-width: 720px; margin: 48px auto 0; color: #6b7280; font-size: 14px; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e5e7eb; background: #0b0b0c; }
+    .updated, footer { color: #9ca3af; }
+    hr { border-top-color: #26272b; }
+    .lang button { border-color: #3f4046; }
+    .lang button.active { background: #e5e7eb; color: #0b0b0c; border-color: #e5e7eb; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="lang">
+    <button id="btn-en" class="active" onclick="setLang('en')">English</button>
+    <button id="btn-zh" onclick="setLang('zh')">简体中文</button>
+  </div>
+
+  <div id="en">
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: September 11, 2026</p>
+
+    <p>BrewPing (“the App”) is a developer tool that lets you control AI coding agents running on <strong>your own computer</strong> from your iPhone and Apple Watch, over your local network. This policy explains what data the App handles — and what it does not.</p>
+
+    <h2>Summary</h2>
+    <ul>
+      <li>We do <strong>not</strong> collect any personal data.</li>
+      <li>There is <strong>no account</strong>, no sign-up, no analytics, and no third-party SDKs.</li>
+      <li>Everything you send stays between your iPhone and your own Mac, on your local network.</li>
+    </ul>
+
+    <h2>1. Information We Do Not Collect</h2>
+    <p>BrewPing does not collect, transmit, or store any personal information on our servers — we do not operate any servers. Specifically, we do not collect:</p>
+    <ul>
+      <li>Names, email addresses, or contact information</li>
+      <li>Usage analytics or crash reports</li>
+      <li>Advertising identifiers</li>
+      <li>Location data</li>
+    </ul>
+
+    <h2>2. Permissions and Why We Ask for Them</h2>
+    <p>The App requests only the permissions it needs to function, and each is used solely for the purpose described below:</p>
+    <ul>
+      <li><strong>Camera</strong> — Used only to scan the pairing QR code shown in the BrewPing desktop app on your Mac. No photos or video are recorded, stored, or transmitted.</li>
+      <li><strong>Microphone &amp; Speech Recognition</strong> — Used only on Apple Watch to turn your spoken words into a text command. Audio is processed on-device by Apple’s speech framework to produce the command text; it is not stored and is not sent to us.</li>
+      <li><strong>Local Network</strong> — Used to discover and communicate with the Mac you have paired. The App uses Bonjour (mDNS) to find your Mac, then talks to it directly over your local Wi‑Fi.</li>
+    </ul>
+
+    <h2>3. Where Your Data Goes</h2>
+    <p>Commands you send, the output returned by your coding agent, and any speech that is transcribed travel <strong>only between your iPhone (or Apple Watch) and the Mac you configured</strong>, directly over your local network. They do not pass through any server operated by us, and we cannot see them.</p>
+
+    <h2>4. Storage</h2>
+    <ul>
+      <li>The pairing key that authenticates your iPhone to your Mac is stored in the iOS <strong>Keychain</strong> on your device.</li>
+      <li>Device settings (such as your device list and preferences) are stored locally on your device.</li>
+      <li>None of this is stored on our servers, because we do not operate any.</li>
+    </ul>
+
+    <h2>5. Sharing</h2>
+    <p>We do not share, sell, or transfer any data to third parties, because we do not collect any.</p>
+
+    <h2>6. Children’s Privacy</h2>
+    <p>The App is a developer tool and is not directed at children. We do not knowingly collect information from anyone, including children.</p>
+
+    <h2>7. Changes to This Policy</h2>
+    <p>If we change this policy, we will update the “Last updated” date at the top of this page.</p>
+
+    <h2>8. Contact</h2>
+    <p>Questions about this policy? Email us at <strong>cakbanmu@163.com</strong>.</p>
+  </div>
+
+  <div id="zh" hidden>
+    <h1>隐私政策</h1>
+    <p class="updated">最后更新：2026 年 9 月 11 日</p>
+
+    <p>BrewPing（下称“本 App”）是一款开发者工具，让你通过 iPhone 和 Apple Watch，在同一局域网内控制<strong>运行在你自己电脑上</strong>的 AI 编程助手。本政策说明本 App 会处理哪些数据——以及不会处理哪些数据。</p>
+
+    <h2>概要</h2>
+    <ul>
+      <li>我们<strong>不收集</strong>任何个人信息。</li>
+      <li><strong>没有账号</strong>、无需注册、无统计分析、无第三方 SDK。</li>
+      <li>你发送的一切内容，都只在你自己的 iPhone 与你自己的 Mac 之间的局域网内传输。</li>
+    </ul>
+
+    <h2>1. 我们不收集的信息</h2>
+    <p>BrewPing 不会向我们的服务器收集、传输或存储任何个人信息——我们根本没有服务器。具体而言，我们不收集：</p>
+    <ul>
+      <li>姓名、邮箱或联系方式</li>
+      <li>使用统计或崩溃报告</li>
+      <li>广告标识符</li>
+      <li>位置信息</li>
+    </ul>
+
+    <h2>2. 权限及用途</h2>
+    <p>本 App 只申请完成其功能所必需的权限，且每项权限都仅用于以下说明的用途：</p>
+    <ul>
+      <li><strong>相机</strong> —— 仅用于扫描 Mac 上 BrewPing 桌面端显示的配对二维码。不录制、不存储、不传输任何照片或视频。</li>
+      <li><strong>麦克风与语音识别</strong> —— 仅用于在 Apple Watch 上把你的语音转成文字指令。音频由 Apple 的语音框架在设备本地处理以生成指令文字，我们不会存储，也不会发送给我们。</li>
+      <li><strong>本地网络</strong> —— 用于发现并与你已配对的 Mac 通信。本 App 通过 Bonjour（mDNS）找到你的 Mac，然后直接在同一 Wi‑Fi 内与它通信。</li>
+    </ul>
+
+    <h2>3. 数据流向</h2>
+    <p>你发送的指令、编程助手返回的输出、以及被转写的语音，<strong>只在你自己的 iPhone（或 Apple Watch）与你配置的 Mac 之间</strong>，经局域网直接传输。它们不会经过我们运营的任何服务器，我们也看不到。</p>
+
+    <h2>4. 存储</h2>
+    <ul>
+      <li>用于验证 iPhone 身份的配对密钥，存放在你设备上的 iOS <strong>钥匙串（Keychain）</strong> 中。</li>
+      <li>设备设置（如设备列表与偏好）存放在你设备本地。</li>
+      <li>我们不会把这些存到我们服务器上，因为我们没有服务器。</li>
+    </ul>
+
+    <h2>5. 第三方共享</h2>
+    <p>我们不向任何第三方共享、出售或转让任何数据，因为我们不收集任何数据。</p>
+
+    <h2>6. 儿童隐私</h2>
+    <p>本 App 是开发者工具，并非面向儿童。我们不会有意收集任何人（包括儿童）的信息。</p>
+
+    <h2>7. 政策变更</h2>
+    <p>若本政策有变更，我们会更新页面顶部的“最后更新”日期。</p>
+
+    <h2>8. 联系我们</h2>
+    <p>如对本政策有疑问，请发邮件至 <strong>cakbanmu@163.com</strong>。</p>
+  </div>
+</main>
+
+<footer>BrewPing · <a href="mailto:cakbanmu@163.com">cakbanmu@163.com</a></footer>
+
+<script>
+  function setLang(l) {
+    document.getElementById('en').hidden = (l !== 'en');
+    document.getElementById('zh').hidden = (l !== 'zh');
+    document.getElementById('btn-en').classList.toggle('active', l === 'en');
+    document.getElementById('btn-zh').classList.toggle('active', l === 'zh');
+    document.documentElement.lang = (l === 'zh' ? 'zh-Hans' : 'en');
+  }
+</script>
+</body>
+</html>
