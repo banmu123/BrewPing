@@ -67,6 +67,11 @@ final class DemoBackend {
     /// Demo 里用户选过的工作目录（按 Agent 分别记），与真机 `workdirs.json` 行为一致。
     private var workdirs: [String: String] =
         (UserDefaults.standard.dictionary(forKey: demoWorkdirsKey) as? [String: String]) ?? [:]
+    /// Demo 里用户新建的对话（POST /api/conversations 的物化结果）。
+    private var createdConversations: [[String: Any]] = []
+    /// Demo 对话的对话级设置覆盖（agentId / approvalMode / modelOverride /
+    /// modelProviderOverride），与桌面端 PATCH 语义同构。
+    private var conversationOverrides: [String: [String: Any]] = [:]
 
     private struct DemoCommand {
         let text: String
@@ -240,12 +245,72 @@ final class DemoBackend {
         }
         // ── 对话（多对话管理，与桌面端 /api/conversations 同构）──
         // Demo 里给两条固定对话（一条绑定目录、一条未绑定），覆盖列表页的两种分组。
+        if method == "POST", path == "/api/conversations" {
+            let agentID = (json["agentId"] as? String) ?? "opencode"
+            guard Self.agents.contains(where: { ($0["id"] as? String) == agentID }) else {
+                return (400, ["success": false, "error": "unknown agent: \(agentID)"])
+            }
+            let now = Date().timeIntervalSince1970 * 1000
+            let id = "demo-" + UUID().uuidString.prefix(8)
+            let conv: [String: Any] = [
+                "id": id,
+                "agentId": agentID,
+                "title": NSNull(),
+                "titleSource": NSNull(),
+                "createdAtMs": now,
+                "updatedAtMs": now,
+                "archived": false,
+                "isPinned": false,
+                "modelOverride": NSNull(),
+                "modelProviderOverride": NSNull(),
+                "workdirOverride": NSNull(),
+                "approvalMode": (json["approvalMode"] as? String) ?? NSNull(),
+                "latestCommandId": NSNull(),
+                "messageCount": 0,
+            ]
+            lock.lock()
+            createdConversations.append(conv)
+            lock.unlock()
+            return (200, ["success": true, "conversation": conv])
+        }
+
+        if method == "PATCH", path.hasPrefix("/api/conversations/") {
+            let id = String(path.dropFirst("/api/conversations/".count))
+            guard demoConversations().contains(where: { ($0["id"] as? String) == id }) else {
+                return (404, ["success": false, "error": "conversation not found"])
+            }
+            var overrides = conversationOverrides[id] ?? [:]
+            // 切 Agent：与桌面端一致，自动清除该对话的模型覆盖
+            if let agentID = json["agentId"] as? String, !agentID.isEmpty {
+                guard Self.agents.contains(where: { ($0["id"] as? String) == agentID }) else {
+                    return (400, ["success": false, "error": "unknown agent: \(agentID)"])
+                }
+                overrides["agentId"] = agentID
+                overrides["modelOverride"] = NSNull()
+                overrides["modelProviderOverride"] = NSNull()
+            }
+            if let mode = json["approvalMode"] as? String {
+                overrides["approvalMode"] = mode.isEmpty ? NSNull() : mode
+            }
+            if let modelID = json["modelId"] as? String {
+                let provider = (json["modelProviderId"] as? String) ?? ""
+                overrides["modelOverride"] = modelID.isEmpty ? NSNull() : modelID
+                overrides["modelProviderOverride"] =
+                    (modelID.isEmpty || provider.isEmpty) ? NSNull() : provider
+            }
+            lock.lock()
+            conversationOverrides[id] = overrides
+            lock.unlock()
+            let updated = demoConversations().first(where: { ($0["id"] as? String) == id }) ?? [:]
+            return (200, ["success": true, "conversation": updated])
+        }
+
         if method == "GET", path == "/api/conversations" {
-            return (200, ["success": true, "conversations": Self.demoConversations()])
+            return (200, ["success": true, "conversations": demoConversations()])
         }
         if method == "GET", path.hasPrefix("/api/conversations/") {
             let id = String(path.dropFirst("/api/conversations/".count))
-            guard let conv = Self.demoConversations().first(where: { ($0["id"] as? String) == id }) else {
+            guard let conv = demoConversations().first(where: { ($0["id"] as? String) == id }) else {
                 return (404, ["success": false, "error": "conversation not found"])
             }
             var detail = conv
@@ -255,8 +320,26 @@ final class DemoBackend {
         return (404, ["success": false, "error": "not found"])
     }
 
-    /// Demo 对话列表（两条：绑定目录 / 未绑定目录）。
-    private static func demoConversations() -> [[String: Any]] {
+    /// Demo 对话列表（两条内置：绑定目录 / 未绑定目录 + 用户新建的），
+    /// 并套用对话级设置的覆盖（Agent / 授权 / 模型）。
+    private func demoConversations() -> [[String: Any]] {
+        lock.lock()
+        let created = createdConversations
+        let overrides = conversationOverrides
+        lock.unlock()
+        var all = Self.baseDemoConversations()
+        all.append(contentsOf: created)
+        guard !overrides.isEmpty else { return all }
+        return all.map { conv in
+            guard let id = conv["id"] as? String, let ov = overrides[id] else { return conv }
+            var merged = conv
+            for (key, value) in ov { merged[key] = value }
+            return merged
+        }
+    }
+
+    /// 内置的两条 Demo 对话（绑定目录 / 未绑定目录）。
+    private static func baseDemoConversations() -> [[String: Any]] {
         let now = Date().timeIntervalSince1970 * 1000
         return [
             [
@@ -269,7 +352,9 @@ final class DemoBackend {
                 "archived": false,
                 "isPinned": false,
                 "modelOverride": NSNull(),
+                "modelProviderOverride": NSNull(),
                 "workdirOverride": "D:\\cakewalk",
+                "approvalMode": NSNull(),
                 "latestCommandId": NSNull(),
                 "messageCount": 3,
             ],
@@ -283,7 +368,9 @@ final class DemoBackend {
                 "archived": false,
                 "isPinned": false,
                 "modelOverride": NSNull(),
+                "modelProviderOverride": NSNull(),
                 "workdirOverride": NSNull(),
+                "approvalMode": NSNull(),
                 "latestCommandId": NSNull(),
                 "messageCount": 3,
             ],

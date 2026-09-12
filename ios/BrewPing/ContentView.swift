@@ -94,8 +94,6 @@ struct ContentView: View {
     @State private var agents: [AgentEntry] = []
     @State private var discoveryMessage = ""
     @State private var showHelp = false
-    /// 控制面板弹窗（Agent 列表 / 会话启停 / 模型 / 授权 / 工作目录）。
-    @State private var showControls = false
 
     // 命令的提交与轮询统一由 CommandSubmitter 负责（见 CommandReceiver.swift），
     // 视图只是它的观察者。这样即使界面没被创建，Watch 来的命令也能照常执行。
@@ -130,8 +128,8 @@ struct ContentView: View {
 
                 // 已配对设备：主页 = 桌面端同步过来的对话（按绑定的工作目录分组）；
                 // 未添加 / 未配对时才是引导表单。
-                // 原有的 Agent 列表、会话启停、模型 / 授权 / 工作目录等控制项
-                // 收进右上角「控制面板」弹窗（功能不变，只是不再占主页）。
+                // Agent / 模型 / 授权的切换在对话详情头部的「对话设置」面板里
+                // （ConversationSettingsView，按对话独立生效）。
                 if let device = activeDevice, DeviceAuth.isPaired(device) {
                     if statusError != nil {
                         statusBannerRow
@@ -164,23 +162,12 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        showControls = true
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                    }
-                    .accessibilityLabel(Text("Controls"))
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
                         showHelp = true
                     } label: {
                         Image(systemName: "questionmark.circle")
                     }
                     .accessibilityLabel("Help and About")
                 }
-            }
-            .sheet(isPresented: $showControls) {
-                controlPanel
             }
             .sheet(isPresented: $showHelp) {
                 HelpView()
@@ -255,6 +242,7 @@ struct ContentView: View {
                     device: device,
                     online: online,
                     agentNames: agentNameMap,
+                    agents: agents,
                     fallbackAgentId: activeAgentID
                 )
             case .draft:
@@ -263,6 +251,7 @@ struct ContentView: View {
                     device: device,
                     online: online,
                     agentNames: agentNameMap,
+                    agents: agents,
                     fallbackAgentId: activeAgentID
                 )
             }
@@ -308,34 +297,8 @@ struct ContentView: View {
         }
     }
 
-    /// 控制面板：原有的状态、Agent 列表、会话启停、模型 / 授权 / 工作目录入口。
-    private var controlPanel: some View {
-        NavigationStack {
-            Form {
-                statusBanner
-                agentListCard
-                sessionCard
-
-                if !sessionMessage.isEmpty {
-                    Section {
-                        Text(verbatim: sessionMessage)
-                            .font(.footnote)
-                            .foregroundStyle(Color.bpWarning)
-                    }
-                }
-            }
-            .scrollContentBackground(.hidden)
-            .background(Color.bpBackground)
-            .tint(Color.bpPrimary)
-            .navigationTitle("Controls")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { showControls = false }
-                }
-            }
-        }
-    }
+    /// 控制面板已移除：Agent / 模型 / 授权的切换移到了对话详情的
+    /// 「对话设置」面板（ConversationSettingsView，按对话独立生效）。
 
     /// 没有设备时的引导卡片。
     /// 审核员下载后看到的第一屏就是这里 —— 必须自解释"需要配套 Mac 端"，
@@ -914,131 +877,6 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Agent List
-
-    private var agentListCard: some View {
-        Section("AI Agents") {
-            if agents.isEmpty {
-                // 三元表达式的两个分支都要显式转成 LocalizedStringKey，
-                // 否则会被推断成 String、走 Text 的 verbatim 重载而不翻译。
-                // 三种"空"要分开说：鉴权失败 ≠ Mac 离线 ≠ 真的没装 agent。
-                Text(agentsUnauthorized
-                     ? LocalizedStringKey("Not paired with this Mac. Enter the pairing code in this device's settings.")
-                     : (online
-                        ? LocalizedStringKey("Detecting agents...")
-                        : LocalizedStringKey("No agents detected. Connect a paired Mac to list the coding agents installed on it.")))
-                    .font(.caption)
-                    .foregroundStyle(Color.bpMutedForeground)
-            } else {
-                ForEach(agents) { agent in
-                    HStack(spacing: 10) {
-                        Circle()
-                            .fill(agent.installed ? Color.bpSuccess : Color.bpMutedForeground.opacity(0.5))
-                            .frame(width: 10, height: 10)
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 6) {
-                                Text(agent.name)
-                                    .font(.callout)
-                                if agent.active == true {
-                                    Text("Default")
-                                        .font(.caption2)
-                                        .fontWeight(.semibold)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Capsule().fill(Color.bpSuccess.opacity(0.15)))
-                                        .foregroundStyle(Color.bpSuccess)
-                                }
-                            }
-                            // 版本号是数据、不翻译；没有版本号时才显示本地化文案。
-                            if agent.installed, let version = agent.version, !version.isEmpty {
-                                Text(verbatim: version)
-                                    .font(.caption)
-                                    .foregroundStyle(Color.bpMutedForeground)
-                            } else {
-                                Text(agent.installed
-                                     ? LocalizedStringKey("Installed")
-                                     : LocalizedStringKey("Not Installed"))
-                                    .font(.caption)
-                                    .foregroundStyle(Color.bpMutedForeground)
-                            }
-                        }
-                        Spacer()
-                        if agent.active != true, agent.installed, agent.executable == true {
-                            Button("Set Default") {
-                                setDefaultAgent(agent.id)
-                            }
-                            .font(.caption)
-                            .disabled(lifecycleBusy)
-                        }
-                    }
-                }
-
-                // 商标免责：列出兼容的 Agent 名称属于"兼容性说明"，
-                // 必须同时声明无关联，否则容易被 5.2.1 判定为暗示授权/背书。
-                // 免责声明在 BrewPingConfig 里是 String，显式转成 key 才能被翻译。
-                Text(LocalizedStringKey(BrewPingConfig.trademarkDisclaimer))
-                    .font(.caption2)
-                    .foregroundStyle(Color.bpMutedForeground)
-            }
-        }
-    }
-
-    // MARK: - Session Card
-
-    private var sessionCard: some View {
-        Section("Active Agent") {
-            HStack(spacing: 8) {
-                Text(activeAgentName)
-                    .font(.headline)
-                Spacer()
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(sessionDotColor)
-                        .frame(width: 10, height: 10)
-                    Text(sessionStateText)
-                        .font(.callout)
-                        .foregroundStyle(Color.bpMutedForeground)
-                }
-            }
-            modelRow
-            workdirRow
-            approvalModeRow
-            if !sessionID.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Session ID")
-                        .font(.caption2)
-                        .foregroundStyle(Color.bpMutedForeground)
-                    Text(String(sessionID.prefix(12)) + "...")
-                        .font(.caption)
-                        .textSelection(.enabled)
-                }
-            }
-            if !sessionMessage.isEmpty {
-                Text(verbatim: sessionMessage)
-                    .font(.caption)
-                    .foregroundStyle(Color.bpMutedForeground)
-            }
-            // 会话启停按钮的显示条件：
-            //  - 正在跑会话 → 必须显示（否则切到非 OpenCode 的默认 Agent 后就停不掉了）；
-            //  - 没有会话时，按"会话型 Agent"判断，保持既有语义（OpenCode 需要显式开会话，
-            //    headless Agent 是发一条执行一条）。
-            // 这里**不能**用 `activeAgentID`：它现在跟的是默认 Agent，而默认 Agent 是
-            // headless 时并不代表这台主机不需要会话（Windows 端发命令就要求先有会话）。
-            if sessionState == .running || runningSessionAgentID == "opencode" {
-                actionButton
-            } else {
-                HStack(spacing: 6) {
-                    Image(systemName: "bolt.circle.fill")
-                        .foregroundStyle(Color.bpPrimary)
-                        .font(.caption)
-                    Text("Ready — type a command below to send")
-                        .font(.caption2)
-                        .foregroundStyle(Color.bpMutedForeground)
-                }
-            }
-        }
-    }
-
     private var activeAgentID: String { sessionAgentIDFromStatus }
     private var activeAgentName: String { sessionAgentNameFromStatus }
 
@@ -1068,163 +906,6 @@ struct ContentView: View {
         return id
     }
 
-    /// 模型切换入口，放在会话页顶部（Agent 名下方）。
-    /// **只在真的有得选时才出现** —— 0 个（没配或没拿到）或 1 个（没得选）时隐藏，
-    /// 与其给一个点开只有一行的入口，不如不显示。
-    @ViewBuilder
-    private var modelRow: some View {
-        if modelStore.canSwitch {
-            NavigationLink {
-                ModelPickerView()
-            } label: {
-                HStack(spacing: 8) {
-                    Text("Model")
-                        .font(.callout)
-                    Spacer()
-                    // 模型名是用户配置的数据，不翻译。
-                    Text(verbatim: modelStore.activeModelName ?? "—")
-                        .font(.callout)
-                        .foregroundStyle(Color.bpMutedForeground)
-                        .lineLimit(1)
-                }
-            }
-        }
-    }
-
-    /// 工作目录入口 —— **必须排在模型入口（`modelRow`）下面**（用户明确要求的顺序）。
-    ///
-    /// 显示条件：有已配对设备且默认 Agent 不是 opencode（stub 不 spawn 子进程，
-    /// 主机端会直接拒绝，提前拦住避免一次注定失败的请求）。
-    /// 老版本桌面端没有目录浏览接口时降级：入口仍显示，点进去看解释文案。
-    @ViewBuilder
-    private var workdirRow: some View {
-        if let device = activeDevice, DeviceAuth.isPaired(device),
-           FolderBrowserStore.supportsWorkdir(agentID: activeAgentID) {
-            NavigationLink {
-                FolderBrowserView(
-                    device: device,
-                    agentID: activeAgentID,
-                    currentWorkdir: activeAgentWorkdir,
-                    onSet: { _ in
-                        Task { await refreshAgents() }
-                    }
-                )
-            } label: {
-                HStack(spacing: 8) {
-                    Text("Working Folder Entry")
-                        .font(.callout)
-                    Spacer()
-                    // workdir 是主机上的路径数据，不翻译。
-                    Text(verbatim: activeAgentWorkdir ?? "—")
-                        .font(.caption)
-                        .foregroundStyle(Color.bpMutedForeground)
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                }
-            }
-        }
-    }
-
-    /// 当前默认 Agent 在主机上已设置的工作目录（`/api/agents` 的 `workdir` 字段）。
-    private var activeAgentWorkdir: String? {
-        agents.first(where: { $0.id == activeAgentID })?.workdir ?? nil
-    }
-
-    /// 授权模式切换，紧跟在模型入口下方。
-    /// 与 `modelRow` 不同的是：只要有**已配对**的设备就显示（授权档位是安全设置，
-    /// 不该像模型那样"没得选就隐藏"）。但**未配对时必须隐藏** ——
-    /// 没有 token 的请求会被 Mac 端直接判 401，显示出来只会让用户以为"坏了"。
-    @ViewBuilder
-    private var approvalModeRow: some View {
-        if let device = activeDevice, DeviceAuth.isPaired(device) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 8) {
-                    Image(systemName: approvalMode.mode == .auto ? "shield.slash" : "shield.lefthalf.filled")
-                        .foregroundStyle(approvalMode.mode == .auto ? Color.bpWarning : Color.bpMutedForeground)
-                        .font(.callout)
-                    Text("Approval Mode")
-                        .font(.callout)
-                    Spacer()
-                    Picker("Approval Mode", selection: Binding(
-                        get: { approvalMode.mode },
-                        set: { newMode in Task { await approvalMode.setMode(newMode) } }
-                    )) {
-                        ForEach(ApprovalModeStore.Mode.allCases) { option in
-                            Text(option.displayName).tag(option)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                }
-                Text(approvalMode.mode.summary)
-                    .font(.caption2)
-                    .foregroundStyle(Color.bpMutedForeground)
-                // 切换失败时明确告知原因，不要让用户面对"点了没反应"的静默回退。
-                if let error = approvalMode.lastError {
-                    Text(error)
-                        .font(.caption2)
-                        .foregroundStyle(Color.bpDestructive)
-                }
-            }
-        }
-    }
-
-    private var actionButton: some View {
-        Button {
-            switch sessionState {
-            case .running: stopSession()
-            case .offline: newSession()
-            default: break
-            }
-        } label: {
-            HStack {
-                Spacer()
-                switch sessionState {
-                case .running:
-                    Label("Stop Session", systemImage: "stop.fill")
-                case .offline:
-                    // 无设备时按钮文案自解释，配合 .disabled 彻底消除"点了没反应"。
-                    Label(hasDevice
-                          ? LocalizedStringKey("Start Session")
-                          : LocalizedStringKey("Add a device first"),
-                          systemImage: hasDevice ? "play.fill" : "plus.circle")
-                case .starting:
-                    HStack(spacing: 8) { ProgressView(); Text("Starting...") }
-                case .stopping:
-                    HStack(spacing: 8) { ProgressView(); Text("Stopping...") }
-                }
-                Spacer()
-            }
-            .padding(.vertical, 4)
-        }
-        .tint(actionTint)
-        .disabled(!hasDevice || lifecycleBusy || sessionState == .starting || sessionState == .stopping)
-    }
-
-    private var actionTint: Color {
-        guard hasDevice else { return Color.bpMutedForeground }
-        return sessionState == .running ? Color.bpDestructive : Color.bpSuccess
-    }
-
-    private var sessionDotColor: Color {
-        switch sessionState {
-        case .running: return Color.bpSuccess
-        case .starting: return Color.bpWarning
-        case .stopping: return Color.bpWarning
-        case .offline: return online ? Color.bpMutedForeground : Color.bpDestructive
-        }
-    }
-
-    /// 返回 `LocalizedStringKey` 而不是 `String`：
-    /// `Text(String)` 走 verbatim 重载、不查语言包，`Text(LocalizedStringKey)` 才会翻译。
-    private var sessionStateText: LocalizedStringKey {
-        switch sessionState {
-        case .running: return "Running"
-        case .starting: return "Starting..."
-        case .stopping: return "Stopping..."
-        case .offline: return "Offline"
-        }
-    }
 
     // MARK: - Message
 
@@ -1527,96 +1208,6 @@ struct ContentView: View {
         await modelStore.refresh(device: activeDevice, agentID: activeAgentID)
         watchBridge.knownModels = modelStore.models.map { ["id": $0.id, "name": $0.name] }
         watchBridge.activeModelID = modelStore.activeModelID ?? ""
-    }
-
-    private func setDefaultAgent(_ id: String) {
-        guard var request = BrewPingHTTP.request(device: activeDevice, path: "/api/agents/default", method: "POST", timeout: 15) else {
-            sessionMessage = L("No Mac connected. Add a device first.")
-            return
-        }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["agent": id])
-        Task {
-            do {
-                let (data, response) = try await BrewPingHTTP.session.data(for: request)
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                if statusCode != 200 {
-                    let decoded = try? JSONDecoder().decode(LifecycleResponse.self, from: data)
-                    sessionMessage = decoded?.error ?? L("Switch failed (HTTP %@)", String(statusCode))
-                }
-            } catch {
-                sessionMessage = L("Switch failed: %@", error.localizedDescription)
-            }
-            await refreshStatus()
-            await refreshAgents()
-        }
-    }
-
-    // MARK: - Session Lifecycle
-
-    private func stopSession() {
-        guard var request = BrewPingHTTP.request(device: activeDevice, path: "/api/session/stop", method: "POST", timeout: 30) else {
-            sessionMessage = L("No Mac connected. Add a device first.")
-            return
-        }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        submitter.cancelPolling()
-        lifecycleBusy = true
-        sessionState = .stopping
-        sessionMessage = ""
-        Task {
-            do {
-                let (data, response) = try await BrewPingHTTP.session.data(for: request)
-                let decoded = try? JSONDecoder().decode(LifecycleResponse.self, from: data)
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                if BrewPingHTTP.isUnauthorized(response) {
-                    sessionMessage = L("Not paired. Enter the pairing code in this device's settings.")
-                } else if statusCode == 200, decoded?.success == true {
-                    sessionMessage = L("Session stopped")
-                    submitter.reset()
-                } else {
-                    sessionMessage = L("Stop failed: %@", decoded?.error ?? "HTTP \(statusCode)")
-                }
-            } catch {
-                sessionMessage = L("Stop failed: %@", error.localizedDescription)
-            }
-            lifecycleBusy = false
-            await refreshStatus()
-            if sessionState == .stopping { sessionState = .offline }
-        }
-    }
-
-    private func newSession() {
-        // 旧实现在这里 `guard let url = ... else { return }`，无设备时按钮可点却毫无反馈。
-        // 现在：按钮已被禁用（见 actionButton），这里再兜一层用户可见提示。
-        guard var request = BrewPingHTTP.request(device: activeDevice, path: "/api/session/start", method: "POST", timeout: 120) else {
-            sessionMessage = L("No Mac connected. Add a device first.")
-            return
-        }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        submitter.reset()
-        lifecycleBusy = true
-        sessionState = .starting
-        sessionMessage = ""
-        Task {
-            do {
-                let (data, response) = try await BrewPingHTTP.session.data(for: request)
-                let decoded = try? JSONDecoder().decode(LifecycleResponse.self, from: data)
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                if BrewPingHTTP.isUnauthorized(response) {
-                    sessionMessage = L("Not paired. Enter the pairing code in this device's settings.")
-                } else if statusCode == 200, decoded?.success == true {
-                    sessionMessage = ""
-                } else {
-                    sessionMessage = L("Start failed: %@", decoded?.error ?? "HTTP \(statusCode)")
-                }
-            } catch {
-                sessionMessage = L("Start failed: %@", error.localizedDescription)
-            }
-            lifecycleBusy = false
-            await refreshStatus()
-            if sessionState == .starting && !online { sessionState = .offline }
-        }
     }
 
     // MARK: - Send

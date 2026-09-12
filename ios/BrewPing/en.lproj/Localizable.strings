@@ -204,6 +204,13 @@
 "Decides when BrewPing asks you to confirm before running a risky command on your Mac." = "Decides when BrewPing asks you to confirm before running a risky command on your Mac.";
 "Couldn't switch approval mode: %@" = "Couldn't switch approval mode: %@";
 
+/* MARK: - Conversation settings（对话级 Agent / 模型 / 授权） */
+"Chat Settings" = "Chat Settings";
+"Follow Agent Config" = "Follow agent config";
+"These settings apply to this conversation only." = "These settings apply to this conversation only.";
+"Switching the agent clears this chat's model choice. Other chats are unaffected." = "Switching the agent clears this chat's model choice. Other chats are unaffected.";
+"This chat uses its own model. Other chats are unaffected." = "This chat uses its own model. Other chats are unaffected.";
+
 /* MARK: - QR pairing scanner */
 "Scan QR Code" = "Scan QR Code";
 "Point at the QR code shown in %@ on your Mac." = "Point at the QR code shown in %@ on your Mac.";

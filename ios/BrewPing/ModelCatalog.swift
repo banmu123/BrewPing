@@ -40,7 +40,12 @@ struct ModelOption: Identifiable, Equatable {
     let name: String
     /// 所属 provider 名，用于在重名时区分（如两个 provider 都有 gpt-4o）。
     let providerName: String
+    /// 所属 provider id —— 同名模型可来自多个 provider，选择时必须成对提交。
+    let providerID: String
     let available: Bool
+
+    /// `provider/model` 复合标识：同名模型在 Picker 里也各自独立。
+    var compositeID: String { "\(providerID)/\(id)" }
 }
 
 /// 模型接口返回了非预期状态码。
@@ -210,7 +215,7 @@ final class ModelStore: ObservableObject {
 
     // MARK: 切换
 
-    func select(_ modelID: String) {
+    func select(_ modelID: String, providerID: String? = nil) {
         guard let device = currentDevice, !currentAgentID.isEmpty else {
             notice = L("No Mac connected. Add a device first.")
             return
@@ -232,10 +237,16 @@ final class ModelStore: ObservableObject {
             return
         }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+        // providerId 与 modelId 成对提交：同名模型可来自多个 provider，
+        // 缺了它 opencode 会拼出错误的 `provider/model`。
+        var payload: [String: Any] = [
             "agentId": currentAgentID,
             "modelId": modelID
-        ])
+        ]
+        if let providerID, !providerID.isEmpty {
+            payload["providerId"] = providerID
+        }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
 
         let agentID = currentAgentID
         Task {
@@ -272,13 +283,14 @@ final class ModelStore: ObservableObject {
                 guard let id = raw.id, !id.isEmpty else { continue }
                 let key = "\(provider.id ?? "")/\(id)"
                 guard !seen.contains(key) else { continue }
-                seen.insert(key)
-                result.append(ModelOption(
-                    id: id,
-                    name: raw.name ?? id,
-                    providerName: providerName,
-                    available: raw.available ?? true
-                ))
+            seen.insert(key)
+            result.append(ModelOption(
+                id: id,
+                name: raw.name ?? id,
+                providerName: providerName,
+                providerID: provider.id ?? "",
+                available: raw.available ?? true
+            ))
             }
         }
         return result

@@ -202,6 +202,13 @@
 "Decides when BrewPing asks you to confirm before running a risky command on your Mac." = "决定 BrewPing 在执行 Mac 上的危险命令前是否请你确认。";
 "Couldn't switch approval mode: %@" = "切换授权模式失败：%@";
 
+/* MARK: - 对话设置（对话级 Agent / 模型 / 授权） */
+"Chat Settings" = "对话设置";
+"Follow Agent Config" = "跟随 Agent 配置";
+"These settings apply to this conversation only." = "这些设置只作用于当前对话。";
+"Switching the agent clears this chat's model choice. Other chats are unaffected." = "切换 Agent 会清除本对话的模型选择，其它对话不受影响。";
+"This chat uses its own model. Other chats are unaffected." = "本对话使用自己的模型，其它对话不受影响。";
+
 /* MARK: - 扫码配对 */
 "Scan QR Code" = "扫描二维码";
 "Point at the QR code shown in %@ on your Mac." = "对准 Mac 上 %@ 显示的二维码。";
