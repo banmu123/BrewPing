@@ -423,4 +423,44 @@ final class ConversationStore: ObservableObject {
         body["modelProviderId"] = providerID ?? ""
         return await patch(device: device, id: id, body: body)
     }
+
+    /// 置顶 / 取消置顶（与桌面端侧栏同一 PATCH 语义）。
+    @discardableResult
+    func setPinned(device: ManagedDevice?, id: String, pinned: Bool) async -> Bool {
+        return await patch(device: device, id: id, body: ["pinned": pinned])
+    }
+
+    /// 归档 / 恢复（恢复时桌面端校验绑定目录仍存在，缺失 → 409）。
+    @discardableResult
+    func setArchived(device: ManagedDevice?, id: String, archived: Bool) async -> Bool {
+        return await patch(device: device, id: id, body: ["archived": archived])
+    }
+
+    /// 绑定 / 解绑对话的工作目录（空串 = 解绑；目录不存在 → 桌面端 400）。
+    @discardableResult
+    func setWorkdir(device: ManagedDevice?, id: String, workdir: String?) async -> Bool {
+        return await patch(device: device, id: id, body: ["workdir": workdir ?? ""])
+    }
+
+    /// 删除对话（两段式：仅归档态可删）。
+    @discardableResult
+    func delete(device: ManagedDevice?, id: String) async -> Bool {
+        guard let device,
+              let request = BrewPingHTTP.request(
+                device: device,
+                path: "/api/conversations/\(id)",
+                method: "DELETE",
+                timeout: 15
+              ) else { return false }
+        do {
+            let (_, response) = try await BrewPingHTTP.session.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard statusCode == 200 else { return false }
+            loadedKey = nil
+            return true
+        } catch {
+            BrewPingLog.net.error("Delete conversation failed: \(error.localizedDescription, privacy: .private)")
+            return false
+        }
+    }
 }

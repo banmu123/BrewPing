@@ -470,6 +470,7 @@ struct ConversationSettingsView: View {
                 agentSection
                 modelSection
                 approvalSection
+                folderSection
                 if let error = store.detailError {
                     Section {
                         Text(verbatim: error)
@@ -640,6 +641,80 @@ struct ConversationSettingsView: View {
         } else if let id = store.detail?.id,
                   await store.setApprovalMode(device: device, id: id, mode: mode.rawValue) {
             onChanged()
+        }
+    }
+
+    // MARK: Folder（任务 4 补齐：对话级工作目录绑定，与桌面端 WorkdirPicker 同语义）
+
+    @State private var showFolderBrowser = false
+
+    @ViewBuilder
+    private var folderSection: some View {
+        Section {
+            if isDraft {
+                Text("Folders can be bound after the first message creates this conversation.")
+                    .font(.caption)
+                    .foregroundStyle(Color.bpMutedForeground)
+            } else {
+                Button {
+                    showFolderBrowser = true
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let dir = store.detail?.workdirOverride, !dir.isEmpty {
+                                Text(verbatim: bpPathLabel(dir))
+                                    .foregroundStyle(Color.bpForeground)
+                                Text(verbatim: dir)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(Color.bpMutedForeground)
+                                    .lineLimit(1)
+                            } else {
+                                Text("Unbound Folder")
+                                    .foregroundStyle(Color.bpForeground)
+                                Text("Tap to browse — file operations use the CLI default until then.")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.bpMutedForeground)
+                            }
+                        }
+                        Spacer()
+                        Image(systemName: "folder.badge.gearshape")
+                            .foregroundStyle(Color.bpPrimary)
+                    }
+                }
+
+                if store.detail?.workdirOverride != nil {
+                    Button("Unbind Folder", role: .destructive) {
+                        Task {
+                            if let id = store.detail?.id,
+                               await store.setWorkdir(device: device, id: id, workdir: "") {
+                                onChanged()
+                            }
+                        }
+                    }
+                }
+            }
+        } header: {
+            Text("Working Folder")
+        } footer: {
+            Text("This chat's folder. File operations on the desktop run inside it.")
+        }
+        .sheet(isPresented: $showFolderBrowser) {
+            NavigationStack {
+                FolderBrowserView(
+                    device: device,
+                    agentID: "",
+                    currentWorkdir: store.detail?.workdirOverride,
+                    onSet: { _ in },
+                    onPick: { path in
+                        Task {
+                            if let id = store.detail?.id,
+                               await store.setWorkdir(device: device, id: id, workdir: path) {
+                                onChanged()
+                            }
+                        }
+                    }
+                )
+            }
         }
     }
 }

@@ -75,10 +75,77 @@ struct ConversationListView: View {
                                     conversationRow(conv)
                                 }
                                 .listRowBackground(Color.bpCard)
+                                // 置顶 / 取消置顶（对齐桌面端侧栏与 Windows/Android 端）
+                                .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                    Button {
+                                        Task {
+                                            _ = await store.setPinned(device: device, id: conv.id, pinned: !conv.isPinned)
+                                            await store.refresh(device: device, force: true)
+                                        }
+                                    } label: {
+                                        Label(
+                                            conv.isPinned ? "Unpin" : "Pin",
+                                            systemImage: conv.isPinned ? "pin.slash" : "pin.fill"
+                                        )
+                                        .tint(Color.bpPrimary)
+                                    }
+                                }
+                                // 归档（两段式删除的第一段；恢复见下方「已归档」分组）
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button {
+                                        Task {
+                                            _ = await store.setArchived(device: device, id: conv.id, archived: true)
+                                            await store.refresh(device: device, force: true)
+                                        }
+                                    } label: {
+                                        Label("Archive", systemImage: "archivebox")
+                                            .tint(Color.bpMutedForeground)
+                                    }
+                                }
                             }
                         }
                     } header: {
                         groupHeader(group)
+                    }
+                }
+
+                // ── 已归档（任务 4 补齐：恢复 / 彻底删除）───────────────────
+                let archived = store.conversations.filter { $0.archived }
+                if !archived.isEmpty {
+                    Section {
+                        ForEach(archived) { conv in
+                            HStack(spacing: 8) {
+                                Image(systemName: "archivebox")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Color.bpMutedForeground)
+                                conversationRow(conv)
+                            }
+                            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                // 恢复（桌面端会校验绑定目录仍存在）
+                                Button {
+                                    Task {
+                                        _ = await store.setArchived(device: device, id: conv.id, archived: false)
+                                        await store.refresh(device: device, force: true)
+                                    }
+                                } label: {
+                                    Label("Restore", systemImage: "arrow.uturn.backward")
+                                        .tint(Color.bpSuccess)
+                                }
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                // 彻底删除（仅归档态可删；两段式删除第二段）
+                                Button(role: .destructive) {
+                                    Task {
+                                        _ = await store.delete(device: device, id: conv.id)
+                                        await store.refresh(device: device, force: true)
+                                    }
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                        }
+                    } header: {
+                        Text("Archived")
                     }
                 }
             }

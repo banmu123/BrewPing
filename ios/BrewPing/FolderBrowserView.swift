@@ -14,6 +14,9 @@ struct FolderBrowserView: View {
     /// 当前已设置的工作目录（nil = 未设置），选中后回调给父视图刷新。
     var currentWorkdir: String?
     let onSet: (String?) -> Void
+    /// **对话级绑定模式**（任务 4 补齐）：提供时「Set Here」不走 Agent 级
+    /// `setWorkdir`，而是把选中路径回调给父视图（由父视图 PATCH 对话）。
+    var onPick: ((String) -> Void)? = nil
 
     @StateObject private var store = FolderBrowserStore()
     @Environment(\.dismiss) private var dismiss
@@ -216,6 +219,12 @@ struct FolderBrowserView: View {
             Button("Set Here") {
                 guard let entry = pendingSelection else { return }
                 pendingSelection = nil
+                if let onPick {
+                    // 对话级绑定：路径回调给父视图 PATCH /api/conversations/{id}
+                    onPick(entry.absolutePath)
+                    dismiss()
+                    return
+                }
                 Task {
                     let error = await store.setWorkdir(entry.absolutePath, for: agentID)
                     if let error {
