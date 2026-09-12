@@ -305,3 +305,11 @@ export async function installAgentCli(
 ): Promise<AgentCliStatus> {
   return invoke<AgentCliStatus>("install_agent_cli", { agentId, methodId });
 }
+
+/**
+ * 更新某个已安装的 Agent CLI 到最新版（官方更新通道：claude update / npm @latest /
+ * aider-install 升级）。成功后返回该 Agent 的最新检测状态。
+ */
+export async function updateAgentCli(agentId: string): Promise<AgentCliStatus> {
+  return invoke<AgentCliStatus>("update_agent_cli", { agentId });
+}

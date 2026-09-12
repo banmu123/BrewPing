@@ -628,6 +628,97 @@ fn install_agent_cli_inner(
     }
 }
 
+// ─── Agent CLI 更新 ───────────────────────────────────────────────────────────
+
+/// 组装某个 Agent 的更新命令序列（CLI 迭代快，用户可手动同步到最新）。
+///
+/// 原则：复用各工具官方的更新通道——
+/// - Claude Code：自带 `claude update` 自更新子命令（native / npm 安装都支持）；
+/// - opencode / codex：npm 重装 `@latest`（幂等，已是最新也安全）；
+/// - aider：官方安装器重跑即更新（`aider-install` 支持升级）。
+pub(crate) fn build_update_plan(agent_id: &str) -> Result<Vec<ProcSpec>, String> {
+    match agent_id {
+        "claude-code" => {
+            if agent_discovery::locate_command("claude").is_some() {
+                Ok(vec![cmd_spec(&["claude", "update"])])
+            } else {
+                Err("Claude Code 未安装，无需更新".to_string())
+            }
+        }
+        "opencode" | "codex" => {
+            let pkg = npm_package(agent_id)
+                .ok_or_else(|| format!("agent '{agent_id}' has no npm package"))?;
+            let latest = format!("{pkg}@latest");
+            Ok(vec![cmd_spec(&["npm", "install", "-g", &latest])])
+        }
+        "aider" => Ok(vec![
+            cmd_spec(&["python", "-m", "pip", "install", "--upgrade", "aider-install"]),
+            cmd_spec(&["aider-install"]),
+        ]),
+        _ => Err(format!("unsupported update target: {agent_id}")),
+    }
+}
+
+/// 更新某个已安装的 Agent CLI 到最新版，成功后返回重新检测的状态。
+pub fn update_agent_cli(
+    agent_id: &str,
+    sink: Option<&EventSink>,
+) -> Result<AgentCliStatus, String> {
+    let task = format!("cli-upd:{agent_id}");
+    let result = update_agent_cli_inner(agent_id, sink, &task);
+    let ok = result.is_ok();
+    emit_done(sink, &task, ok, result.as_ref().err().cloned());
+    result
+}
+
+fn update_agent_cli_inner(
+    agent_id: &str,
+    sink: Option<&EventSink>,
+    task: &str,
+) -> Result<AgentCliStatus, String> {
+    let (name, command) = agent_discovery::catalog_definition(agent_id)
+        .ok_or_else(|| format!("unknown agent: {agent_id}"))?;
+    let current = agent_discovery::locate_command(command)
+        .ok_or_else(|| format!("{name} 未安装，请先安装后再更新"))?;
+    let before = agent_discovery::get_version(&current, &["--version"]);
+
+    let plan = build_update_plan(agent_id)?;
+    emit_log(
+        sink,
+        task,
+        &format!("开始更新 {name}（当前 {}）…", before.as_deref().unwrap_or("?")),
+    );
+    run_streamed(task, &plan, sink)?;
+
+    match agent_discovery::locate_command(command) {
+        Some(path) => {
+            let version = agent_discovery::get_version(&path, &["--version"]);
+            emit_log(
+                sink,
+                task,
+                &format!(
+                    "{name} 更新完成 ✓ {} → {}",
+                    before.as_deref().unwrap_or("?"),
+                    version.as_deref().unwrap_or("?")
+                ),
+            );
+            let node = probe_node();
+            let python = probe_python();
+            Ok(AgentCliStatus {
+                id: agent_id.to_string(),
+                name: name.to_string(),
+                installed: true,
+                version: version.clone(),
+                path: Some(path),
+                methods: install_methods_for(agent_id, node.major, python.installed),
+            })
+        }
+        None => Err(format!(
+            "更新命令已执行完成，但未检测到 {command}。请尝试「重新检测」"
+        )),
+    }
+}
+
 // ─── Node 版本清单 ────────────────────────────────────────────────────────────
 
 /// 拉取可安装的 Node 版本（nodejs.org dist index → 按大版本聚合，离线回落别名）。
@@ -1029,6 +1120,24 @@ mod tests {
         assert!(method["display"].as_str().unwrap().contains("opencode-ai"));
         // blocked 用 camelCase 键
         assert!(v["methods"][0].get("minNodeMajor").is_some());
+    }
+
+    // TC-ES-10  更新计划：npm 包带 @latest、aider 走升级、claude 依赖本机安装状态
+    #[test]
+    fn update_plans_use_official_channels() {
+        // opencode / codex：npm -g pkg@latest
+        for (agent_id, pkg) in [("opencode", "opencode-ai"), ("codex", "@openai/codex")] {
+            let plan = build_update_plan(agent_id).unwrap();
+            assert_eq!(plan[0].program, "cmd");
+            let args = plan[0].args.join(" ");
+            assert!(args.contains("-g") && args.contains(&format!("{pkg}@latest")));
+        }
+        // aider：升级安装器两步
+        let pip = build_update_plan("aider").unwrap();
+        assert_eq!(pip.len(), 2);
+        assert!(pip[0].args.join(" ").contains("--upgrade"));
+        // 未知 agent 拒绝
+        assert!(build_update_plan("unknown").is_err());
     }
 
     // TC-ES-09  真实环境检测（手工验证用：cargo test print_environment -- --ignored --nocapture）

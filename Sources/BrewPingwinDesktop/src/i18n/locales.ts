@@ -116,6 +116,11 @@ export const zh = {
   "state.online": "在线",
   "state.offline": "离线",
 
+  // 窗口控制
+  "win.minimize": "最小化",
+  "win.maximize": "最大化 / 还原",
+  "win.close": "关闭",
+
   // 语言
   "lang.title": "语言 / Language",
   "lang.system": "跟随系统",
@@ -169,6 +174,8 @@ export const zh = {
   "env.taskNode": "Node",
   "env.taskCli": "{name}",
   "env.alreadyInstalled": "已安装，无需重复操作",
+  "env.update": "更新",
+  "env.updateTitle": "更新到最新版本（官方更新通道）",
 } as const;
 
 export type DictKey = keyof typeof zh;
@@ -288,6 +295,11 @@ export const en: Dict = {
   "state.online": "Online",
   "state.offline": "Offline",
 
+  // Window controls
+  "win.minimize": "Minimize",
+  "win.maximize": "Maximize / Restore",
+  "win.close": "Close",
+
   // Language
   "lang.title": "语言 / Language",
   "lang.system": "Follow system",
@@ -341,4 +353,6 @@ export const en: Dict = {
   "env.taskNode": "Node",
   "env.taskCli": "{name}",
   "env.alreadyInstalled": "Already installed",
+  "env.update": "Update",
+  "env.updateTitle": "Update to the latest version (official channel)",
 };

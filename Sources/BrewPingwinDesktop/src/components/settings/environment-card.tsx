@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Check, Download, Loader2, RefreshCw } from "lucide-react";
+import { Check, Download, Loader2, RefreshCw, ArrowUpCircle } from "lucide-react";
 import {
   checkEnvironment,
   getNodeVersions,
   installNvm,
   installNode,
   installAgentCli,
+  updateAgentCli,
 } from "../../api/tauri";
 import type {
   AgentCliStatus,
@@ -28,11 +29,16 @@ import { cn } from "../../lib/utils";
 // 切回对话再进设置会卸载/重挂本组件，闭包与 state 都会丢；模块级 Map/数组
 // 让重挂后仍能还原「正在安装」与已有日志。安装本身在后端线程，不受影响。
 
-/// taskId → 运行态（taskId: "nvm" | "node" | "cli:<agentId>"）。
+/// taskId → 运行态（taskId: "nvm" | "node" | "cli:<agentId>" | "cli-upd:<agentId>"）。
 const taskStates = new Map<string, { running: boolean; ok?: boolean }>();
 /// 安装日志环形缓冲（含命令行与逐行输出，上限 300 行）。
 const logBuffer: string[] = [];
 const LOG_CAP = 300;
+
+/// 检测结果缓存（模块级）：切走再切回**不重复检测**，展示上次结果，
+/// 用户点「重新检测」才真正跑一轮（探测要 spawn 多个 --version，约 1-2s）。
+let envCache: EnvironmentStatus | null = null;
+let versionsCache: NodeVersionOption[] | null = null;
 
 function pushLog(line: string) {
   logBuffer.push(line);
@@ -62,6 +68,7 @@ export function EnvironmentCard() {
     setChecking(true);
     try {
       const status = await checkEnvironment();
+      envCache = status;
       setEnv(status);
     } catch {
       setEnv(null);
@@ -71,16 +78,32 @@ export function EnvironmentCard() {
   }, []);
 
   useEffect(() => {
-    void refresh();
-    getNodeVersions()
-      .then((list) => {
-        setVersions(list);
-        setVerSel(list.find((v) => v.recommended)?.version ?? list[0]?.version ?? "custom");
-      })
-      .catch(() => {
-        setVersions([]);
-        setVerSel("custom");
-      });
+    // 有缓存直接展示（切分类回来不重复探测），没有才首测
+    if (envCache) {
+      setEnv(envCache);
+      setChecking(false);
+    } else {
+      void refresh();
+    }
+    if (versionsCache) {
+      setVersions(versionsCache);
+      setVerSel(
+        versionsCache.find((v) => v.recommended)?.version ??
+          versionsCache[0]?.version ??
+          "custom",
+      );
+    } else {
+      getNodeVersions()
+        .then((list) => {
+          versionsCache = list;
+          setVersions(list);
+          setVerSel(list.find((v) => v.recommended)?.version ?? list[0]?.version ?? "custom");
+        })
+        .catch(() => {
+          setVersions([]);
+          setVerSel("custom");
+        });
+    }
     // 重挂恢复：模块缓存里可能还有上次未结束的任务
     setTaskTick((n) => n + 1);
   }, [refresh]);
@@ -139,7 +162,12 @@ export function EnvironmentCard() {
   );
 
   const handleInstallNvm = () =>
-    runTask("nvm", () => installNvm()).then(() => void getNodeVersions());
+    runTask("nvm", () => installNvm()).then(() =>
+      void getNodeVersions().then((list) => {
+        versionsCache = list;
+        setVersions(list);
+      }),
+    );
 
   const handleInstallNode = () => {
     const version = verSel === "custom" ? customVer.trim() : verSel;
@@ -150,6 +178,9 @@ export function EnvironmentCard() {
   const handleInstallCli = (agent: AgentCliStatus, method: InstallMethodInfo) =>
     runTask(`cli:${agent.id}`, () => installAgentCli(agent.id, method.id));
 
+  const handleUpdateCli = (agentId: string) =>
+    runTask(`cli-upd:${agentId}`, () => updateAgentCli(agentId));
+
   // ── 渲染辅助 ────────────────────────────────────────────────────────────────
 
   const node = env?.node;
@@ -157,6 +188,7 @@ export function EnvironmentCard() {
   const customActive = verSel === "custom";
   const nvmMissing = env != null && !env.nvm.installed;
   const cliTaskRunning = (id: string) => taskStates.get(`cli:${id}`)?.running === true;
+  const cliUpdRunning = (id: string) => taskStates.get(`cli-upd:${id}`)?.running === true;
 
   return (
     <section className="rounded-lg border border-border bg-card p-3">
@@ -334,21 +366,38 @@ export function EnvironmentCard() {
         <div className="mt-1.5 flex flex-col gap-1.5">
           {(env?.agents ?? []).map((agent) => (
             <div key={agent.id} className="rounded-md border border-border/60 px-2.5 py-2">
-              {/* Agent 行：名称 + 状态 */}
+              {/* Agent 行：名称 + 状态（已安装 → 版本 + 更新按钮） */}
               <div className="flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
                   {agent.name}
                 </span>
                 {agent.installed ? (
-                  <span className="flex shrink-0 items-center gap-1 text-[10px] text-success">
-                    <Check size={11} />
-                    {t("env.installed")}
-                    {agent.version && (
-                      <span className="select-text font-mono text-muted-foreground">
-                        {agent.version}
-                      </span>
-                    )}
-                  </span>
+                  <>
+                    <span className="flex shrink-0 items-center gap-1 text-[10px] text-success">
+                      <Check size={11} />
+                      {t("env.installed")}
+                      {agent.version && (
+                        <span className="select-text font-mono text-muted-foreground">
+                          {agent.version}
+                        </span>
+                      )}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 shrink-0 gap-1 px-2 text-[10px]"
+                      disabled={busy}
+                      title={t("env.updateTitle")}
+                      onClick={() => void handleUpdateCli(agent.id)}
+                    >
+                      {cliUpdRunning(agent.id) ? (
+                        <Loader2 size={10} className="animate-spin" />
+                      ) : (
+                        <ArrowUpCircle size={10} />
+                      )}
+                      {cliUpdRunning(agent.id) ? t("env.installing") : t("env.update")}
+                    </Button>
+                  </>
                 ) : null}
               </div>
               {/* 未安装：每种官方方式一行（blocked 时给出原因并禁用） */}

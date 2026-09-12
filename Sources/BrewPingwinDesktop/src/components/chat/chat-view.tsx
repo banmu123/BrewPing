@@ -214,10 +214,13 @@ export function ChatView({
       ) : (
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto py-4">
           <MessageList messages={messages} isStreaming={isStreaming} />
+          {/* 思考指示器必须在同一内容列容器内（否则贴到全宽容器最左，与回复文字错位） */}
           {showThinking && (
-            <div className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="thinking-dot" />
-              <span>{t("chat.thinking", { agent: agentName })}</span>
+            <div className={CONVERSATION_CONTENT_WIDTH_CLASS}>
+              <div className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="thinking-dot" />
+                <span>{t("chat.thinking", { agent: agentName })}</span>
+              </div>
             </div>
           )}
         </div>

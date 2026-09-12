@@ -203,6 +203,27 @@
 }
 
 /* 规范 §6.7 滚动条：细胶囊，暖咖 */
+
+/* 全局细滚动条（参考 WorkBuddy：透明轨道 + 半透明圆角胶囊，hover 加深）。
+   覆盖所有容器——聊天区等未挂 panel-scroll 类的滚动容器也统一变细。 */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.28);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.45);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 .terminal-output::-webkit-scrollbar,
 .panel-scroll::-webkit-scrollbar {
   width: 6px;

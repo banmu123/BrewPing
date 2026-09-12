@@ -778,6 +778,22 @@ async fn install_agent_cli(
     )
 }
 
+/// 更新某个已安装的 Agent CLI 到最新版（官方更新通道），返回更新后的状态。
+#[tauri::command]
+async fn update_agent_cli(
+    core: tauri::State<'_, DesktopCore>,
+    agent_id: String,
+) -> Result<services::env_setup::AgentCliStatus, String> {
+    let sink = core.state.app_events.clone();
+    Ok(
+        tokio::task::spawn_blocking(move || {
+            services::env_setup::update_agent_cli(&agent_id, sink.as_ref())
+        })
+        .await
+        .map_err(|e| format!("join error: {e}"))??,
+    )
+}
+
 // ─── App Entry Point ─────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1028,6 +1044,7 @@ pub fn run() {
             install_nvm,
             install_node,
             install_agent_cli,
+            update_agent_cli,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

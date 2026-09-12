@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import QRCode from "react-qr-code";
 import {
   Archive,
@@ -13,10 +14,12 @@ import {
   Globe,
   Info,
   Layers,
+  Minus,
   Pin,
   PinOff,
   QrCode,
   ShieldCheck,
+  Square,
   SquarePen,
   SquareTerminal,
   Trash2,
@@ -852,11 +855,39 @@ export default function App() {
   );
 
   return (
-    <div className="flex h-svh w-full overflow-hidden bg-background">
+    <div className="flex h-svh w-full flex-col overflow-hidden bg-background">
+      {/* ─── 自定义标题栏（无边框窗口：整条可拖拽；品牌名不重复展示，只留窗口控制）── */}
+      <div data-tauri-drag-region className="flex h-7 shrink-0 select-none items-center justify-end bg-background">
+        <div className="flex h-full">
+          <button
+            className="flex h-full w-11 items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={() => void getCurrentWindow().minimize()}
+            title={t("win.minimize")}
+          >
+            <Minus size={14} />
+          </button>
+          <button
+            className="flex h-full w-11 items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={() => void getCurrentWindow().toggleMaximize()}
+            title={t("win.maximize")}
+          >
+            <Square size={11} />
+          </button>
+          <button
+            className="flex h-full w-11 items-center justify-center text-muted-foreground hover:bg-destructive hover:text-white"
+            onClick={() => void getCurrentWindow().close()}
+            title={t("win.close")}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex min-h-0 flex-1">
       {/* ─── 左侧边栏（悬浮圆角卡片：四周留缝、内容裁切在圆角内） ─────────────── */}
-      <aside className="m-2 mr-1 flex w-52 shrink-0 flex-col overflow-hidden rounded-2xl border border-border/50 bg-card shadow-xs">
-        {/* 品牌行（无边框，与下方自然衔接） */}
-        <div className="flex h-11 shrink-0 items-center gap-1.5 px-3.5">
+      <aside className="mb-2 ml-2 mr-1 mt-1 flex w-52 shrink-0 flex-col overflow-hidden rounded-2xl border border-border/50 bg-card shadow-xs">
+        {/* 品牌行（无边框，与下方自然衔接；高度与主区标题行对齐） */}
+        <div className="flex h-9 shrink-0 items-center gap-1.5 px-3.5">
           <span className="text-[11px]">☕</span>
           <span className="font-mono text-[11px] font-semibold text-primary/90">BrewPing</span>
           <span className="ml-auto flex items-center gap-1">
@@ -983,7 +1014,7 @@ export default function App() {
 
         <>
             {/* 顶栏：与内容同底色、无分隔线（参考 WorkBuddy），标题随对话自动生成 */}
-            <div className="flex h-11 shrink-0 items-center gap-2 px-4">
+            <div className="flex h-9 shrink-0 items-center gap-2 px-4">
               <span className="truncate text-sm font-medium text-foreground">
                 {activeConv?.title ?? t("top.newChat")}
               </span>
@@ -1133,6 +1164,7 @@ export default function App() {
             )}
           </>
       </main>
+      </div>
 
       {/* 设置弹窗：模态覆盖层（点遮罩 / Esc / 右上角 ✕ 关闭） */}
       {settingsOpen && (
