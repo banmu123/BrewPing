@@ -10,6 +10,9 @@ import type {
   ConversationSummary,
   BrowseRootsInfo,
   BrowseResultInfo,
+  EnvironmentStatus,
+  NodeVersionOption,
+  AgentCliStatus,
 } from "./types";
 
 /**
@@ -256,4 +259,49 @@ export async function setConversationWorkdir(
     conversationId: id,
     workdir: workdir ?? "",
   });
+}
+
+// ─── 环境与 CLI 安装（设置页「环境与 AI CLI」区块）────────────────────────────
+
+/**
+ * 全量环境检测：Node / npm / NVM / Python / 各 Agent CLI 的安装状态与版本。
+ * 探测要 spawn 若干 `--version`（约 1-2s），按需调用。
+ */
+export async function checkEnvironment(): Promise<EnvironmentStatus> {
+  return invoke<EnvironmentStatus>("check_environment");
+}
+
+/**
+ * 可安装的 Node 版本清单（nodejs.org dist index 按大版本聚合，推荐 = 最新 LTS；
+ * 离线回落为 nvm 别名 "latest" / "lts"）。
+ */
+export async function getNodeVersions(): Promise<NodeVersionOption[]> {
+  return invoke<NodeVersionOption[]>("get_node_versions");
+}
+
+/**
+ * 安装 NVM（winget 优先，官方静默安装包兜底；Windows 可能弹 UAC）。
+ * 进度经 `env-setup-log` / `env-setup-done` 事件流给前端，promise 在任务结束时 resolve。
+ */
+export async function installNvm(): Promise<unknown> {
+  return invoke<unknown>("install_nvm");
+}
+
+/**
+ * 经 NVM 安装指定版本的 Node（install → use → 验证），返回实际版本号。
+ * 支持具体版本（"22.14.0"）与 nvm 别名（"latest" / "lts"）。
+ */
+export async function installNode(version: string): Promise<string> {
+  return invoke<string>("install_node", { version });
+}
+
+/**
+ * 安装某个 Agent 的官方 CLI（methodId 取自检测结果 methods[].id，如 "native"/"npm"/"pip"）。
+ * 成功后返回该 Agent 的最新检测状态。
+ */
+export async function installAgentCli(
+  agentId: string,
+  methodId: string,
+): Promise<AgentCliStatus> {
+  return invoke<AgentCliStatus>("install_agent_cli", { agentId, methodId });
 }

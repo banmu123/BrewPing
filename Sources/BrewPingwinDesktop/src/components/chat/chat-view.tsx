@@ -5,6 +5,7 @@ import type { TranscriptEntry } from "../../api/types";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { cn } from "../../lib/utils";
 import { CONVERSATION_CONTENT_WIDTH_CLASS } from "../../lib/conversation-layout";
+import { useI18n, intlLocale } from "../../i18n";
 
 // ─── 消息模型：对话转录是权威数据源（方案 §6.3）──────────────────────────────
 
@@ -26,11 +27,11 @@ export function fromTranscript(entries: TranscriptEntry[]): ChatMessage[] {
   }));
 }
 
-/** 时间戳文案（对齐参考样式「星期五 20:48」）。 */
-function timeLabel(ms?: number): string | null {
+/** 时间戳文案（对齐参考样式「星期五 20:48」/ "Friday 20:48"），随语言切换。 */
+function timeLabel(ms: number | undefined, locale: "zh" | "en"): string | null {
   if (!ms) return null;
   const d = new Date(ms);
-  return d.toLocaleString("zh-CN", {
+  return d.toLocaleString(intlLocale(locale), {
     weekday: "long",
     hour: "2-digit",
     minute: "2-digit",
@@ -61,10 +62,10 @@ export function buildMessages(
 }
 
 /// 从一组消息里推导会话标题（兜底用；权威标题在后端 transcript 的 title 里）。
-export function deriveTitle(messages: ChatMessage[]): string {
+export function deriveTitle(messages: ChatMessage[], emptyLabel = "空对话"): string {
   const firstUser = messages.find((m) => m.role === "user");
   const text = (firstUser?.text ?? "").trim().replace(/\s+/g, " ");
-  if (!text) return "空对话";
+  if (!text) return emptyLabel;
   return text.length > 32 ? text.slice(0, 32) + "…" : text;
 }
 
@@ -104,18 +105,19 @@ export function MessageList({
   messages: ChatMessage[];
   isStreaming: boolean;
 }) {
+  const { t, locale } = useI18n();
   const lastId = messages.length > 0 ? messages[messages.length - 1].id : "-1";
   return (
     <div className={CONVERSATION_CONTENT_WIDTH_CLASS}>
       {messages.map((msg) =>
         msg.role === "user" ? (
           <div key={msg.id} className="mb-4">
-            {/* 时间戳 + 右对齐（参考截图：星期五 20:48） */}
-            {timeLabel(msg.createdAtMs) && (
+            {/* 时间戳 + 右对齐（参考截图：星期五 20:48 / Friday 20:48） */}
+            {timeLabel(msg.createdAtMs, locale) && (
               <div className="mb-1 flex items-center justify-end gap-1.5 text-[10px] text-muted-foreground">
-                <span>{timeLabel(msg.createdAtMs)}</span>
+                <span>{timeLabel(msg.createdAtMs, locale)}</span>
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/15 text-[9px] font-medium text-primary">
-                  我
+                  {t("chat.me")}
                 </span>
               </div>
             )}
@@ -179,6 +181,7 @@ export function ChatView({
   /** composer 卡片上方的独立条（工作目录选择），与卡片同宽 */
   composerTopBar?: ReactNode;
 }) {
+  const { t } = useI18n();
   const isStreaming =
     isBusy &&
     messages.length > 0 &&
@@ -214,7 +217,7 @@ export function ChatView({
           {showThinking && (
             <div className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
               <span className="thinking-dot" />
-              <span>{agentName} 正在思考…</span>
+              <span>{t("chat.thinking", { agent: agentName })}</span>
             </div>
           )}
         </div>
@@ -235,7 +238,7 @@ export function ChatView({
                   void submit();
                 }
               }}
-              placeholder={`给 ${agentName} 发消息，或从手机 / 手表发送…`}
+              placeholder={t("chat.placeholder", { agent: agentName })}
               rows={2}
               className={COMPOSER_TEXTAREA_CLASS}
             />
@@ -244,8 +247,8 @@ export function ChatView({
               {composerToolbar}
               <button
                 type="button"
-                aria-label="发送"
-                title="发送（Enter）"
+                aria-label={t("chat.send")}
+                title={t("chat.sendTitle")}
                 disabled={!canSend}
                 onClick={() => void submit()}
                 className={cn(
@@ -268,15 +271,16 @@ export function ChatView({
 // ─── 空态 Landing（布局规格 §6：问候区垂直居中 + composer 共享停靠壳） ─────────
 
 function LandingGreeting({ agentName }: { agentName: string }) {
+  const { t } = useI18n();
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto px-4">
       <div className="flex flex-1 flex-col items-center justify-center gap-5">
         <span className="text-3xl">☕</span>
         <h1 className="text-center text-4xl font-semibold tracking-tight text-foreground">
-          {agentName} 待命中
+          {t("chat.standby", { agent: agentName })}
         </h1>
         <p className="text-center text-sm text-muted-foreground">
-          在下方输入，或从 iPhone / Apple Watch 发送指令
+          {t("chat.landingHint")}
         </p>
       </div>
     </div>

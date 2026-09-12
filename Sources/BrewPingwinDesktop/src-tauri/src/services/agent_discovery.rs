@@ -107,7 +107,10 @@ fn discover_one(def: &AgentDefinition) -> AgentEntry {
 /// Locate a command on the system PATH.
 ///
 /// On Windows, also checks npm global bin directory for .cmd files.
-fn locate_command(command: &str) -> Option<String> {
+///
+/// `pub(crate)`：设置页的环境检测 / 安装引导（`env_setup`）复用同一套定位规则，
+/// 保证「检测到」与「执行时用同一个可执行文件」永远一致。
+pub(crate) fn locate_command(command: &str) -> Option<String> {
     // Phase 1: Use `which` crate (handles PATH search + Windows .cmd/.exe extensions)
     if let Ok(path) = which::which(command) {
         return Some(path.to_string_lossy().to_string());
@@ -118,7 +121,13 @@ fn locate_command(command: &str) -> Option<String> {
         return Some(npm_path);
     }
 
-    // Phase 3: Check common install locations
+    // Phase 3: NVM 管理的 node 目录（刚经 NVM 装完 node / npm -g 时，
+    // 本进程的 PATH 还是旧的，但版本目录里已经有可执行文件了）
+    if let Some(nvm_path) = find_in_nvm_dirs(command) {
+        return Some(nvm_path);
+    }
+
+    // Phase 4: Check common install locations
     if let Some(local_path) = check_common_locations(command) {
         return Some(local_path);
     }
@@ -186,7 +195,9 @@ fn check_common_locations(command: &str) -> Option<String> {
 }
 
 /// Get version string from a command.
-fn get_version(path: &str, args: &[&str]) -> Option<String> {
+///
+/// `pub(crate)`：供 `env_setup` 的环境检测复用（同一定位、同一版本提取规则）。
+pub(crate) fn get_version(path: &str, args: &[&str]) -> Option<String> {
     let output = Command::new(path).args(args).output().ok()?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -237,6 +248,176 @@ fn extract_version(raw: &str) -> String {
         }
     }
     first_line.to_string()
+}
+
+// ─── NVM / PATH 辅助（设置页「环境与 CLI」区块共用）────────────────────────────
+
+/// nvm-windows 的安装目录（NVM_HOME）：进程 env → 注册表（HKCU/HKLM）→ `nvm root` 输出。
+///
+/// 刚在本会话里装完 NVM 时，进程 env 与 PATH 都不会刷新，必须落回注册表探测；
+/// `nvm root` 是最后兜底（要 spawn 一个进程，代价最高）。
+pub(crate) fn nvm_home() -> Option<String> {
+    if let Ok(home) = std::env::var("NVM_HOME") {
+        if !home.trim().is_empty() {
+            return Some(home.trim().to_string());
+        }
+    }
+    #[cfg(windows)]
+    {
+        for (root, sub) in [
+            (winreg::enums::HKEY_CURRENT_USER, "Environment"),
+            (
+                winreg::enums::HKEY_LOCAL_MACHINE,
+                r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+            ),
+        ] {
+            if let Ok(key) = winreg::RegKey::predef(root).open_subkey(sub) {
+                if let Ok::<String, _>(home) = key.get_value("NVM_HOME") {
+                    if !home.trim().is_empty() {
+                        return Some(home.trim().to_string());
+                    }
+                }
+            }
+        }
+    }
+    parse_nvm_root_output(&run_capture("nvm", &["root"]))
+}
+
+/// nvm-windows 的活动版本符号链接目录（NVM_SYMLINK，默认 `C:\Program Files\nodejs`）。
+pub(crate) fn nvm_symlink() -> Option<String> {
+    if let Ok(dir) = std::env::var("NVM_SYMLINK") {
+        if !dir.trim().is_empty() {
+            return Some(dir.trim().to_string());
+        }
+    }
+    #[cfg(windows)]
+    {
+        for (root, sub) in [
+            (winreg::enums::HKEY_CURRENT_USER, "Environment"),
+            (
+                winreg::enums::HKEY_LOCAL_MACHINE,
+                r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+            ),
+        ] {
+            if let Ok(key) = winreg::RegKey::predef(root).open_subkey(sub) {
+                if let Ok::<String, _>(dir) = key.get_value("NVM_SYMLINK") {
+                    if !dir.trim().is_empty() {
+                        return Some(dir.trim().to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 解析 `nvm root` 的输出（`Current Root: D:\programs\nvm`）。
+fn parse_nvm_root_output(output: &str) -> Option<String> {
+    for line in output.lines() {
+        if let Some(rest) = line.trim().strip_prefix("Current Root:") {
+            let dir = rest.trim();
+            if !dir.is_empty() {
+                return Some(dir.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// nvm 管理的各 node 版本目录（`<NVM_HOME>\v*`），名称降序（新版本在前）。
+pub(crate) fn nvm_version_dirs() -> Vec<String> {
+    let Some(home) = nvm_home() else {
+        return Vec::new();
+    };
+    let mut dirs: Vec<(String, String)> = std::fs::read_dir(&home)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            // nvm-windows 的版本目录固定 v 前缀（v22.14.0）
+            if name.starts_with('v') && name[1..].chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                Some((name, entry.path().to_string_lossy().to_string()))
+            } else {
+                None
+            }
+        })
+        .collect();
+    dirs.sort_by(|a, b| b.0.cmp(&a.0));
+    dirs.into_iter().map(|(_, path)| path).collect()
+}
+
+/// nvm 目录下查找某个命令（`.cmd` / `.exe` / 裸名）。
+fn find_in_nvm_dirs(command: &str) -> Option<String> {
+    let mut dirs = Vec::new();
+    if let Some(symlink) = nvm_symlink() {
+        dirs.push(symlink);
+    }
+    dirs.extend(nvm_version_dirs());
+    if let Some(home) = nvm_home() {
+        dirs.push(home);
+    }
+    for dir in dirs {
+        for candidate in [
+            format!(r"{dir}\{command}.cmd"),
+            format!(r"{dir}\{command}.exe"),
+            format!(r"{dir}\{command}"),
+        ] {
+            if std::path::Path::new(&candidate).exists() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+/// spawn 子进程时应注入的额外 PATH 目录（排重、过滤空串）。
+///
+/// 覆盖四类来源：`~/.local/bin`（Claude Code 原生安装）、scoop shims、
+/// npm 全局目录（`%APPDATA%\npm`）、nvm（符号链接 + 各版本目录）。
+/// 本进程 PATH 过期（刚装完 NVM/CLI 未重启）时，靠它保证「装完就能用」。
+pub(crate) fn extra_path_dirs() -> Vec<String> {
+    let mut dirs: Vec<String> = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        dirs.push(format!(r"{}\.local\bin", home.display()));
+        dirs.push(format!(r"{}\scoop\shims", home.display()));
+    }
+    if let Ok(app_data) = std::env::var("APPDATA") {
+        dirs.push(format!(r"{app_data}\npm"));
+    }
+    if let Some(symlink) = nvm_symlink() {
+        dirs.push(symlink);
+    }
+    dirs.extend(nvm_version_dirs());
+    if let Some(home) = nvm_home() {
+        dirs.push(home);
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    dirs.into_iter()
+        .filter(|d| !d.trim().is_empty() && seen.insert(d.clone()))
+        .collect()
+}
+
+/// 目录里的静态定义（名称 + CLI 命令名），供 `env_setup` 组装安装规格。
+pub(crate) fn catalog_definition(agent_id: &str) -> Option<(&'static str, &'static str)> {
+    CATALOG
+        .iter()
+        .find(|def| def.id == agent_id)
+        .map(|def| (def.name, def.command))
+}
+
+/// 捕获式运行一个命令（stdout+stderr 合并、trim），失败返回 None。
+pub(crate) fn run_capture(program: &str, args: &[&str]) -> String {
+    Command::new(program)
+        .args(args)
+        .output()
+        .map(|out| {
+            let mut text = String::from_utf8_lossy(&out.stdout).to_string();
+            text.push_str(&String::from_utf8_lossy(&out.stderr));
+            text.trim().to_string()
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -334,5 +515,21 @@ mod tests {
             assert!(v.get(key).is_some(), "缺少字段 {key}");
         }
         assert!(v["executable"].is_boolean(), "executable 必须是布尔，不能是路径字符串");
+    }
+
+    // TC-AD-07  `nvm root` 输出解析（nvm-windows 可装在自定义位置，如 D:\programs\nvm）
+    #[test]
+    fn parse_nvm_root_output_extracts_dir() {
+        assert_eq!(
+            parse_nvm_root_output("Current Root: D:\\programs\\nvm"),
+            Some("D:\\programs\\nvm".to_string())
+        );
+        assert_eq!(
+            parse_nvm_root_output("\r\nCurrent Root: C:\\Users\\czk\\AppData\\Roaming\\nvm\r\n\r\nNVM_SYMLINK - C:\\Program Files\\nodejs"),
+            Some("C:\\Users\\czk\\AppData\\Roaming\\nvm".to_string()),
+            "必须取 Current Root: 后的目录，不被后续行干扰"
+        );
+        assert_eq!(parse_nvm_root_output("nvm 1.2.2"), None);
+        assert_eq!(parse_nvm_root_output(""), None);
     }
 }

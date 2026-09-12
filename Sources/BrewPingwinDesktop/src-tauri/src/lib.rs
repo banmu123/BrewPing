@@ -48,6 +48,8 @@ pub struct DesktopCore {
     /// 三段式运行时状态。
     /// 用 `std::sync::RwLock`：托盘菜单事件是同步上下文，不能 await。
     pub runtime_state: Arc<std::sync::RwLock<RuntimeState>>,
+    /// 环境安装会话状态（设置页「环境与 AI CLI」区块：本会话经 NVM 装好的 Node 版本）。
+    pub env_setup: Arc<services::env_setup::EnvSetupState>,
 }
 
 // ─── Pairing payload ─────────────────────────────────────────────────────────
@@ -698,6 +700,84 @@ async fn set_conversation_workdir(
     Ok(())
 }
 
+// ─── 环境与 CLI 安装命令（设置页「环境与 AI CLI」区块，env_setup.rs）──────────
+
+// 注意：Tauri 命令的参数上不能写 `///` 文档注释（error: only allowed built-in
+// attributes in function parameters），函数体注释用 `//`。
+
+/// 全量环境检测：Node / npm / NVM / Python / 各 CLI 的安装状态与版本。
+/// 探测要 spawn 若干进程，放 spawn_blocking（返回结构与前端 types.ts 对齐）。
+#[tauri::command]
+async fn check_environment() -> Result<services::env_setup::EnvironmentStatus, String> {
+    Ok(
+        tokio::task::spawn_blocking(services::env_setup::check_environment)
+            .await
+            .map_err(|e| format!("join error: {e}"))?,
+    )
+}
+
+/// 可安装的 Node 版本清单（nodejs.org dist index 按大版本聚合；离线回落 latest/lts 别名）。
+#[tauri::command]
+async fn get_node_versions() -> Result<Vec<services::env_setup::NodeVersionOption>, String> {
+    Ok(
+        tokio::task::spawn_blocking(services::env_setup::fetch_node_versions)
+            .await
+            .map_err(|e| format!("join error: {e}"))?,
+    )
+}
+
+/// 安装 NVM（winget 优先，官方静默安装包兜底；可能弹 UAC）。
+/// 进度经 `env-setup-log` / `env-setup-done` 事件流给前端。
+#[tauri::command]
+async fn install_nvm(core: tauri::State<'_, DesktopCore>) -> Result<serde_json::Value, String> {
+    let sink = core.state.app_events.clone();
+    Ok(
+        tokio::task::spawn_blocking(move || services::env_setup::install_nvm(sink.as_ref()))
+            .await
+            .map_err(|e| format!("join error: {e}"))??,
+    )
+}
+
+/// 经 NVM 安装指定版本的 Node（install → use → 验证），返回实际安装的版本号。
+/// 成功后记入会话状态，CLI 安装即可用（无需重启等 PATH 刷新）。
+#[tauri::command]
+async fn install_node(
+    core: tauri::State<'_, DesktopCore>,
+    version: String,
+) -> Result<String, String> {
+    let sink = core.state.app_events.clone();
+    let session = core.env_setup.clone();
+    let normalized = services::env_setup::validate_version_input(&version)?;
+    let normalized_for_session = normalized.clone();
+    tokio::task::spawn_blocking(move || {
+        services::env_setup::install_node(&normalized, sink.as_ref())
+    })
+    .await
+    .map_err(|e| format!("join error: {e}"))??;
+    if let Ok(mut slot) = session.session_node_version.lock() {
+        *slot = Some(normalized_for_session.clone());
+    }
+    Ok(normalized_for_session)
+}
+
+/// 安装某个 Agent 的官方 CLI（methodId 见检测结果的 methods[].id）。
+/// 成功后重新检测并返回最新状态；进度经事件流给前端。
+#[tauri::command]
+async fn install_agent_cli(
+    core: tauri::State<'_, DesktopCore>,
+    agent_id: String,
+    method_id: String,
+) -> Result<services::env_setup::AgentCliStatus, String> {
+    let sink = core.state.app_events.clone();
+    Ok(
+        tokio::task::spawn_blocking(move || {
+            services::env_setup::install_agent_cli(&agent_id, &method_id, sink.as_ref())
+        })
+        .await
+        .map_err(|e| format!("join error: {e}"))??,
+    )
+}
+
 // ─── App Entry Point ─────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -750,6 +830,8 @@ pub fn run() {
             let workdir_prefs = Arc::new(WorkdirPrefs::new());
             // 多对话仓库（方案 §4）：启动时做中断恢复 + 空对话清理。
             let conversations = Arc::new(ConversationStore::new());
+            // 环境安装会话状态（设置页：刚经 NVM 装好的 Node 版本，供 CLI 安装补 PATH）
+            let env_setup = Arc::new(services::env_setup::EnvSetupState::new());
 
             // 事件广播回调：把 tauri emit 包成通用 sink 注入 HTTP 层
             // （http_server / command_runner 不依赖 tauri 类型，见 EventSink 注释）。
@@ -786,6 +868,7 @@ pub fn run() {
                 // 立刻置 starting：让 UI 在服务 listen 完之前显示灰点 + "Starting…"，
                 // 而不是停在 idle（会被渲染成红色 Offline，让用户以为没启起来）。
                 runtime_state: Arc::new(std::sync::RwLock::new(RuntimeState::Starting)),
+                env_setup,
             };
 
             // Clone Arc handles BEFORE app.manage(core) consumes core
@@ -940,6 +1023,11 @@ pub fn run() {
             activate_conversation,
             toggle_pin_conversation,
             set_conversation_workdir,
+            check_environment,
+            get_node_versions,
+            install_nvm,
+            install_node,
+            install_agent_cli,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

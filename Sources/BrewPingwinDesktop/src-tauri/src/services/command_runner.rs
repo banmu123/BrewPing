@@ -288,12 +288,10 @@ pub async fn execute_agent_command(
         #[cfg(windows)]
         {
             if let Ok(path) = std::env::var("PATH") {
-                let home = dirs::home_dir().unwrap_or_default();
-                let extra = format!(
-                    "{}\\.local\\bin;{}\\scoop\\shims",
-                    home.display(),
-                    home.display()
-                );
+                // extra_path_dirs 覆盖 ~/.local/bin（claude 原生安装）、scoop shims、
+                // npm 全局目录与 nvm 各版本目录——本进程 PATH 过期（刚装完
+                // NVM/CLI 未重启）时也能找到新装的 CLI
+                let extra = crate::services::agent_discovery::extra_path_dirs().join(";");
                 cmd.env("PATH", format!("{};{}", extra, path));
             }
         }

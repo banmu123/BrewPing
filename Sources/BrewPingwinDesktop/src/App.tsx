@@ -56,13 +56,15 @@ import { Button } from "./components/ui/button";
 import { ChatView, fromTranscript } from "./components/chat/chat-view";
 import { ComposerDropdown } from "./components/chat/composer-dropdown";
 import { WorkdirPicker } from "./components/chat/workdir-picker";
+import { EnvironmentCard } from "./components/settings/environment-card";
 import { cn } from "./lib/utils";
+import { useI18n, intlLocale, type LangMode } from "./i18n";
 import "./styles/app.css";
 
-const APPROVAL_MODES: Array<{ id: ApprovalMode; label: string; summary: string }> = [
-  { id: "safe", label: "safe", summary: "只拦截危险命令（默认）" },
-  { id: "askAll", label: "askAll", summary: "每条命令都要确认" },
-  { id: "auto", label: "auto", summary: "全程免确认" },
+const APPROVAL_MODES: Array<{ id: ApprovalMode; label: string; descKey: "approval.safe" | "approval.askAll" | "approval.auto" }> = [
+  { id: "safe", label: "safe", descKey: "approval.safe" },
+  { id: "askAll", label: "askAll", descKey: "approval.askAll" },
+  { id: "auto", label: "auto", descKey: "approval.auto" },
 ];
 
 type MainView = "chat" | "settings";
@@ -95,6 +97,7 @@ function DirFilterMenu({
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
+  const { t } = useI18n();
 
   useEffect(() => {
     if (!open) return;
@@ -175,7 +178,7 @@ function DirFilterMenu({
           current !== ALL_DIRS && "bg-accent text-primary",
         )}
         onClick={toggle}
-        title="按目录筛选对话"
+        title={t("side.filterTooltip")}
       >
         <FolderOpen size={13} />
       </button>
@@ -187,13 +190,13 @@ function DirFilterMenu({
             style={{ position: "fixed", left: pos.left, top: pos.top, width: MENU_WIDTH }}
             className="z-[var(--z-popover)] max-h-[60vh] overflow-y-auto rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-[0_8px_28px_rgba(63,46,30,0.14),0_2px_8px_rgba(63,46,30,0.08)] composer-popup-in"
           >
-          <Row value={ALL_DIRS} label="全部对话" icon={<Layers size={13} />} />
-          <Row value={UNBOUND} label="未绑定目录" icon={<Folder size={13} />} />
+          <Row value={ALL_DIRS} label={t("side.filterAll")} icon={<Layers size={13} />} />
+          <Row value={UNBOUND} label={t("side.unbound")} icon={<Folder size={13} />} />
           {dirs.length > 0 && (
             <>
               <div className="my-1 border-t border-border" />
               <div className="px-2.5 pb-0.5 pt-0.5 text-[10px] text-muted-foreground/70">
-                按目录
+                {t("side.byDir")}
               </div>
               {dirs.map((d) => (
                 <Row
@@ -214,6 +217,7 @@ function DirFilterMenu({
 }
 
 export default function App() {
+  const { t, locale } = useI18n();
   const [status, setStatus] = useState<DesktopStatus | null>(null);
   const [terminals, setTerminals] = useState<AgentTerminalState[]>([]);
   const [activeAgentId, setActiveAgentId] = useState<string>("opencode");
@@ -758,7 +762,7 @@ export default function App() {
       <div className="flex h-svh w-full flex-col overflow-hidden bg-background">
         <div className="no-agent-placeholder font-mono">
           <span className="prompt">brewping ❯ </span>
-          <span className="message">Starting BrewPing Desktop...</span>
+          <span className="message">Starting BrewPing...</span>
         </div>
       </div>
     );
@@ -776,23 +780,26 @@ export default function App() {
         className="min-w-0 flex-1 rounded-md px-1.5 py-1.5"
         onClick={() => (archived ? undefined : void handleOpenConversation(c.id))}
         disabled={archived}
-        title={c.title ?? "（尚未命名）"}
+        title={c.title ?? t("side.untitled")}
       >
         <div className="flex items-center gap-1">
           {c.isPinned && <Pin size={10} className="shrink-0 text-primary/70" />}
           <span className="truncate text-xs text-foreground">
-            {c.title ?? "（尚未命名）"}
+            {c.title ?? t("side.untitled")}
           </span>
         </div>
-        <div className="mt-0.5 flex items-center gap-1 text-[9px] text-muted-foreground">
-          <span>{agentNameMap.get(c.agentId) ?? c.agentId}</span>
-          <span>·</span>
-          <span>{c.messageCount} 条</span>
-          <span>·</span>
-          <span>
-            {new Date(c.updatedAtMs).toLocaleTimeString([], {
+        {/* 元信息行：锁单行（英文 "4 msgs"/"05:43 PM" 比中文长，防换行破版），
+            agent 名可截断吸收超长，时间统一 24 小时制 */}
+        <div className="mt-0.5 flex items-center gap-1 overflow-hidden whitespace-nowrap text-[9px] text-muted-foreground">
+          <span className="min-w-0 truncate">{agentNameMap.get(c.agentId) ?? c.agentId}</span>
+          <span className="shrink-0">·</span>
+          <span className="shrink-0">{t("side.msgCount", { n: c.messageCount })}</span>
+          <span className="shrink-0">·</span>
+          <span className="shrink-0">
+            {new Date(c.updatedAtMs).toLocaleTimeString(intlLocale(locale), {
               hour: "2-digit",
               minute: "2-digit",
+              hour12: false,
             })}
           </span>
         </div>
@@ -802,14 +809,14 @@ export default function App() {
           <>
             <button
               className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
-              title="恢复对话"
+              title={t("side.restore")}
               onClick={() => void handleRestoreConversation(c.id)}
             >
               <ArchiveRestore size={13} />
             </button>
             <button
               className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-              title="彻底删除"
+              title={t("side.deleteForever")}
               onClick={() => void handleDeleteConversation(c.id)}
             >
               <Trash2 size={13} />
@@ -819,14 +826,14 @@ export default function App() {
           <>
             <button
               className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
-              title={c.isPinned ? "取消置顶" : "置顶"}
+              title={c.isPinned ? t("side.unpin") : t("side.pin")}
               onClick={() => void handleTogglePin(c.id, !c.isPinned)}
             >
               {c.isPinned ? <PinOff size={13} /> : <Pin size={13} />}
             </button>
             <button
               className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
-              title="关闭并归档"
+              title={t("side.archive")}
               onClick={() => void handleArchiveConversation(c.id)}
             >
               <Archive size={13} />
@@ -839,8 +846,8 @@ export default function App() {
 
   return (
     <div className="flex h-svh w-full overflow-hidden bg-background">
-      {/* ─── 左侧边栏（与主区的分界只靠底色差，不用硬分隔线） ───────────────── */}
-      <aside className="flex h-full w-52 shrink-0 flex-col border-r border-border/50 bg-card">
+      {/* ─── 左侧边栏（悬浮圆角卡片：四周留缝、内容裁切在圆角内） ─────────────── */}
+      <aside className="m-2 mr-1 flex w-52 shrink-0 flex-col overflow-hidden rounded-2xl border border-border/50 bg-card shadow-xs">
         {/* 品牌行（无边框，与下方自然衔接） */}
         <div className="flex h-11 shrink-0 items-center gap-1.5 px-3.5">
           <span className="text-[11px]">☕</span>
@@ -863,7 +870,7 @@ export default function App() {
             onClick={handleNewConversation}
           >
             <SquarePen size={14} className="shrink-0" />
-            <span>新对话</span>
+            <span>{t("side.newChat")}</span>
           </button>
         </div>
 
@@ -873,9 +880,9 @@ export default function App() {
           <div className="flex items-center justify-between px-1.5 pb-0.5 pt-2">
             <span className="truncate text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
               {dirFilter === ALL_DIRS
-                ? "全部对话"
+                ? t("side.filterAll")
                 : dirFilter === UNBOUND
-                  ? "未绑定目录"
+                  ? t("side.unbound")
                   : pathLabel(dirFilter)}
             </span>
             <DirFilterMenu current={dirFilter} dirs={recentDirs} onSelect={setDirFilter} />
@@ -883,11 +890,11 @@ export default function App() {
 
           {activeConversations.length === 0 ? (
             <div className="px-1.5 pt-1 text-[10px] leading-relaxed text-muted-foreground/60">
-              还没有对话。发一条消息即自动创建。
+              {t("side.empty")}
             </div>
           ) : visibleGroups.length === 0 ? (
             <div className="px-1.5 pt-1 text-[10px] leading-relaxed text-muted-foreground/60">
-              该目录下暂无对话。可从右侧目录菜单重新选择。
+              {t("side.groupEmpty")}
             </div>
           ) : (
             visibleGroups.map((group) => (
@@ -905,8 +912,8 @@ export default function App() {
                   }
                   title={
                     group.key === UNBOUND
-                      ? "未绑定目录的对话（点击折叠/展开）"
-                      : `${group.key}（点击折叠/展开）`
+                      ? t("side.unboundTooltip")
+                      : t("side.groupTooltip", { path: group.key })
                   }
                 >
                   <ChevronDown
@@ -921,7 +928,7 @@ export default function App() {
                     className="shrink-0 text-primary/75"
                   />
                   <span className="min-w-0 truncate text-[11px] font-medium text-foreground/85">
-                    {group.key === UNBOUND ? "未绑定目录" : pathLabel(group.key)}
+                    {group.key === UNBOUND ? t("side.unbound") : pathLabel(group.key)}
                   </span>
                   <span className="ml-auto shrink-0 text-[9px] text-muted-foreground/60">
                     {group.items.length}
@@ -936,7 +943,7 @@ export default function App() {
           {archivedConversations.length > 0 && (
             <>
               <div className="mt-2 border-t border-border/60 px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground/70">
-                已归档
+                {t("side.archived")}
               </div>
               {archivedConversations.map((c) => renderConversationItem(c, true))}
             </>
@@ -951,10 +958,10 @@ export default function App() {
               view === "settings" && "bg-accent font-medium text-foreground",
             )}
             onClick={() => setView(view === "settings" ? "chat" : "settings")}
-            title="机器信息 / 配对码"
+            title={t("side.settingsTooltip")}
           >
             <span className="text-sm leading-none">⚙</span>
-            <span>设置与配对</span>
+            <span>{t("side.settings")}</span>
           </button>
         </div>
       </aside>
@@ -986,7 +993,7 @@ export default function App() {
             {/* 顶栏：与内容同底色、无分隔线（参考 WorkBuddy），标题随对话自动生成 */}
             <div className="flex h-11 shrink-0 items-center gap-2 px-4">
               <span className="truncate text-sm font-medium text-foreground">
-                {activeConv?.title ?? "新对话"}
+                {activeConv?.title ?? t("top.newChat")}
               </span>
               <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[10px] text-secondary-foreground/80">
                 {convAgentName}
@@ -994,7 +1001,7 @@ export default function App() {
               <span className="ml-auto flex shrink-0 items-center gap-1.5">
                 <span className={`runtime-dot h-1.5 w-1.5 ${runtimeState === "online" ? "online" : runtimeState === "starting" ? "starting" : "offline"}`} />
                 <span className="text-[10px] text-muted-foreground">
-                  {runtimeState === "online" ? "在线" : runtimeState === "starting" ? "启动中…" : "离线"}
+                  {runtimeState === "online" ? t("top.online") : runtimeState === "starting" ? t("top.starting") : t("top.offline")}
                 </span>
               </span>
             </div>
@@ -1013,8 +1020,8 @@ export default function App() {
                   recentDirs={recentDirs}
                   hint={
                     isDraftConv
-                      ? "新对话将记录此目录（可另选或清除后不绑定）"
-                      : "本对话绑定的工作目录；更改只影响当前对话"
+                      ? t("wd.hintNew")
+                      : t("wd.hintBound")
                   }
                   onChange={handleSetWorkdir}
                 />
@@ -1023,7 +1030,7 @@ export default function App() {
                 <div className="flex min-w-0 flex-1 items-center gap-1">
                   {/* 切换 Agent */}
                   <ComposerDropdown
-                    title="切换 Agent"
+                    title={t("bar.switchAgent")}
                     icon={<Bot size={14} className="shrink-0" />}
                     value={convAgentId}
                     options={
@@ -1038,11 +1045,11 @@ export default function App() {
                   {/* 切换模型（agent 没有可用模型时隐藏） */}
                   {modelOptions.length > 0 && (
                     <ComposerDropdown
-                      title="选择模型"
+                      title={t("bar.pickModel")}
                       icon={<Cpu size={14} className="shrink-0" />}
                       value={currentModelKey}
                       options={[
-                        { value: "", label: "跟随 Agent 配置" },
+                        { value: "", label: t("bar.followAgent") },
                         ...modelOptions.map((m) => ({
                           value: m.key,
                           label: m.name,
@@ -1056,13 +1063,13 @@ export default function App() {
 
                   {/* 切换授权模式 */}
                   <ComposerDropdown
-                    title="授权模式"
+                    title={t("bar.approval")}
                     icon={<ShieldCheck size={14} className="shrink-0" />}
                     value={approvalMode}
                     options={APPROVAL_MODES.map((m) => ({
                       value: m.id,
-                      label: `授权 ${m.label}`,
-                      description: m.summary,
+                      label: t("bar.approvalItem", { label: m.label }),
+                      description: t(m.descKey),
                     }))}
                     onChange={(v) => handleSetApprovalMode(v as ApprovalMode)}
                     triggerClassName={cn(
@@ -1079,7 +1086,7 @@ export default function App() {
                         dockOpen && "bg-accent text-primary",
                       )}
                       onClick={() => setDockOpen(!dockOpen)}
-                      title="终端输出"
+                      title={t("bar.terminal")}
                     >
                       <SquareTerminal size={15} />
                     </button>
@@ -1093,14 +1100,14 @@ export default function App() {
               <div className="flex h-56 shrink-0 flex-col border-t border-border bg-card">
                 <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/60 px-3.5">
                   <span className="text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
-                    终端输出 · {convAgentName}
+                    {t("bar.terminalOf", { agent: convAgentName })}
                   </span>
                   <div className="flex items-center gap-1.5">
                     <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={handleClearTerminal}>
-                      清空
+                      {t("common.clear")}
                     </Button>
                     <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setDockOpen(false)}>
-                      收起
+                      {t("common.collapse")}
                     </Button>
                   </div>
                 </div>
@@ -1160,56 +1167,100 @@ function SettingsView({
   onCopy: () => void;
   onClose: () => void;
 }) {
-  const expiry = pairing?.expiresAt ? new Date(pairing.expiresAt).toLocaleTimeString() : null;
+  const { t, locale, langMode, setLangMode } = useI18n();
+  const expiry = pairing?.expiresAt
+    ? new Date(pairing.expiresAt).toLocaleTimeString(intlLocale(locale))
+    : null;
+
+  // 语言三选项（跟随系统 / 中文 / English），显示解析结果
+  const LANG_OPTIONS: Array<{ id: LangMode; label: string; desc: string }> = [
+    { id: "system", label: t("lang.system"), desc: t("lang.current", { name: locale === "zh" ? t("lang.zh") : t("lang.en") }) },
+    { id: "zh", label: t("lang.zh"), desc: locale === "zh" ? t("lang.current", { name: t("lang.zh") }) : "" },
+    { id: "en", label: t("lang.en"), desc: locale === "en" ? t("lang.current", { name: t("lang.en") }) : "" },
+  ];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* 标题行：与内容同底色、无分隔线，自然融合 */}
       <div className="flex h-11 shrink-0 items-center justify-between px-4">
-        <span className="text-sm font-medium text-foreground">设置与配对</span>
+        <span className="text-sm font-medium text-foreground">{t("set.title")}</span>
         <button
           className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
           onClick={onClose}
         >
           <CornerUpLeft size={13} />
-          返回对话
+          {t("set.back")}
         </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto panel-scroll px-3.5 py-3">
         <div className="mx-auto flex w-full max-w-md flex-col gap-3.5">
+          {/* ── 语言 / Language ── */}
+          <section className="rounded-lg border border-border bg-card p-3">
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+              {t("lang.title")}
+            </div>
+            <div className="flex flex-col gap-1">
+              {LANG_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-accent",
+                    langMode === opt.id && "bg-accent font-medium text-foreground",
+                  )}
+                  onClick={() => setLangMode(opt.id)}
+                  title={opt.desc || opt.label}
+                >
+                  <span className="min-w-0 flex-1 truncate">{opt.label}</span>
+                  {opt.desc && (
+                    <span className="shrink-0 text-[10px] font-normal text-muted-foreground/70">
+                      {opt.desc}
+                    </span>
+                  )}
+                  {langMode === opt.id && (
+                    <span className="shrink-0 text-[10px] text-primary">✓</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </section>
+
           {/* ── 机器信息 ── */}
           <section className="rounded-lg border border-border bg-card p-3">
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
-              本机信息
+              {t("set.machine")}
             </div>
             <dl className="grid grid-cols-[84px_1fr] gap-y-1.5 text-xs">
-              <dt className="text-muted-foreground">设备名</dt>
+              <dt className="text-muted-foreground">{t("set.deviceName")}</dt>
               <dd className="select-text truncate text-foreground">{status?.host ?? "—"}</dd>
-              <dt className="text-muted-foreground">设备 ID</dt>
+              <dt className="text-muted-foreground">{t("set.deviceId")}</dt>
               <dd className="select-text truncate font-mono text-foreground">{status?.deviceId ?? "—"}</dd>
-              <dt className="text-muted-foreground">局域网地址</dt>
+              <dt className="text-muted-foreground">{t("set.lanAddr")}</dt>
               <dd className="select-text truncate font-mono text-foreground">
                 {status ? `http://${status.lanIp}:${status.port}` : "—"}
               </dd>
-              <dt className="text-muted-foreground">mDNS 广播</dt>
-              <dd className="text-foreground">{status?.mdnsRunning ? "运行中" : "未运行"}</dd>
-              <dt className="text-muted-foreground">平台 / 版本</dt>
+              <dt className="text-muted-foreground">{t("set.mdns")}</dt>
+              <dd className="text-foreground">{status?.mdnsRunning ? t("set.mdnsOn") : t("set.mdnsOff")}</dd>
+              <dt className="text-muted-foreground">{t("set.platform")}</dt>
               <dd className="text-foreground">
                 {status?.platform ?? "—"} · v{status?.version ?? "—"}
               </dd>
-              <dt className="text-muted-foreground">服务状态</dt>
-              <dd className="text-foreground">{runtimeState}</dd>
+              <dt className="text-muted-foreground">{t("set.service")}</dt>
+              <dd className="text-foreground">{t(`state.${runtimeState}`)}</dd>
             </dl>
             <div className="mt-2 border-t border-border pt-2 text-[10px] leading-relaxed text-muted-foreground/65">
-              iPhone / Apple Watch 通过同一局域网访问上面的地址；手机端 App 扫下方二维码即可配对。
+              {t("set.lanHint")}
             </div>
           </section>
+
+          {/* ── 环境与 AI CLI（Node / NVM / 各智能体 CLI 的检测与安装引导）── */}
+          <EnvironmentCard />
 
           {/* ── 配对 ── */}
           <section className="rounded-lg border border-border bg-card p-3">
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
-              配对（Pairing）
+              {t("set.pairing")}
             </div>
 
             {pairing?.code ? (
@@ -1219,15 +1270,15 @@ function SettingsView({
                     {pairing.code}
                   </span>
                   <Button variant="outline" size="sm" onClick={onCopy}>
-                    {copied ? "已复制" : "复制"}
+                    {copied ? t("common.copied") : t("common.copy")}
                   </Button>
-                  <Button variant="outline" size="sm" onClick={onRegenerate} title="作废当前码并生成新的">
-                    刷新
+                  <Button variant="outline" size="sm" onClick={onRegenerate} title={t("common.refresh")}>
+                    {t("common.refresh")}
                   </Button>
                 </div>
                 {expiry && (
                   <div className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
-                    过期时间 {expiry}
+                    {t("set.expiry", { time: expiry })}
                   </div>
                 )}
 
@@ -1237,7 +1288,7 @@ function SettingsView({
                       <QRCode value={pairing.url} size={148} bgColor="#ffffff" fgColor="#4A3B2D" />
                     </div>
                     <div className="text-[10px] leading-relaxed text-muted-foreground">
-                      用 iPhone 上的 BrewPing 扫码
+                      {t("set.scanHint")}
                     </div>
                     <div className="break-all text-[10px] leading-relaxed text-muted-foreground/65">
                       {pairing.url}
@@ -1245,22 +1296,21 @@ function SettingsView({
                   </div>
                 ) : (
                   <div className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
-                    等待网络就绪…
+                    {t("set.waitingNet")}
                   </div>
                 )}
 
                 <div className="mt-1.5 break-all text-[10px] leading-relaxed text-muted-foreground/65">
-                  也可以在 iPhone 的 BrewPing 里手动输入这个 6 位码。
+                  {t("set.manualCode")}
                 </div>
               </>
             ) : (
               <>
                 <Button variant="default" className="w-full" onClick={onReveal}>
-                  显示配对码
+                  {t("set.showCode")}
                 </Button>
                 <div className="mt-1.5 break-all text-[10px] leading-relaxed text-muted-foreground/65">
-                  配对码只在需要时生成，10 分钟内有效且一次性。
-                  iPhone 用它换取长期访问令牌。
+                  {t("set.codeHint")}
                 </div>
               </>
             )}

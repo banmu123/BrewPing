@@ -173,3 +173,82 @@ export interface ConversationDelta {
   text: string;
   done: boolean;
 }
+
+// ─── 环境与 CLI 安装（设置页；对齐 env_setup.rs 的 serde 契约，camelCase）──────
+
+/// 通用工具状态（npm / python）。
+export interface EnvToolStatus {
+  installed: boolean;
+  version: string | null;
+  path: string | null;
+}
+
+/// Node.js 状态（带兼容判定）。
+export interface EnvNodeStatus extends EnvToolStatus {
+  major: number | null;
+  /// major >= 22（Claude Code npm 路线的门槛）
+  compatible: boolean;
+  /// "nvm" | "system"，仅作展示提示。
+  source: string | null;
+}
+
+/// NVM for Windows 状态。
+export interface EnvNvmStatus extends EnvToolStatus {
+  /// NVM_HOME（各 node 版本装在 `<root>\v*`）。
+  root: string | null;
+}
+
+/// 一种官方安装方式。`blocked` 非空 = 当前环境不满足前置条件：
+/// "node"（未装 Node）/ "node-version"（低于 minNodeMajor）/ "python"（未装 Python）。
+export interface InstallMethodInfo {
+  id: string;
+  needsNode: boolean;
+  minNodeMajor: number;
+  needsPython: boolean;
+  blocked: string | null;
+  /// 原样展示的官方命令。
+  display: string;
+  recommended: boolean;
+}
+
+/// 一个 Agent CLI 的检测状态 + 安装方式。
+export interface AgentCliStatus {
+  id: string;
+  name: string;
+  installed: boolean;
+  version: string | null;
+  path: string | null;
+  methods: InstallMethodInfo[];
+}
+
+/// `check_environment` 的返回。
+export interface EnvironmentStatus {
+  node: EnvNodeStatus;
+  npm: EnvToolStatus;
+  nvm: EnvNvmStatus;
+  python: EnvToolStatus;
+  agents: AgentCliStatus[];
+}
+
+/// 可安装的 Node 版本（version 可直接作为 nvm install 参数；
+/// 离线兜底为别名 "latest" / "lts"）。
+export interface NodeVersionOption {
+  version: string;
+  major: number | null;
+  lts: boolean;
+  ltsName: string | null;
+  recommended: boolean;
+}
+
+/// `env-setup-log` 事件载荷：一行安装日志。
+export interface EnvSetupLog {
+  task: string;
+  line: string;
+}
+
+/// `env-setup-done` 事件载荷：一个安装任务结束。
+export interface EnvSetupDone {
+  task: string;
+  ok: boolean;
+  error: string | null;
+}

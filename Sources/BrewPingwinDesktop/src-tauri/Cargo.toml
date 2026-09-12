@@ -28,6 +28,9 @@ dirs = "6"
 dunce = "1.0"
 log = "0.4"
 env_logger = "0.11"
+# Node 版本清单（nodejs.org dist index）与 NVM 官方安装包下载：
+# 只需要阻塞式 GET + TLS（rustls），ureq 比 reqwest 轻一个量级
+ureq = { version = "2", default-features = false, features = ["tls"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

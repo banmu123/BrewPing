@@ -15,6 +15,7 @@ import {
 } from "../../api/tauri";
 import type { BrowseRootsInfo, BrowseResultInfo } from "../../api/types";
 import { cn } from "../../lib/utils";
+import { useI18n } from "../../i18n";
 
 // ─── 工作目录条（composer 上方；视觉对齐参考截图的 📁 workFlow 圆角边框条）────
 // 触发条 = Folder 图标 + 目录路径（末段加粗）+ 右侧作用范围提示；
@@ -46,7 +47,7 @@ function pathLabel(path: string): string {
 export function WorkdirPicker({
   workdir,
   recentDirs = [],
-  hint = "对话与文件操作将作用于所选目录",
+  hint,
   onChange,
 }: {
   /** 当前生效目录（null = 未绑定，回落 CLI 默认 / agent 偏好）。 */
@@ -58,6 +59,8 @@ export function WorkdirPicker({
   /** 选择 / 清除后回调（持久化由 App 层决定：写入对话绑定或草稿态）。 */
   onChange: (path: string | null) => void;
 }) {
+  const { t } = useI18n();
+  const hint_ = hint ?? t("wd.hintDefault");
   const [open, setOpen] = useState(false);
   const [roots, setRoots] = useState<BrowseRootsInfo | null>(null);
   const [browse, setBrowse] = useState<BrowseResultInfo | null>(null);
@@ -133,7 +136,7 @@ export function WorkdirPicker({
         type="button"
         className={BAR_CLASS}
         onClick={() => setOpen((v) => !v)}
-        title={workdir ?? "未设置工作目录（使用 CLI 默认位置）"}
+        title={workdir ?? t("wd.titleUnset")}
       >
         <Folder size={14} className="shrink-0 text-primary/80" />
         {workdir ? (
@@ -145,14 +148,14 @@ export function WorkdirPicker({
           </span>
         ) : (
           <span className="min-w-0 truncate whitespace-nowrap">
-            未设置工作目录
+            {t("wd.unset")}
             <span className="ml-1.5 text-muted-foreground/70">
-              （将使用 CLI 默认位置）
+              {t("wd.unsetHint")}
             </span>
           </span>
         )}
         <span className="ml-auto hidden shrink-0 text-[10px] text-muted-foreground/70 md:inline">
-          {hint}
+          {hint_}
         </span>
         <ChevronDown
           size={12}
@@ -165,17 +168,17 @@ export function WorkdirPicker({
           {/* 当前生效目录 + 清除 */}
           <div className="flex items-center gap-2 px-2.5 py-1.5">
             <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
-              当前：{workdir ?? "未设置（CLI 默认位置）"}
+              {workdir ? t("wd.current", { path: workdir }) : t("wd.currentUnset")}
             </span>
             {workdir && (
               <button
                 type="button"
                 className="flex h-5 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
                 onClick={() => void pick(null)}
-                title="清除偏好，恢复 CLI 默认位置"
+                title={t("wd.clearTitle")}
               >
                 <X size={11} />
-                清除
+                {t("wd.clear")}
               </button>
             )}
           </div>
@@ -192,7 +195,7 @@ export function WorkdirPicker({
                 title={roots.homeDir}
               >
                 <Home size={12} className="shrink-0" />
-                主目录
+                {t("wd.home")}
               </button>
             )}
             {(roots?.drives ?? []).map((d) => (
@@ -215,7 +218,7 @@ export function WorkdirPicker({
           {recentDirs.length > 0 && (
             <>
               <div className="px-2.5 pb-1 pt-0.5 text-[10px] text-muted-foreground/70">
-                最近使用
+                {t("wd.recent")}
               </div>
               <div className="flex flex-wrap gap-1 px-1.5 pb-1">
                 {recentDirs.slice(0, 6).map((d) => (
@@ -243,7 +246,7 @@ export function WorkdirPicker({
           <div className="flex items-center gap-1.5 px-1.5 pb-1">
             <input
               className="h-7 min-w-0 flex-1 rounded-lg border border-input-border bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus-visible:border-primary/50 focus-visible:outline-none"
-              placeholder="或直接输入目录路径，如 D:\work\project"
+              placeholder={t("wd.manualPlaceholder")}
               value={manualPath}
               onChange={(e) => setManualPath(e.target.value)}
               onKeyDown={(e) => {
@@ -261,7 +264,7 @@ export function WorkdirPicker({
                 pick(manualPath.trim());
                 setManualPath("");
               }}
-              title="绑定输入的目录"
+              title={t("wd.bindManual")}
             >
               <Check size={13} />
             </button>
@@ -274,7 +277,7 @@ export function WorkdirPicker({
               className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!browse?.parentPath || busy}
               onClick={() => void enter(browse?.parentPath ?? null)}
-              title="上一级"
+              title={t("wd.parent")}
             >
               <ArrowUp size={12} />
             </button>
@@ -292,7 +295,7 @@ export function WorkdirPicker({
             )}
             {!browseError && dirs.length === 0 && (
               <div className="px-2.5 py-2 text-[10px] text-muted-foreground">
-                {busy ? "加载中…" : "没有子目录"}
+                {busy ? t("wd.loading") : t("wd.noSubdirs")}
               </div>
             )}
             {dirs.map((e) => {
@@ -319,7 +322,7 @@ export function WorkdirPicker({
                         : "text-muted-foreground/50 hover:bg-accent hover:text-foreground",
                     )}
                     onClick={() => void pick(e.absolutePath)}
-                    title={`选定 ${e.absolutePath} 为工作目录`}
+                    title={t("wd.pickTitle", { path: e.absolutePath })}
                   >
                     <Check size={13} />
                   </button>
@@ -331,7 +334,7 @@ export function WorkdirPicker({
           <div className="my-1 border-t border-border" />
 
           <div className="px-2.5 py-1.5 text-[10px] leading-relaxed text-muted-foreground/70">
-            点目录名进入，点右侧 ✓ 选定。后续对话与文件操作将作用于所选目录。
+            {t("wd.footer")}
           </div>
         </div>
       )}

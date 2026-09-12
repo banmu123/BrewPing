@@ -45,7 +45,7 @@ fn device_path() -> PathBuf {
 pub fn get_device_name() -> String {
     hostname::get()
         .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "BrewPing Desktop".to_string())
+        .unwrap_or_else(|_| "BrewPing".to_string())
 }
 
 #[cfg(test)]
