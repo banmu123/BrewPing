@@ -7,17 +7,20 @@ import {
   ArchiveRestore,
   Bot,
   ChevronDown,
-  CornerUpLeft,
   Cpu,
   Folder,
   FolderOpen,
+  Globe,
+  Info,
   Layers,
   Pin,
   PinOff,
+  QrCode,
   ShieldCheck,
   SquarePen,
   SquareTerminal,
   Trash2,
+  X,
 } from "lucide-react";
 import {
   getStatus,
@@ -67,7 +70,8 @@ const APPROVAL_MODES: Array<{ id: ApprovalMode; label: string; descKey: "approva
   { id: "auto", label: "auto", descKey: "approval.auto" },
 ];
 
-type MainView = "chat" | "settings";
+/// 设置页左侧导航的分类（弹窗双栏布局，参考 WorkBuddy 设置弹窗）。
+type SettingsSectionId = "general" | "machine" | "environment" | "pairing";
 
 /// 草稿输入的存储键（尚无对话 ID 时）。
 const DRAFT_KEY = "__draft__";
@@ -219,10 +223,12 @@ function DirFilterMenu({
 export default function App() {
   const { t, locale } = useI18n();
   const [status, setStatus] = useState<DesktopStatus | null>(null);
+  /// 设置弹窗开关 + 当前分类（托盘「显示配对码」要能直接跳到配对分类）。
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>("general");
   const [terminals, setTerminals] = useState<AgentTerminalState[]>([]);
   const [activeAgentId, setActiveAgentId] = useState<string>("opencode");
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<MainView>("chat");
   const [pairing, setPairing] = useState<PairingInfo | null>(null);
   const [approvalMode, setApprovalModeState] = useState<ApprovalMode>("safe");
   const [models, setModels] = useState<AgentModelsInfo | null>(null);
@@ -374,9 +380,10 @@ export default function App() {
     const unlistenRuntime = listen("runtime-state-changed", () => {
       refreshStatus();
     });
-    // 托盘「显示配对码」→ 打开设置视图（配对卡在里面）
+    // 托盘「显示配对码」→ 打开设置弹窗并定位到配对分类
     const unlistenPairing = listen("pairing-revealed", () => {
-      setView("settings");
+      setSettingsOpen(true);
+      setSettingsSection("pairing");
       refreshSecurity();
     });
     const unlistenRefresh = listen("refresh-agents", () => {
@@ -572,7 +579,7 @@ export default function App() {
     updateActiveConvId(null);
     setActiveConv(null);
     setDraftWorkdir(undefined);
-    setView("chat");
+    setSettingsOpen(false);
   };
 
   const handleOpenConversation = (id: string) =>
@@ -583,7 +590,7 @@ export default function App() {
       setActiveConv(conv);
       // 不自动切 dirFilter：打开历史对话 = 切换当前对话，列表视野不动
       //（目录条仍随对话绑定自动显示，见 effectiveWorkdir）。
-      setView("chat");
+      setSettingsOpen(false);
     });
 
   const handleArchiveConversation = (id: string) =>
@@ -865,7 +872,7 @@ export default function App() {
           <button
             className={cn(
               "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground",
-              activeConvId === null && view === "chat" && "bg-accent font-medium text-foreground",
+              activeConvId === null && "bg-accent font-medium text-foreground",
             )}
             onClick={handleNewConversation}
           >
@@ -950,14 +957,11 @@ export default function App() {
           )}
         </div>
 
-        {/* 底部：齿轮（设置 + 配对） */}
+        {/* 底部：齿轮（设置 + 配对）—— 打开模态设置弹窗 */}
         <div className="shrink-0 border-t border-border p-2.5">
           <button
-            className={cn(
-              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground",
-              view === "settings" && "bg-accent font-medium text-foreground",
-            )}
-            onClick={() => setView(view === "settings" ? "chat" : "settings")}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={() => setSettingsOpen(true)}
             title={t("side.settingsTooltip")}
           >
             <span className="text-sm leading-none">⚙</span>
@@ -977,19 +981,7 @@ export default function App() {
           </div>
         )}
 
-        {view === "settings" ? (
-          <SettingsView
-            status={status}
-            pairing={pairing}
-            copied={copied}
-            runtimeState={runtimeState}
-            onReveal={handleRevealPairing}
-            onRegenerate={handleRegeneratePairing}
-            onCopy={handleCopyCode}
-            onClose={() => setView("chat")}
-          />
-        ) : (
-          <>
+        <>
             {/* 顶栏：与内容同底色、无分隔线（参考 WorkBuddy），标题随对话自动生成 */}
             <div className="flex h-11 shrink-0 items-center gap-2 px-4">
               <span className="truncate text-sm font-medium text-foreground">
@@ -1140,8 +1132,23 @@ export default function App() {
               </div>
             )}
           </>
-        )}
       </main>
+
+      {/* 设置弹窗：模态覆盖层（点遮罩 / Esc / 右上角 ✕ 关闭） */}
+      {settingsOpen && (
+        <SettingsView
+          status={status}
+          pairing={pairing}
+          copied={copied}
+          runtimeState={runtimeState}
+          section={settingsSection}
+          onSectionChange={setSettingsSection}
+          onReveal={handleRevealPairing}
+          onRegenerate={handleRegeneratePairing}
+          onCopy={handleCopyCode}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1153,6 +1160,8 @@ function SettingsView({
   pairing,
   copied,
   runtimeState,
+  section,
+  onSectionChange,
   onReveal,
   onRegenerate,
   onCopy,
@@ -1162,6 +1171,8 @@ function SettingsView({
   pairing: PairingInfo | null;
   copied: boolean;
   runtimeState: RuntimeState;
+  section: SettingsSectionId;
+  onSectionChange: (id: SettingsSectionId) => void;
   onReveal: () => void;
   onRegenerate: () => void;
   onCopy: () => void;
@@ -1179,23 +1190,62 @@ function SettingsView({
     { id: "en", label: t("lang.en"), desc: locale === "en" ? t("lang.current", { name: t("lang.en") }) : "" },
   ];
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* 标题行：与内容同底色、无分隔线，自然融合 */}
-      <div className="flex h-11 shrink-0 items-center justify-between px-4">
-        <span className="text-sm font-medium text-foreground">{t("set.title")}</span>
-        <button
-          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-          onClick={onClose}
-        >
-          <CornerUpLeft size={13} />
-          {t("set.back")}
-        </button>
-      </div>
+  // 左侧分类导航（label/icon 每渲染重建以跟随语言切换）
+  const NAV_ITEMS: Array<{ id: SettingsSectionId; label: string; icon: React.ReactNode }> = [
+    { id: "general", label: t("set.navGeneral"), icon: <Globe size={13} /> },
+    { id: "machine", label: t("set.navMachine"), icon: <Info size={13} /> },
+    { id: "environment", label: t("set.navEnvironment"), icon: <Cpu size={13} /> },
+    { id: "pairing", label: t("set.navPairing"), icon: <QrCode size={13} /> },
+  ];
+  const activeLabel = NAV_ITEMS.find((n) => n.id === section)?.label ?? "";
 
-      <div className="min-h-0 flex-1 overflow-y-auto panel-scroll px-3.5 py-3">
-        <div className="mx-auto flex w-full max-w-md flex-col gap-3.5">
-          {/* ── 语言 / Language ── */}
+  // Esc 关闭弹窗
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {/* 遮罩：点击空白关闭 */}
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative flex h-[80vh] max-h-[720px] w-[780px] max-w-[94vw] overflow-hidden rounded-2xl border border-border bg-background shadow-panel">
+      {/* 左侧分类导航（双栏布局，参考 WorkBuddy 设置弹窗） */}
+      <nav className="flex w-36 shrink-0 flex-col gap-0.5 overflow-y-auto bg-card p-2">
+        {NAV_ITEMS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={cn(
+              "flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-foreground",
+              section === item.id && "bg-accent font-medium text-foreground",
+            )}
+            onClick={() => onSectionChange(item.id)}
+          >
+            <span className="shrink-0 text-muted-foreground">{item.icon}</span>
+            <span className="min-w-0 truncate">{item.label}</span>
+          </button>
+        ))}
+      </nav>
+      {/* 右侧：标题行 + 内容 */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex h-12 shrink-0 items-center justify-between px-4">
+          <span className="text-sm font-medium text-foreground">{activeLabel}</span>
+          <button
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={onClose}
+            title={t("set.close")}
+          >
+            <X size={15} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto panel-scroll px-4 pb-4">
+          <div className="mx-auto flex w-full max-w-md flex-col gap-3.5">
+            {/* ── 语言 / Language ── */}
+            {section === "general" && (
           <section className="rounded-lg border border-border bg-card p-3">
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
               {t("lang.title")}
@@ -1225,8 +1275,10 @@ function SettingsView({
               ))}
             </div>
           </section>
+            )}
 
-          {/* ── 机器信息 ── */}
+            {/* ── 本机信息 ── */}
+            {section === "machine" && (
           <section className="rounded-lg border border-border bg-card p-3">
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
               {t("set.machine")}
@@ -1236,12 +1288,6 @@ function SettingsView({
               <dd className="select-text truncate text-foreground">{status?.host ?? "—"}</dd>
               <dt className="text-muted-foreground">{t("set.deviceId")}</dt>
               <dd className="select-text truncate font-mono text-foreground">{status?.deviceId ?? "—"}</dd>
-              <dt className="text-muted-foreground">{t("set.lanAddr")}</dt>
-              <dd className="select-text truncate font-mono text-foreground">
-                {status ? `http://${status.lanIp}:${status.port}` : "—"}
-              </dd>
-              <dt className="text-muted-foreground">{t("set.mdns")}</dt>
-              <dd className="text-foreground">{status?.mdnsRunning ? t("set.mdnsOn") : t("set.mdnsOff")}</dd>
               <dt className="text-muted-foreground">{t("set.platform")}</dt>
               <dd className="text-foreground">
                 {status?.platform ?? "—"} · v{status?.version ?? "—"}
@@ -1249,15 +1295,14 @@ function SettingsView({
               <dt className="text-muted-foreground">{t("set.service")}</dt>
               <dd className="text-foreground">{t(`state.${runtimeState}`)}</dd>
             </dl>
-            <div className="mt-2 border-t border-border pt-2 text-[10px] leading-relaxed text-muted-foreground/65">
-              {t("set.lanHint")}
-            </div>
           </section>
+            )}
 
-          {/* ── 环境与 AI CLI（Node / NVM / 各智能体 CLI 的检测与安装引导）── */}
-          <EnvironmentCard />
+            {/* ── 环境与 AI CLI（Node / NVM / 各智能体 CLI 的检测与安装引导）── */}
+            {section === "environment" && <EnvironmentCard />}
 
-          {/* ── 配对 ── */}
+            {/* ── 配对 ── */}
+            {section === "pairing" && (
           <section className="rounded-lg border border-border bg-card p-3">
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
               {t("set.pairing")}
@@ -1315,8 +1360,11 @@ function SettingsView({
               </>
             )}
           </section>
+            )}
 
+          </div>
         </div>
+      </div>
       </div>
     </div>
   );

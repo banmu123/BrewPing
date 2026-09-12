@@ -104,6 +104,11 @@ export const zh = {
   "set.showCode": "显示配对码",
   "set.codeHint":
     "配对码只在需要时生成，10 分钟内有效且一次性。iPhone 用它换取长期访问令牌。",
+  "set.navGeneral": "通用",
+  "set.navMachine": "本机信息",
+  "set.navEnvironment": "环境与 CLI",
+  "set.navPairing": "配对",
+  "set.close": "关闭",
 
   // 运行状态（settings 服务状态值）
   "state.idle": "空闲",
@@ -271,6 +276,11 @@ export const en: Dict = {
   "set.showCode": "Show pairing code",
   "set.codeHint":
     "The pairing code is generated on demand, valid for 10 minutes and single-use. iPhone exchanges it for a long-lived token.",
+  "set.navGeneral": "General",
+  "set.navMachine": "Machine",
+  "set.navEnvironment": "Environment",
+  "set.navPairing": "Pairing",
+  "set.close": "Close",
 
   // Runtime states
   "state.idle": "Idle",
