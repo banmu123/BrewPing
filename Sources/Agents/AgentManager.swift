@@ -27,6 +27,10 @@ public final class AgentManager {
     private struct ConfigFile: Codable {
         var defaultAgent: String
         var defaultModels: [String: String]?
+        /// 与 `defaultModels` 配对的 providerId。
+        /// 同一个 modelId 可能由多个 provider 提供（例如 opencode 里
+        /// `mimo-v2.5-pro` 同时来自两家），只记 modelId 无法确定选中项。
+        var defaultModelProviders: [String: String]?
     }
 
     private init() {
@@ -40,15 +44,21 @@ public final class AgentManager {
               !config.defaultAgent.isEmpty else { return }
         _defaultAgentID = config.defaultAgent
         _defaultModels = config.defaultModels ?? [:]
+        _defaultModelProviders = config.defaultModelProviders ?? [:]
     }
 
     private func saveConfig() {
-        var config = ConfigFile(defaultAgent: _defaultAgentID, defaultModels: _defaultModels)
+        var config = ConfigFile(
+            defaultAgent: _defaultAgentID,
+            defaultModels: _defaultModels,
+            defaultModelProviders: _defaultModelProviders
+        )
         guard let data = try? JSONEncoder().encode(config) else { return }
         try? data.write(to: configFileURL, options: .atomic)
     }
 
     private var _defaultModels: [String: String] = [:]
+    private var _defaultModelProviders: [String: String] = [:]
 
     // MARK: - Multi-Agent State
 
@@ -103,7 +113,7 @@ public final class AgentManager {
 
     // MARK: - Legacy API (保持向后兼容)
 
-    var defaultAgentID: String {
+    public var defaultAgentID: String {
         lock.lock()
         defer { lock.unlock() }
         return _defaultAgentID
@@ -129,10 +139,17 @@ public final class AgentManager {
         return AgentDiscovery.catalog.first { $0.id == id }?.name ?? id
     }
 
-    func defaultModel(for agentID: String) -> String? {
+    public func defaultModel(for agentID: String) -> String? {
         lock.lock()
         defer { lock.unlock() }
         return _defaultModels[agentID]
+    }
+
+    /// 用户偏好模型对应的 providerId（同名模型跨 provider 时用于精确勾选）。
+    public func defaultModelProvider(for agentID: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _defaultModelProviders[agentID]
     }
 
     func resolvedModel(for agentID: String) -> String? {
@@ -141,19 +158,34 @@ public final class AgentManager {
         return config.activeModelId
     }
 
-    func setDefaultModel(_ modelId: String?, for agentID: String) {
+    /// 只设 modelId（旧签名）。清除偏好时 providerId 一并清除。
+    public func setDefaultModel(_ modelId: String?, for agentID: String) {
+        setDefaultModel(modelId, providerId: nil, for: agentID)
+    }
+
+    /// 设 / 清用户偏好模型。`modelId` 传 nil 清除（同时清 provider）。
+    ///
+    /// modelId 与 providerId 必须**成对**存取：只留其一会让选中判定在
+    /// 同名模型跨 provider 时勾中错误的那一条。
+    public func setDefaultModel(_ modelId: String?, providerId: String?, for agentID: String) {
         lock.lock()
         if let modelId {
             _defaultModels[agentID] = modelId
+            if let providerId, !providerId.isEmpty {
+                _defaultModelProviders[agentID] = providerId
+            } else {
+                _defaultModelProviders.removeValue(forKey: agentID)
+            }
         } else {
             _defaultModels.removeValue(forKey: agentID)
+            _defaultModelProviders.removeValue(forKey: agentID)
         }
         saveConfig()
         lock.unlock()
     }
 
     /// 切换默认 Agent。目标必须存在且已安装。
-    func setDefaultAgent(_ id: String) -> Result<Void, AgentManagerError> {
+    public func setDefaultAgent(_ id: String) -> Result<Void, AgentManagerError> {
         guard AgentDiscovery.catalog.contains(where: { $0.id == id }) else {
             return .failure(.unknownAgent(id))
         }
@@ -170,11 +202,11 @@ public final class AgentManager {
     }
 }
 
-enum AgentManagerError: Error, CustomStringConvertible {
+public enum AgentManagerError: Error, CustomStringConvertible {
     case unknownAgent(String)
     case notInstalled(String)
 
-    var description: String {
+    public var description: String {
         switch self {
         case .unknownAgent(let id): return "Unknown agent: \(id)"
         case .notInstalled(let id): return "Agent \(id) is not installed on this Mac."

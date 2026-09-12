@@ -8,7 +8,7 @@ import Foundation
 ///
 /// 默认落在 `.safe`，是「默认谨慎 + 渐进放权」策略的锚点：
 /// 首装用户对"手机遥控 Mac 执行命令"的风险尚未建立认知，必须从最安全一档起步。
-enum ApprovalMode: String, Codable, CaseIterable {
+public enum ApprovalMode: String, Codable, CaseIterable {
     case safe
     case askAll = "askAll"
     case auto

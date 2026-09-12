@@ -1,24 +1,46 @@
-import SwiftUI
 import AppKit
 import BrewPingCore
+import SwiftUI
+
+// ─── BrewPing Desktop（macOS）──────────────────────────────────────────────────
+//
+// 与 Windows 桌面端的形态对齐：**一个主窗口**承载全部交互（侧栏 + 会话 + 终端 dock
+// + 设置弹窗），不再是纯菜单栏应用。
+//
+// macOS 平台适配（唯一的形态差异）：
+//   · 主窗口用系统标题栏（`.hiddenTitleBar` → 红绿灯浮在 28pt 拖拽条上），
+//     不做 Windows 那样的自绘最小化/最大化/关闭按钮 —— 这是 macOS 的窗口惯例；
+//   · 保留一个菜单栏项，承担 Windows **托盘**的职责（查看状态 / 显示配对码 /
+//     打开主窗口 / 退出）。
 
 @main
 struct BrewPingDesktopApp: App {
-    /// App 级启动钩子：菜单栏应用没有可见窗口，必须在这里拉起 Agent Core。
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var core = DesktopCore.shared
+    @StateObject private var i18n = I18n()
+    @StateObject private var app = DesktopAppState.shared
 
     var body: some Scene {
+        Window("BrewPing", id: "main") {
+            DesktopRootView()
+                .environmentObject(i18n)
+                .environmentObject(app)
+                .background(Latte.background)
+                .preferredColorScheme(.light)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 1080, height: 720)
+
         MenuBarExtra {
-            MenuBarView(core: core)
+            MenuBarContentView()
+                .environmentObject(i18n)
+                .environmentObject(app)
+                .environmentObject(core)
         } label: {
             Label("BrewPing", systemImage: "cup.and.saucer.fill")
         }
         .menuBarExtraStyle(.window)
-
-        Settings {
-            EmptyView()
-        }
     }
 }
 
@@ -35,38 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DesktopCore.shared.stop()
         }
     }
-}
 
-/// 管理终端窗口的单例
-final class TerminalWindowManager {
-    static let shared = TerminalWindowManager()
-    private var window: NSWindow?
-
-    func showTerminal() {
-        if let window = window, window.isVisible {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
-        let contentView = TerminalWindow()
-        let hostingView = NSHostingView(rootView: contentView)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 480),
-            styleMask: [.titled, .closable, .resizable, .miniaturizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "BrewPing Terminal"
-        window.contentView = hostingView
-        window.center()
-        window.isReleasedWhenClosed = false
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        self.window = window
-    }
-
-    func closeTerminal() {
-        window?.close()
+    /// 关闭主窗口不退出进程（菜单栏项仍在）；这是 macOS 上「桌面端常驻」的惯例，
+    /// 也与 Windows 端托盘常驻的语义一致。
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
     }
 }

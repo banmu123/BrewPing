@@ -5,6 +5,9 @@ import Foundation
 enum BonjourAdvertiser {
     private static var service: NetService?
 
+    /// 是否正在广播（桌面端「本机信息」里 mDNS 一行的依据）。
+    private(set) static var isRunning = false
+
     static func start(port: UInt16, deviceId: String? = nil, deviceName: String? = nil) {
         stop()
         let svc = NetService(
@@ -24,11 +27,13 @@ enum BonjourAdvertiser {
         svc.setTXTRecord(NetService.data(fromTXTRecord: txtDict))
         svc.publish()
         service = svc
+        isRunning = true
         print("Bonjour: advertising _brewping._tcp on port \(port) deviceId=\(deviceId ?? "?")")
     }
 
     static func stop() {
         service?.stop()
         service = nil
+        isRunning = false
     }
 }

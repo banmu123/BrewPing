@@ -16,8 +16,8 @@ import Foundation
 ///
 /// token 是 32 字节系统随机数，落在 `~/.brewping/pairing.json`（权限 0600）。
 /// 没有引入任何自研加密算法，因此 `ITSAppUsesNonExemptEncryption = false` 仍然成立。
-final class PairingStore {
-    static let shared = PairingStore()
+public final class PairingStore {
+    public static let shared = PairingStore()
 
     /// 鉴权结论。放在这里而不是抛错，是为了让 `HTTPAPI` 的调用点保持扁平。
     enum Decision {
@@ -46,7 +46,7 @@ final class PairingStore {
     // MARK: - Pairing code
 
     /// 生成（或复用未过期的）配对码，供菜单栏 UI 展示。
-    func issuePairingCode() -> String {
+    public func issuePairingCode() -> String {
         lock.lock(); defer { lock.unlock() }
         if let pairingCode, let issued = pairingCodeIssuedAt,
            Date().timeIntervalSince(issued) < codeValidity {
@@ -64,7 +64,7 @@ final class PairingStore {
     /// 用于菜单栏上的"Refresh"按钮 —— 用户想换码（比如怀疑泄露）时一键换。
     /// 旧的码立即失效，已经换过 token 的设备不受影响（token 与码无关）。
     @discardableResult
-    func regeneratePairingCode() -> String {
+    public func regeneratePairingCode() -> String {
         lock.lock(); defer { lock.unlock() }
         let code = String(format: "%06d", Int.random(in: 0...999_999))
         pairingCode = code
@@ -72,7 +72,7 @@ final class PairingStore {
         return code
     }
 
-    var pairingCodeExpiry: Date? {
+    public var pairingCodeExpiry: Date? {
         lock.lock(); defer { lock.unlock() }
         guard let issued = pairingCodeIssuedAt else { return nil }
         return issued.addingTimeInterval(codeValidity)

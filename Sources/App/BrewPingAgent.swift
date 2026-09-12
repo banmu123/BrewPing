@@ -33,7 +33,7 @@ enum BrewPingAgent {
         setbuf(stdout, nil)
         let store = SessionManager.shared
         let agent = OpenCodeAgent()
-        let router = CommandRouter()
+        let router = CommandRouter.shared
         store.setActiveAgent(agent)
 
         var info = SessionInfo(

@@ -19,6 +19,10 @@ struct CommandContext {
 }
 
 final class CommandRouter {
+    /// 进程内唯一实例：HTTP 端与桌面端共用同一条串行执行队列，
+    /// 命令不会因为入口不同而被乱序执行。
+    static let shared = CommandRouter()
+
     private let sessionManager: SessionManager
     private let runner: CommandRunner
     private let workQueue = DispatchQueue(label: "BrewPing command router")

@@ -15,8 +15,8 @@ struct PendingApproval: Codable {
 /// 职责单一 —— 只管**判定与队列**，不执行命令。执行动作由调用方
 /// （`HTTPAPI` 拿到 decide 结果后调 `router.route(.submit(...))`）完成，
 /// 这样门卫不反向依赖 CommandRouter，避免循环引用。
-final class ApprovalGate {
-    static let shared = ApprovalGate()
+public final class ApprovalGate {
+    public static let shared = ApprovalGate()
 
     /// 判定结果。
     enum Decision {
@@ -51,12 +51,12 @@ final class ApprovalGate {
 
     // MARK: - Mode
 
-    var currentMode: ApprovalMode {
+    public var currentMode: ApprovalMode {
         lock.lock(); defer { lock.unlock() }
         return mode
     }
 
-    func setMode(_ newMode: ApprovalMode) {
+    public func setMode(_ newMode: ApprovalMode) {
         lock.lock(); defer { lock.unlock() }
         mode = newMode
         persistLocked()

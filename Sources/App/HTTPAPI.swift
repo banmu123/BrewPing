@@ -172,7 +172,8 @@ enum HTTPAPI {
             "agentId": agentID,
             "providers": providers,
             "activeModelId": config.activeModelId ?? NSNull(),
-            "preferredModelId": defaultModelId ?? NSNull()
+            "preferredModelId": defaultModelId ?? NSNull(),
+            "preferredProviderId": AgentManager.shared.defaultModelProvider(for: agentID) ?? NSNull()
         ] as [String: Any])
     }
 
@@ -183,8 +184,14 @@ enum HTTPAPI {
             return .json(400, "Bad Request", ["success": false, "error": "expected JSON body {\"agentId\": \"...\", \"modelId\": \"...\"}"])
         }
         let modelId = body["modelId"] as? String
-        AgentManager.shared.setDefaultModel(modelId, for: agentID)
-        return .json(200, "OK", ["success": true, "agentId": agentID, "modelId": modelId ?? NSNull()] as [String: Any])
+        let providerId = body["providerId"] as? String
+        AgentManager.shared.setDefaultModel(modelId, providerId: providerId, for: agentID)
+        return .json(200, "OK", [
+            "success": true,
+            "agentId": agentID,
+            "modelId": modelId ?? NSNull(),
+            "providerId": providerId ?? NSNull()
+        ] as [String: Any])
     }
 
     private static func protocolStateResponse() -> HTTPResponse {
@@ -293,102 +300,68 @@ enum HTTPAPI {
               let text = body["text"] as? String else {
             return .json(400, "Bad Request", ["success": false, "error": "expected JSON body {\"text\": \"...\"}"])
         }
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return .json(400, "Bad Request", ["success": false, "error": "text is empty"])
-        }
 
-        // ── 对话路由（三层回落，与 Windows 端一致）────────────────────────────
-        // 显式 conversationId → 当前激活对话 → 以当前默认 Agent 新建一条
-        // （老客户端「直接发」也会落进自己的对话，不再依赖全局会话）。
-        let store = ConversationStore.shared
-        var conversation: ConversationRecord?
-        let conversationID: String
-        if let raw = body["conversationId"] as? String, !raw.isEmpty {
-            guard let conv = store.get(raw) else {
-                return .json(404, "Not Found", ["success": false, "error": "conversation not found"])
+        // 对话路由（三层回落：显式 ID → 当前激活对话 → 以当前默认 Agent 新建）
+        // 与授权判定、执行都走 `ConversationCommandService` —— 桌面端 UI 走同一条路径，
+        // 不存在"手机端生效、桌面端不生效"的分叉。
+        do {
+            let outcome = try ConversationCommandService.submit(
+                text: text,
+                conversationID: body["conversationId"] as? String,
+                router: router,
+                policy: .reuseActive,
+                source: .http
+            )
+            switch outcome {
+            case .pending(let approval):
+                return pendingApprovalResponse(approval)
+            case .ok(let success):
+                return .json(200, "OK", [
+                    "success": true,
+                    "commandId": success.commandID,
+                    "sessionId": success.sessionID ?? "",
+                    "status": success.status ?? CommandStatus.queued.rawValue
+                ])
             }
-            if conv.archived {
-                return .json(409, "Conflict", ["success": false, "error": "conversation is archived — restore it first"])
-            }
-            conversation = conv
-            conversationID = conv.id
-        } else if let activeID = store.activeConversation(), let conv = store.get(activeID), !conv.archived {
-            conversation = conv
-            conversationID = conv.id
-        } else {
-            let conv = store.create(agentID: AgentManager.shared.defaultAgentID)
-            store.setActiveConversation(conv.id)
-            conversation = conv
-            conversationID = conv.id
+        } catch let error as ConversationCommandService.SubmitError {
+            return .json(submitErrorStatus(error), "Error", [
+                "success": false,
+                "error": error.errorDescription ?? "send failed"
+            ])
+        } catch {
+            return .json(500, "Internal Server Error", ["success": false, "error": "\(error)"])
         }
-
-        // 授权门卫按**该对话**的档位判定（授权是对话级设置）；
-        // pending 记住所属对话，批准后回同一条对话执行。
-        let conversationMode = conversation?.approvalMode.flatMap(ApprovalMode.init(rawValue:))
-        switch ApprovalGate.shared.check(text: text, mode: conversationMode, conversationID: conversationID) {
-        case .pending(let approval):
-            return pendingApprovalResponse(approval)
-        case .allow:
-            break
-        }
-
-        return executeCommand(text: text, conversationID: conversationID, router: router)
     }
 
-    /// 公共执行入口：把命令正文写进 TerminalState 并提交给 agent。
-    /// `messageResponse`（直接放行）与 `approvalDecideResponse`（用户批准后）共用，
-    /// 保证两条路径的 TerminalState 回显与响应结构完全一致。
-    ///
-    /// `conversationID` 非空时：命令由**该对话绑定的 Agent** 执行，cwd / 模型
-    /// 按「对话级覆盖 ?? Agent 偏好」解析；用户条目与终态结果回写对话转录。
-    private static func executeCommand(text: String, conversationID: String?, router: CommandRouter) -> HTTPResponse {
-        let store = ConversationStore.shared
-        let conversation = conversationID.flatMap { store.get($0) }
-        let agentId = conversation?.agentId ?? AgentManager.shared.activeAgentID
-        if let state = AgentManager.shared.terminalState(for: agentId) {
-            DispatchQueue.main.async {
-                state.appendLine("[iOS] > \(text)", type: .system)
-                state.setStatus(.running)
-            }
+    /// 提交失败 → HTTP 状态码。与改造前的分段返回一一对应。
+    private static func submitErrorStatus(_ error: ConversationCommandService.SubmitError) -> Int {
+        switch error {
+        case .emptyText: return 400
+        case .conversationNotFound: return 404
+        case .conversationArchived, .conversationHasNoText: return 409
+        case .sendFailed: return 409
         }
+    }
 
-        let context = CommandContext(
-            conversationID: conversationID,
-            workdir: conversation?.workdirOverride,
-            modelID: conversation?.modelOverride,
-            providerID: conversation?.modelProviderOverride
-        )
-        let resp = router.route(.submit(text: text, context: context))
-        if resp.ok, let commandId = resp.commandId {
-            if let conversationID {
-                // 转录落盘（单一写入口）：用户条目 + 调度指针
-                store.append(
-                    conversationID: conversationID,
-                    role: "user",
-                    text: text,
-                    source: "http",
-                    commandID: commandId
-                )
-                store.setLatestCommand(id: conversationID, commandID: commandId)
-            }
-            return .json(200, "OK", [
-                "success": true,
-                "commandId": commandId,
-                "sessionId": resp.sessionID ?? "",
-                "status": resp.status ?? CommandStatus.queued.rawValue
-            ])
-        }
-        if let conversationID {
-            store.append(
+    /// `POST /api/conversations` 首条消息的 `submitStatus` 字段（HTTP 状态码语义，
+    /// 与改造前保持一致）。
+    private static func submitStatus(text: String, conversationID: String, router: CommandRouter) -> Int {
+        do {
+            switch try ConversationCommandService.submit(
+                text: text,
                 conversationID: conversationID,
-                role: "error",
-                text: resp.error ?? "send failed",
-                source: nil,
-                commandID: nil
-            )
-            store.setLatestCommand(id: conversationID, commandID: nil)
+                router: router,
+                policy: .reuseActive,
+                source: .http
+            ) {
+            case .ok: return 200
+            case .pending: return 200
+            }
+        } catch let error as ConversationCommandService.SubmitError {
+            return submitErrorStatus(error)
+        } catch {
+            return 500
         }
-        return .json(409, "Conflict", ["success": false, "error": resp.error ?? "send failed"])
     }
 
     // MARK: - Approval (授权确认) endpoints
@@ -424,21 +397,28 @@ enum HTTPAPI {
               let action = body["action"] as? String else {
             return .json(400, "Bad Request", ["success": false, "error": "expected JSON body {\"action\": \"approve\"|\"deny\"|\"always_approve\"}"])
         }
-        guard let resolution = ApprovalGate.shared.decide(id: id, action: action) else {
-            return .json(404, "Not Found", ["success": false, "error": "unknown or expired approval"])
-        }
-
-        switch resolution.action {
-        case "deny":
-            return .json(200, "OK", ["success": true, "status": "denied"])
-        case "approve", "always_approve":
-            guard let text = resolution.text else {
-                return .json(409, "Conflict", ["success": false, "error": "approval has no command text"])
+        do {
+            guard let outcome = try ConversationCommandService.decide(
+                id: id, action: action, router: router, source: .http
+            ) else {
+                return .json(404, "Not Found", ["success": false, "error": "unknown or expired approval"])
             }
-            // 复用与 messageResponse 相同的执行路径（含所属对话上下文），保证回显与响应一致。
-            return executeCommand(text: text, conversationID: resolution.conversationID, router: router)
-        default:
-            return .json(400, "Bad Request", ["success": false, "error": "unknown action"])
+            if outcome.status == "denied" {
+                return .json(200, "OK", ["success": true, "status": "denied"])
+            }
+            return .json(200, "OK", [
+                "success": true,
+                "status": "executed",
+                "commandId": outcome.commandID ?? ""
+            ])
+        } catch let error as ConversationCommandService.SubmitError {
+            let status = submitErrorStatus(error)
+            return .json(status, "Error", [
+                "success": false,
+                "error": error.errorDescription ?? "decision failed"
+            ])
+        } catch {
+            return .json(500, "Internal Server Error", ["success": false, "error": "\(error)"])
         }
     }
 
@@ -553,8 +533,11 @@ enum HTTPAPI {
         ]
         let firstMessage = (body["firstMessage"] as? String) ?? ""
         if !firstMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let response = executeCommand(text: firstMessage, conversationID: conv.id, router: router)
-            payload["submitStatus"] = response.status
+            payload["submitStatus"] = submitStatus(
+                text: firstMessage,
+                conversationID: conv.id,
+                router: router
+            )
         }
         return .json(200, "OK", payload)
     }
