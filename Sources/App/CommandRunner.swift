@@ -1,15 +1,6 @@
 import Foundation
 import Darwin
 
-/// 一条命令的对话上下文（与 Windows 端 command_runner 的解析语义一致）：
-/// workdir / 模型覆盖均按「对话级覆盖 ?? Agent 全局偏好」在调用方解析后传入。
-struct CommandContext {
-    var conversationID: String?
-    var workdir: String?
-    var modelID: String?
-    var providerID: String?
-}
-
 final class CommandRunner {
     static let idleSeconds: TimeInterval = 4.5
     static let minResponseSeconds: TimeInterval = 3.0

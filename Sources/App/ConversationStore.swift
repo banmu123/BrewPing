@@ -34,65 +34,65 @@ private func normalizeWorkdir(_ raw: String?) -> String? {
     return trimmed
 }
 
-struct ConversationTranscriptEntry: Codable, Equatable {
+public struct ConversationTranscriptEntry: Codable, Equatable {
     /// "user" | "assistant" | "error" | "system"
-    var role: String
-    var text: String
-    var source: String?
-    var commandId: String?
-    var createdAtMs: Double
+    public var role: String
+    public var text: String
+    public var source: String?
+    public var commandId: String?
+    public var createdAtMs: Double
 }
 
-struct ConversationSummary: Codable, Equatable, Identifiable {
-    var id: String
-    var agentId: String
-    var title: String?
-    var titleSource: String?
-    var createdAtMs: Double
-    var updatedAtMs: Double
-    var archived: Bool
-    var isPinned: Bool
-    var modelOverride: String?
-    var modelProviderOverride: String?
-    var workdirOverride: String?
-    var approvalMode: String?
-    var latestCommandId: String?
-    var messageCount: Int
+public struct ConversationSummary: Codable, Equatable, Identifiable {
+    public var id: String
+    public var agentId: String
+    public var title: String?
+    public var titleSource: String?
+    public var createdAtMs: Double
+    public var updatedAtMs: Double
+    public var archived: Bool
+    public var isPinned: Bool
+    public var modelOverride: String?
+    public var modelProviderOverride: String?
+    public var workdirOverride: String?
+    public var approvalMode: String?
+    public var latestCommandId: String?
+    public var messageCount: Int
 }
 
 /// 完整对话（转录层：权威数据，逐对话一个文件）。
-struct ConversationRecord: Codable, Equatable {
-    var id: String
-    var agentId: String
-    var title: String?
-    var titleSource: String?
-    var createdAtMs: Double
-    var updatedAtMs: Double
-    var archived: Bool
-    var isPinned: Bool
-    var modelOverride: String?
-    var modelProviderOverride: String?
-    var workdirOverride: String?
-    var approvalMode: String?
-    var latestCommandId: String?
-    var messages: [ConversationTranscriptEntry]
+public struct ConversationRecord: Codable, Equatable {
+    public var id: String
+    public var agentId: String
+    public var title: String?
+    public var titleSource: String?
+    public var createdAtMs: Double
+    public var updatedAtMs: Double
+    public var archived: Bool
+    public var isPinned: Bool
+    public var modelOverride: String?
+    public var modelProviderOverride: String?
+    public var workdirOverride: String?
+    public var approvalMode: String?
+    public var latestCommandId: String?
+    public var messages: [ConversationTranscriptEntry]
 }
 
 private struct ConversationIndexFile: Codable {
     var conversations: [ConversationSummary]
 }
 
-final class ConversationStore {
-    static let shared = ConversationStore()
+public final class ConversationStore {
+    public static let shared = ConversationStore()
 
-    enum StoreError: LocalizedError {
+    public enum StoreError: LocalizedError {
         case notFound
         case archived
         case notArchived
         case workdirMissing(String)
         case invalidWorkdir(String)
 
-        var errorDescription: String? {
+        public var errorDescription: String? {
             switch self {
             case .notFound:
                 return "conversation not found"
@@ -127,23 +127,23 @@ final class ConversationStore {
 
     // MARK: - 读取
 
-    func get(_ id: String) -> ConversationRecord? {
+    public func get(_ id: String) -> ConversationRecord? {
         lock.lock(); defer { lock.unlock() }
         return conversations[id]
     }
 
-    func activeConversation() -> String? {
+    public func activeConversation() -> String? {
         lock.lock(); defer { lock.unlock() }
         return activeConversationID
     }
 
-    func setActiveConversation(_ id: String?) {
+    public func setActiveConversation(_ id: String?) {
         lock.lock(); defer { lock.unlock() }
         activeConversationID = id
     }
 
     /// 列表：置顶优先 + 最新活动降序（与 Windows 端同一排序公式）。
-    func list(includeArchived: Bool) -> [ConversationSummary] {
+    public func list(includeArchived: Bool) -> [ConversationSummary] {
         lock.lock(); defer { lock.unlock() }
         let pinnedRankOffset: Double = 1e15
         return conversations.values
@@ -164,13 +164,13 @@ final class ConversationStore {
 
     // MARK: - 创建
 
-    func create(agentID: String) -> ConversationRecord {
+    public func create(agentID: String) -> ConversationRecord {
         createWithOptions(agentID: agentID, workdir: nil, approvalMode: nil)
     }
 
     /// 创建对话（完整选项）：工作目录绑定 + 创建时固化的授权档位。
     /// 授权随对话固化 —— 这是「每个对话授权互不影响」的前提。
-    func createWithOptions(agentID: String, workdir: String?, approvalMode: String?) -> ConversationRecord {
+    public func createWithOptions(agentID: String, workdir: String?, approvalMode: String?) -> ConversationRecord {
         let now = Date().timeIntervalSince1970 * 1000
         let conv = ConversationRecord(
             id: "conv_" + UUID().uuidString,
@@ -220,7 +220,7 @@ final class ConversationStore {
 
     /// 更改绑定目录（nil / 空串 = 解绑）。目录必须真实存在。
     @discardableResult
-    func setWorkdir(id: String, workdir: String?) throws -> ConversationSummary {
+    public func setWorkdir(id: String, workdir: String?) throws -> ConversationSummary {
         let normalized = normalizeWorkdir(workdir)
         if let dir = normalized, !FileManager.default.fileExists(atPath: dir) {
             throw StoreError.invalidWorkdir(dir)
@@ -230,7 +230,7 @@ final class ConversationStore {
 
     /// 设置 / 清除对话级模型覆盖（modelID nil/空 = 清除；provider 与 model 成对存取）。
     @discardableResult
-    func setModel(id: String, modelID: String?, providerID: String?) throws -> ConversationSummary {
+    public func setModel(id: String, modelID: String?, providerID: String?) throws -> ConversationSummary {
         let model = modelID.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         let provider = providerID.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         return try mutate(id) { conv in
@@ -241,7 +241,7 @@ final class ConversationStore {
 
     /// 切换对话绑定的 Agent。换 Agent 时清除模型覆盖（旧 Agent 的模型对新 Agent 无意义）。
     @discardableResult
-    func setAgent(id: String, agentID: String) throws -> ConversationSummary {
+    public func setAgent(id: String, agentID: String) throws -> ConversationSummary {
         let trimmed = agentID.trimmingCharacters(in: .whitespacesAndNewlines)
         return try mutate(id) { conv in
             conv.agentId = trimmed
@@ -252,7 +252,7 @@ final class ConversationStore {
 
     /// 设置 / 清除对话级授权档位（nil / 非法值 = 回落全局默认）。
     @discardableResult
-    func setApprovalMode(id: String, mode: String?) throws -> ConversationSummary {
+    public func setApprovalMode(id: String, mode: String?) throws -> ConversationSummary {
         let normalized = ConversationApprovalMode.normalize(mode)
         return try mutate(id) { $0.approvalMode = normalized }
     }
@@ -260,7 +260,7 @@ final class ConversationStore {
     /// 修改标题 / 归档态 / 置顶。改名置 `titleSource = "manual"`；
     /// 归档与设置类操作不 bump `updatedAtMs`（不应拉动列表排序）。
     @discardableResult
-    func patch(id: String, title: String?, archived: Bool?, pinned: Bool?) throws -> ConversationSummary {
+    public func patch(id: String, title: String?, archived: Bool?, pinned: Bool?) throws -> ConversationSummary {
         return try mutate(id) { conv in
             if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 conv.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -272,7 +272,7 @@ final class ConversationStore {
     }
 
     /// 删除对话（两段式：仅归档态可删）。删转录文件并重写索引。
-    func delete(id: String) throws {
+    public func delete(id: String) throws {
         let fileURL: URL
         let index: ConversationIndexFile
         lock.lock()
@@ -293,7 +293,7 @@ final class ConversationStore {
     /// 追加一条转录（唯一写入口）。首条 user 消息自动命名（manual 永不覆盖）；
     /// `updatedAtMs` 单调：乱序事件不能把时间拉回去。
     @discardableResult
-    func append(
+    public func append(
         conversationID: String,
         role: String,
         text: String,
@@ -330,7 +330,7 @@ final class ConversationStore {
     }
 
     /// 写调度指针（只有命令执行链与消息提交可以调用）。
-    func setLatestCommand(id: String, commandID: String?) {
+    public func setLatestCommand(id: String, commandID: String?) {
         var updated: ConversationRecord?
         lock.lock()
         if var conv = conversations[id] {
