@@ -629,7 +629,20 @@ async fn handle_send_message(
         );
     }
 
-    match state.approval.check(&body.text) {
+    // 授权档位是**对话级**设置：取该对话固化的档位，未设置才回落全局默认
+    //（旧对话 / iOS 创建的对话没有显式档位）。
+    let effective_mode = body
+        .conversation_id
+        .as_deref()
+        .and_then(|id| state.conversations.get(id))
+        .and_then(|conv| {
+            conv.approval_mode
+                .as_deref()
+                .and_then(ApprovalMode::parse)
+        })
+        .unwrap_or_else(|| state.approval.mode());
+
+    match state.approval.check_with(&body.text, effective_mode) {
         Decision::Pending(approval) => pending_approval_response(approval),
         Decision::Allow => match submit_command(
             &state,
@@ -1190,6 +1203,11 @@ mod tests {
         (code, json(&raw))
     }
 
+    fn patch(port: u16, path: &str, body: &str) -> (u16, serde_json::Value) {
+        let (code, raw) = request(port, "PATCH", path, Some(body));
+        (code, json(&raw))
+    }
+
     // ─── CommandStore 状态机 ─────────────────────────────────────────────────
 
     // TC-CS-01  正常状态迁移 queued → working → completed
@@ -1704,6 +1722,101 @@ mod tests {
 
         let (_, list) = get(srv.port, "/api/approvals");
         assert_eq!(list["approvals"].as_array().unwrap().len(), 0);
+    }
+
+    // TC-HT-21  授权档位按对话生效：固化 auto 的对话放行危险命令；
+    // 未设置档位的对话回落全局 safe 照常挂起 —— 两个对话互不影响。
+    // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
+    // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn approval_mode_is_resolved_per_conversation() {
+        let srv = spawn_server().await;
+
+        // 执行体换成不存在的命令：断言只关心 HTTP 响应，别真的去跑 CLI。
+        {
+            let mut agents = srv.state.agents.write().await;
+            if let Some(agent) = agents.iter_mut().find(|a| a.id == "opencode") {
+                agent.executable = Some("brewping-fake-cli-not-exist".to_string());
+            }
+        }
+
+        // 对话 A 固化 auto；对话 B 不设置（回落全局默认 safe）
+        let conv_a = srv
+            .state
+            .conversations
+            .create_with_options("opencode", None, Some("auto"));
+        let conv_b = srv.state.conversations.create_with_options("opencode", None, None);
+
+        let (code, v) = post(
+            srv.port,
+            "/api/message",
+            &format!(r#"{{"text":"rm -rf /","conversationId":"{}"}}"#, conv_a.id),
+        );
+        assert_eq!(code, 200);
+        assert_eq!(
+            v["status"], "queued",
+            "对话固化为 auto → 危险命令直接进入执行"
+        );
+
+        let (code, v) = post(
+            srv.port,
+            "/api/message",
+            &format!(r#"{{"text":"rm -rf /","conversationId":"{}"}}"#, conv_b.id),
+        );
+        assert_eq!(code, 200);
+        assert_eq!(
+            v["status"], "pending_approval",
+            "未设置档位的对话回落全局 safe → 照常挂起"
+        );
+    }
+
+    // TC-HT-22  PATCH /api/conversations/{id}：Agent / 授权 / 模型按对话生效
+    //（iOS 端对话设置的写入口；与桌面 Tauri 命令同一套存储语义）
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn patch_conversation_updates_agent_model_and_approval() {
+        let srv = spawn_server().await;
+        let conv = srv
+            .state
+            .conversations
+            .create_with_options("opencode", None, None);
+
+        // 切 Agent（必须真实存在）+ 固化授权 + 设置模型覆盖
+        let (code, v) = patch(
+            srv.port,
+            &format!("/api/conversations/{}", conv.id),
+            r#"{"agentId":"claude-code","approvalMode":"askAll","modelId":"claude-sonnet-4-5","modelProviderId":"anthropic"}"#,
+        );
+        assert_eq!(code, 200);
+        assert_eq!(v["success"], true);
+
+        let (_, detail) = get(srv.port, &format!("/api/conversations/{}", conv.id));
+        let conv_json = &detail["conversation"];
+        assert_eq!(conv_json["agentId"], "claude-code");
+        assert_eq!(conv_json["approvalMode"], "askAll");
+        assert_eq!(conv_json["modelOverride"], "claude-sonnet-4-5");
+        assert_eq!(conv_json["modelProviderOverride"], "anthropic");
+
+        // 换 Agent 自动清除模型覆盖（旧 Agent 的模型对新 Agent 无意义）：
+        // 先切回 opencode，再用空 modelId 显式清除，两条路径都验证。
+        let (code, _) = patch(
+            srv.port,
+            &format!("/api/conversations/{}", conv.id),
+            r#"{"modelId":""}"#,
+        );
+        assert_eq!(code, 200);
+        let (_, detail) = get(srv.port, &format!("/api/conversations/{}", conv.id));
+        assert!(
+            detail["conversation"]["modelOverride"].is_null(),
+            "空 modelId 必须清除覆盖"
+        );
+
+        // 未知 Agent 必须被拒（防止把对话绑到不存在的执行体上）
+        let (code, _) = patch(
+            srv.port,
+            &format!("/api/conversations/{}", conv.id),
+            r#"{"agentId":"no-such-agent"}"#,
+        );
+        assert_eq!(code, 400);
     }
 
     // TC-HT-20  always_approve 生效于后续命令；auto 模式全量放行

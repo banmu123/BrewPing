@@ -22,6 +22,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use super::approval_gate::ApprovalMode;
+
 /// Lody `pinnedFirstRootRank` 的置顶偏移量：一个数值同时表达两个排序维度
 /// （置顶 > 未置顶，各自内部按 updated_at 降序）。
 pub const PINNED_RANK_OFFSET: f64 = 1e15;
@@ -64,8 +66,16 @@ pub struct Conversation {
     /// 对话级覆盖项：不设则回落到全局 model_prefs / workdir_prefs。
     #[serde(default)]
     pub model_override: Option<String>,
+    /// 与 `model_override` 配对的 providerId（同名模型可来自多个厂商；
+    /// opencode 的 `--model` 需要 `provider/model` 复合限定名）。
+    #[serde(default)]
+    pub model_provider_override: Option<String>,
     #[serde(default)]
     pub workdir_override: Option<String>,
+    /// 对话级授权档位（`safe` / `askAll` / `auto`，创建时固化）。
+    /// 不设则回落到全局 `~/.brewping/approval.json`（旧对话 / iOS 创建）。
+    #[serde(default)]
+    pub approval_mode: Option<String>,
     /// 调度指针：最近一条已提交且未终态的命令（恢复真相，方案 §2-A4）。
     #[serde(default)]
     pub latest_command_id: Option<String>,
@@ -92,7 +102,11 @@ pub struct ConversationSummary {
     #[serde(default)]
     pub model_override: Option<String>,
     #[serde(default)]
+    pub model_provider_override: Option<String>,
+    #[serde(default)]
     pub workdir_override: Option<String>,
+    #[serde(default)]
+    pub approval_mode: Option<String>,
     #[serde(default)]
     pub latest_command_id: Option<String>,
     pub message_count: usize,
@@ -135,6 +149,14 @@ fn normalize_workdir(workdir: Option<&str>) -> Option<String> {
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
+}
+
+/// 授权档位归一化：只认 `safe` / `askAll` / `auto`（与 `ApprovalMode::parse`
+/// 同一份判定），其余一律视作「未设置」→ 回落全局默认。
+fn normalize_approval_mode(mode: Option<&str>) -> Option<String> {
+    mode.map(str::trim)
+        .and_then(ApprovalMode::parse)
+        .map(|m| m.as_str().to_string())
 }
 
 /// 索引文件结构（派生缓存，权威数据是逐对话文件）。
@@ -195,12 +217,25 @@ impl ConversationStore {
     /// 创建对话（不 spawn 任何进程、不写消息——用户消息永远走
     /// `append` 单一写入口，方案 §6.3）。
     pub fn create(&self, agent_id: &str) -> Conversation {
-        self.create_with_workdir(agent_id, None)
+        self.create_with_options(agent_id, None, None)
     }
 
     /// 创建对话并绑定工作目录（目录历史分组的数据源）。
     /// 空串 / 纯空白视为不绑定（与前端「留空」语义一致）。
     pub fn create_with_workdir(&self, agent_id: &str, workdir: Option<&str>) -> Conversation {
+        self.create_with_options(agent_id, workdir, None)
+    }
+
+    /// 创建对话（完整选项）：工作目录绑定 + 创建时固化的授权档位。
+    ///
+    /// 授权档位随对话**固化**而非共享一份全局值——这是「每个对话独立」的
+    /// 前提：新对话继承草稿里当时选的档位，之后各对话互不影响。
+    pub fn create_with_options(
+        &self,
+        agent_id: &str,
+        workdir: Option<&str>,
+        approval_mode: Option<&str>,
+    ) -> Conversation {
         let ts = now_ms();
         let conv = Conversation {
             id: new_id(),
@@ -212,7 +247,9 @@ impl ConversationStore {
             archived: false,
             is_pinned: false,
             model_override: None,
+            model_provider_override: None,
             workdir_override: normalize_workdir(workdir),
+            approval_mode: normalize_approval_mode(approval_mode),
             latest_command_id: None,
             messages: Vec::new(),
         };
@@ -239,12 +276,76 @@ impl ConversationStore {
                 return Err(ConvError::InvalidWorkdir(dir.clone()));
             }
         }
+        self.mutate(conv_id, |conv| conv.workdir_override = normalized)
+    }
+
+    /// 更改对话绑定的 Agent（对话级）。换 Agent 时**清除模型覆盖** ——
+    /// 旧 Agent 的模型 id / provider 对新 Agent 没有意义，留着必然拼错参数。
+    pub fn set_agent(
+        &self,
+        conv_id: &str,
+        agent_id: &str,
+    ) -> Result<ConversationSummary, ConvError> {
+        let trimmed = agent_id.trim().to_string();
+        self.mutate(conv_id, |conv| {
+            conv.agent_id = trimmed;
+            conv.model_override = None;
+            conv.model_provider_override = None;
+        })
+    }
+
+    /// 设置 / 清除对话的授权档位（`None` 或非法值 = 回落全局默认）。
+    /// 授权是**对话级**设置：改一个对话不影响其它对话。
+    pub fn set_approval_mode(
+        &self,
+        conv_id: &str,
+        mode: Option<&str>,
+    ) -> Result<ConversationSummary, ConvError> {
+        let normalized = normalize_approval_mode(mode);
+        self.mutate(conv_id, |conv| conv.approval_mode = normalized)
+    }
+
+    /// 设置 / 清除对话的模型覆盖（`None` = 回落该 Agent 的全局偏好）。
+    /// model 与 provider 成对写入 —— 同名模型可能来自多个厂商，
+    /// 只记 id 会让 opencode 的 `--model provider/model` 拼错。
+    pub fn set_model(
+        &self,
+        conv_id: &str,
+        model: Option<&str>,
+        provider: Option<&str>,
+    ) -> Result<ConversationSummary, ConvError> {
+        let model = model
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
+            .map(|m| m.to_string());
+        let provider = provider
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(|p| p.to_string());
+        self.mutate(conv_id, |conv| {
+            conv.model_override = model;
+            conv.model_provider_override = if conv.model_override.is_some() {
+                provider
+            } else {
+                None
+            };
+        })
+    }
+
+    /// 对话级设置的统一写入口（workdir / model / approval 共用）。
+    ///
+    /// 「锁内改快照、锁外写盘」；刻意不 bump `updated_at_ms`
+    /// ——改设置不应拉动列表排序（与 rename / 归档一致）。
+    fn mutate<F>(&self, conv_id: &str, apply: F) -> Result<ConversationSummary, ConvError>
+    where
+        F: FnOnce(&mut Conversation),
+    {
         let updated = {
             let inner = self.inner.lock().expect("conversation store poisoned");
             let conv = inner.get(conv_id).ok_or(ConvError::NotFound)?.clone();
             drop(inner);
             let mut conv = conv;
-            conv.workdir_override = normalized;
+            apply(&mut conv);
             {
                 let mut inner = self.inner.lock().expect("conversation store poisoned");
                 if !inner.contains_key(conv_id) {
@@ -435,7 +536,9 @@ fn summary(conv: &Conversation) -> ConversationSummary {
         archived: conv.archived,
         is_pinned: conv.is_pinned,
         model_override: conv.model_override.clone(),
+        model_provider_override: conv.model_provider_override.clone(),
         workdir_override: conv.workdir_override.clone(),
+        approval_mode: conv.approval_mode.clone(),
         latest_command_id: conv.latest_command_id.clone(),
         message_count: conv.messages.len(),
     }
@@ -832,6 +935,92 @@ mod tests {
         // 未知对话
         assert!(matches!(
             store.set_workdir("conv_missing", None),
+            Err(ConvError::NotFound)
+        ));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // TC-CV-12  对话级授权档位：创建时固化、只改自己、可清除、可落盘
+    #[test]
+    fn approval_mode_is_per_conversation() {
+        let dir = temp_dir("cv12");
+        let store = ConversationStore::with_dir(dir.join("store"));
+
+        // 创建时固化（草稿里选好的档位随首条消息落库）
+        let a = store.create_with_options("opencode", None, Some("auto"));
+        assert_eq!(a.approval_mode.as_deref(), Some("auto"));
+        let b = store.create_with_options("opencode", None, Some("safe"));
+        // 非法 / 空白档位一律视为未设置（回落全局默认）
+        let bad = store.create_with_options("opencode", None, Some("yolo"));
+        assert!(bad.approval_mode.is_none());
+        assert!(store.create("opencode").approval_mode.is_none());
+
+        // 只改 a：b 必须原样不动（"改一个对话全都跟着切换"的回归护栏）
+        store.set_approval_mode(&a.id, Some("askAll")).unwrap();
+        assert_eq!(
+            store.get(&a.id).unwrap().approval_mode.as_deref(),
+            Some("askAll")
+        );
+        assert_eq!(
+            store.get(&b.id).unwrap().approval_mode.as_deref(),
+            Some("safe")
+        );
+
+        // 改档位不拉动列表排序
+        let before = store.get(&a.id).unwrap().updated_at_ms;
+        store.set_approval_mode(&a.id, Some("auto")).unwrap();
+        assert_eq!(store.get(&a.id).unwrap().updated_at_ms, before);
+
+        // 落盘可复用：追加一条消息让它活过 startup_recover，重开后档位仍在
+        store.append(&a.id, "user", "hi", None, None);
+        let again = ConversationStore::with_dir(dir.join("store"));
+        assert_eq!(
+            again.get(&a.id).unwrap().approval_mode.as_deref(),
+            Some("auto")
+        );
+
+        // 清除 → 回落全局默认
+        let s = store.set_approval_mode(&a.id, None).unwrap();
+        assert!(s.approval_mode.is_none());
+        let s = store.set_approval_mode(&b.id, Some("bogus")).unwrap();
+        assert!(s.approval_mode.is_none(), "非法档位一律视为未设置");
+
+        assert!(matches!(
+            store.set_approval_mode("conv_missing", Some("auto")),
+            Err(ConvError::NotFound)
+        ));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // TC-CV-13  对话级模型覆盖：model 与 provider 成对写入 / 成对清除
+    #[test]
+    fn model_override_pairs_model_with_provider() {
+        let dir = temp_dir("cv13");
+        let store = ConversationStore::with_dir(dir.join("store"));
+        let conv = store.create("opencode");
+
+        store
+            .set_model(&conv.id, Some("claude-sonnet-4-5"), Some("anthropic"))
+            .unwrap();
+        let got = store.get(&conv.id).unwrap();
+        assert_eq!(got.model_override.as_deref(), Some("claude-sonnet-4-5"));
+        assert_eq!(got.model_provider_override.as_deref(), Some("anthropic"));
+
+        // 只给 model（provider 空白）→ 不得残留上一个 provider，
+        // 否则 opencode 会拼出错误的 `provider/model`
+        store.set_model(&conv.id, Some("gpt-5"), Some("  ")).unwrap();
+        let got = store.get(&conv.id).unwrap();
+        assert_eq!(got.model_override.as_deref(), Some("gpt-5"));
+        assert!(got.model_provider_override.is_none());
+
+        // 清除覆盖（空串等价于 None）→ 两个字段一起清
+        store.set_model(&conv.id, Some(""), None).unwrap();
+        let got = store.get(&conv.id).unwrap();
+        assert!(got.model_override.is_none());
+        assert!(got.model_provider_override.is_none());
+
+        assert!(matches!(
+            store.set_model("conv_missing", Some("x"), None),
             Err(ConvError::NotFound)
         ));
         let _ = std::fs::remove_dir_all(dir);

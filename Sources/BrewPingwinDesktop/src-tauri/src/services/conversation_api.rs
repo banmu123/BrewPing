@@ -56,6 +56,10 @@ pub struct CreateConversationBody {
     /// 创建时绑定的工作目录（空 = 不绑定；与桌面 Tauri `send_command.workdir` 对齐）。
     #[serde(rename = "workdir", default)]
     workdir: Option<String>,
+    /// 创建时固化的授权档位（safe / askAll / auto；缺省 = 未设置，回落全局默认）。
+    /// 授权是**对话级**设置，与桌面 Tauri `send_command.approvalMode` 对齐。
+    #[serde(rename = "approvalMode", default)]
+    approval_mode: Option<String>,
 }
 
 /// POST /api/conversations —— 物化一个对话。
@@ -82,9 +86,11 @@ pub async fn handle_create_conversation(
         }
     }
 
-    let conv = state
-        .conversations
-        .create_with_workdir(&agent_id, body.workdir.as_deref());
+    let conv = state.conversations.create_with_options(
+        &agent_id,
+        body.workdir.as_deref(),
+        body.approval_mode.as_deref(),
+    );
 
     // 无 active 时激活（有 active 不动——切换必须显式，掩盖心智的问题见方案 §6.4）。
     {
@@ -160,6 +166,19 @@ pub struct PatchConversationBody {
     /// 与 Tauri 侧 `Option<String>` 语义对齐）。
     #[serde(default)]
     workdir: Option<String>,
+    /// 切换对话绑定的 Agent（对话级）。换 Agent 会清除该对话的模型覆盖
+    /// （旧 Agent 的模型对新 Agent 无意义）。
+    #[serde(rename = "agentId", default)]
+    agent_id: Option<String>,
+    /// 对话级授权档位（safe / askAll / auto；空串 = 清除，回落全局默认）。
+    #[serde(rename = "approvalMode", default)]
+    approval_mode: Option<String>,
+    /// 对话级模型覆盖：与 `modelProviderId` 成对提交（同名模型可来自多个
+    /// 厂商，opencode 需要 `provider/model` 复合限定名）。空串 = 清除覆盖。
+    #[serde(rename = "modelId", default)]
+    model_id: Option<String>,
+    #[serde(rename = "modelProviderId", default)]
+    model_provider_id: Option<String>,
 }
 
 fn conv_error_response(err: ConvError) -> Response {
@@ -212,6 +231,42 @@ pub async fn handle_patch_conversation(
     // 绑定目录更改：走 set_workdir（含目录存在性校验；空串 = 解绑）。
     if let Some(workdir) = &body.workdir {
         if let Err(err) = state.conversations.set_workdir(&id, Some(workdir.as_str())) {
+            return conv_error_response(err);
+        }
+    }
+
+    // 切换对话的 Agent：必须真实存在（与 create 同一套校验）；
+    // 换 Agent 时后端自动清除该对话的模型覆盖。
+    if let Some(agent_id) = body.agent_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        {
+            let agents = state.agents.read().await;
+            if !agents.iter().any(|a| a.id == agent_id) {
+                return json_response(
+                    400,
+                    serde_json::json!({
+                        "success": false,
+                        "error": format!("unknown agent: {agent_id}")
+                    }),
+                );
+            }
+        }
+        if let Err(err) = state.conversations.set_agent(&id, agent_id) {
+            return conv_error_response(err);
+        }
+    }
+
+    // 对话级授权档位（空串 = 清除覆盖，回落全局默认）。
+    if let Some(mode) = &body.approval_mode {
+        if let Err(err) = state.conversations.set_approval_mode(&id, Some(mode.as_str())) {
+            return conv_error_response(err);
+        }
+    }
+
+    // 对话级模型覆盖（modelId 空串 = 清除；与 modelProviderId 成对）。
+    if let Some(model_id) = &body.model_id {
+        let provider = body.model_provider_id.as_deref().unwrap_or("");
+        if let Err(err) = state.conversations.set_model(&id, Some(model_id.as_str()), Some(provider))
+        {
             return conv_error_response(err);
         }
     }

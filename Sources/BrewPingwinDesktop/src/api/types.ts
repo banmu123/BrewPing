@@ -153,8 +153,13 @@ export interface ConversationSummary {
   updatedAtMs: number;
   archived: boolean;
   isPinned: boolean;
+  /// 对话级模型覆盖（null = 回落该 Agent 的全局偏好）。
   modelOverride: string | null;
+  /// 与 `modelOverride` 配对的 providerId（同名模型可来自多个厂商）。
+  modelProviderOverride: string | null;
   workdirOverride: string | null;
+  /// 对话级授权档位（null = 回落全局默认）。授权按对话独立。
+  approvalMode: ApprovalMode | null;
   /// 调度指针：非空 = 有命令在飞（isStreaming 依据，方案 §2-A4）。
   latestCommandId: string | null;
   messageCount: number;

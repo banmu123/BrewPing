@@ -347,6 +347,10 @@ async fn send_command(
     // 草稿物化时绑定的目录（`conversation_id` 为 None 时生效；
     // 空串 = 明确不绑定）。已有对话的改绑走 `set_conversation_workdir`。
     workdir: Option<String>,
+    // 草稿物化时固化的授权档位（`conversation_id` 为 None 时生效）。
+    // 授权是对话级设置：不传 / 非法值 = 未设置（回落全局默认）。
+    // 已有对话的改档位走 `set_conversation_approval_mode`。
+    approval_mode: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let text = text.trim().to_string();
@@ -377,10 +381,11 @@ async fn send_command(
         }
         None => {
             let agent_id = core.terminal.active_agent_id.read().await.clone();
-            let conv = core
-                .state
-                .conversations
-                .create_with_workdir(&agent_id, workdir.as_deref());
+            let conv = core.state.conversations.create_with_options(
+                &agent_id,
+                workdir.as_deref(),
+                approval_mode.as_deref(),
+            );
             {
                 let mut active = core.state.active_conversation_id.write().await;
                 *active = Some(conv.id.clone());
@@ -697,6 +702,46 @@ async fn set_conversation_workdir(
         .set_workdir(&conversation_id, workdir.as_deref())
         .map_err(|e| e.to_string())?;
     let _ = app.emit("conversations-changed", serde_json::json!({ "id": conversation_id }));
+    Ok(())
+}
+
+/// 更改对话的授权档位（`None` / 非法值 = 清除，回落全局默认）。
+/// 授权是**对话级**设置：只影响这一个对话，其它对话不受影响。
+#[tauri::command]
+async fn set_conversation_approval_mode(
+    core: tauri::State<'_, DesktopCore>,
+    conversation_id: String,
+    mode: Option<String>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    core.state
+        .conversations
+        .set_approval_mode(&conversation_id, mode.as_deref())
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("conversations-changed", serde_json::json!({ "id": conversation_id }));
+    Ok(())
+}
+
+/// 更改对话的模型覆盖（`model_id` 为空 = 清除覆盖，回落该 Agent 的默认模型）。
+/// `provider_id` 与 `model_id` 成对写入 —— 同名模型可能来自多个厂商。
+/// 同样是**对话级**设置：只影响这一个对话。
+#[tauri::command]
+async fn set_conversation_model(
+    core: tauri::State<'_, DesktopCore>,
+    conversation_id: String,
+    model_id: Option<String>,
+    provider_id: Option<String>,
+) -> Result<(), String> {
+    core.state
+        .conversations
+        .set_model(&conversation_id, model_id.as_deref(), provider_id.as_deref())
+        .map_err(|e| e.to_string())?;
+    log::info!(
+        "Conversation {} model override set to {:?} (provider {:?})",
+        conversation_id,
+        model_id,
+        provider_id
+    );
     Ok(())
 }
 
@@ -1039,6 +1084,8 @@ pub fn run() {
             activate_conversation,
             toggle_pin_conversation,
             set_conversation_workdir,
+            set_conversation_approval_mode,
+            set_conversation_model,
             check_environment,
             get_node_versions,
             install_nvm,

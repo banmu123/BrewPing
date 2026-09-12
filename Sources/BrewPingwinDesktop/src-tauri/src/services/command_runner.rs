@@ -225,15 +225,28 @@ pub async fn execute_agent_command(
     emit(state, "terminal-updated", serde_json::json!({}));
 
     // ── 模型 / 工作目录：对话级覆盖 ?? 全局偏好（方案 §6.6）────────────────
+    // 模型必须与 provider **成对**解析：同名模型可来自多个厂商，只取 id 会让
+    // opencode 拼出错误的 `provider/model`。对话级覆盖（用户在某个对话里选的
+    // 模型）与全局偏好（该 Agent 的默认模型）各取各的 provider，不能混用。
     let conv_snapshot = state.conversations.get(&conversation_id);
-    let model = conv_snapshot
+    let conv_model = conv_snapshot
         .as_ref()
-        .and_then(|c| c.model_override.clone())
-        .or_else(|| state.model_prefs.get(&agent_id));
-    // opencode 的 `--model` 要求 `provider/model` 复合格式；同名模型可来自
-    // 多个 provider，用偏好里配对记录的 providerId 拼出完整限定名。
-    // 其它 agent（claude/codex/aider）的 --model 只认裸 model id，原样传。
-    let model_arg = match (state.model_prefs.get_provider(&agent_id), model) {
+        .and_then(|c| c.model_override.clone());
+    let (model, model_provider) = match conv_model {
+        Some(id) => (
+            Some(id),
+            conv_snapshot
+                .as_ref()
+                .and_then(|c| c.model_provider_override.clone()),
+        ),
+        None => (
+            state.model_prefs.get(&agent_id),
+            state.model_prefs.get_provider(&agent_id),
+        ),
+    };
+    // opencode 的 `--model` 要求 `provider/model` 复合格式；其它 agent
+    // （claude/codex/aider）的 --model 只认裸 model id，原样传。
+    let model_arg = match (model_provider, model) {
         (Some(provider), Some(id)) if agent_id == "opencode" && !id.contains('/') => {
             Some(format!("{provider}/{id}"))
         }

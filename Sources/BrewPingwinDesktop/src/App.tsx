@@ -33,7 +33,6 @@ import {
   revealPairingCode,
   regeneratePairingCode,
   getApprovalMode,
-  setApprovalMode,
   sendCommand,
   clearTerminal,
   getAgentModels,
@@ -46,6 +45,8 @@ import {
   deleteConversation,
   togglePinConversation,
   setConversationWorkdir,
+  setConversationApprovalMode,
+  setConversationModel,
 } from "./api/tauri";
 import type {
   DesktopStatus,
@@ -230,13 +231,28 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>("general");
   const [terminals, setTerminals] = useState<AgentTerminalState[]>([]);
-  const [activeAgentId, setActiveAgentId] = useState<string>("opencode");
+  /// 草稿态（新对话）选定的 Agent —— 已有对话一律以 `conv.agentId` 为准
+  /// （对话级，创建时绑定）；这里只是「下一条新对话用哪个 Agent」。
+  const [draftAgentId, setDraftAgentId] = useState<string>("opencode");
   const [loading, setLoading] = useState(true);
   const [pairing, setPairing] = useState<PairingInfo | null>(null);
-  const [approvalMode, setApprovalModeState] = useState<ApprovalMode>("safe");
+  /// 全局默认授权档位（`~/.brewping/approval.json`，轮询只更新它）。
+  const [globalApprovalMode, setGlobalApprovalModeState] = useState<ApprovalMode>("safe");
+  /// 草稿里手动选过的档位（null = 未选过，跟随全局默认）。仅草稿态使用；
+  /// 新对话创建 / 回到草稿时清空，避免上一次的选择悄悄带进下一个草稿。
+  const [draftApprovalMode, setDraftApprovalMode] = useState<ApprovalMode | null>(null);
   const [models, setModels] = useState<AgentModelsInfo | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /// 窗口控制（无边框自绘标题栏）。
+  /// 失败绝不能静默：窗口命令走 Tauri IPC，若 capabilities 未授予权限会 reject，
+  /// 而 `void p` 会把错误吞掉，表现为「点了没反应」——这里统一记录。
+  const winAction = useCallback((run: () => Promise<void>) => {
+    run().catch((e) => {
+      console.error("[window-control]", String(e));
+    });
+  }, []);
   const [dockOpen, setDockOpen] = useState(false);
   // ─── 多对话状态（后端 conversation store 为权威，方案 P4） ─────────────────
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -277,7 +293,7 @@ export default function App() {
     try {
       const s = await getStatus();
       setStatus(s);
-      setActiveAgentId(s.activeAgentId || "opencode");
+      setDraftAgentId(s.activeAgentId || "opencode");
     } catch {
       // ignore — will retry on next poll
     }
@@ -300,7 +316,8 @@ export default function App() {
         getApprovalMode(),
       ]);
       setPairing(info);
-      setApprovalModeState(mode as ApprovalMode);
+      // 全局默认档位只作为「新对话的起点」（草稿未手选时的显示值）
+      setGlobalApprovalModeState(mode as ApprovalMode);
     } catch {
       // 后端尚未就绪（Starting…）时静默重试
     }
@@ -377,7 +394,7 @@ export default function App() {
     });
     const unlistenAgent = listen("active-agent-changed", (event) => {
       const newId = event.payload as string;
-      setActiveAgentId(newId);
+      setDraftAgentId(newId);
       refreshTerminal();
     });
     const unlistenRuntime = listen("runtime-state-changed", () => {
@@ -434,7 +451,11 @@ export default function App() {
     };
   }, [refreshTerminal, refreshStatus, refreshSecurity, refreshConversations, fetchConversation, updateActiveConvId]);
 
-  // ─── Models catalog（跟随当前 agent） ─────────────────────────────────────
+  // ─── Models catalog（跟随当前对话的 agent） ───────────────────────────────
+
+  /// 当前生效的 Agent：已有对话以 `conv.agentId` 为准（对话级，创建时绑定），
+  /// 草稿态用草稿选定的 Agent。模型目录 / 终端 / 工作目录都跟随它。
+  const effectiveAgentId = activeConv?.agentId ?? draftAgentId;
 
   const refreshModels = useCallback(async (agentId: string) => {
     try {
@@ -446,8 +467,8 @@ export default function App() {
 
   useEffect(() => {
     setModels(null);
-    void refreshModels(activeAgentId);
-  }, [activeAgentId, refreshModels]);
+    void refreshModels(effectiveAgentId);
+  }, [effectiveAgentId, refreshModels]);
 
   // ─── Workdir（目录上下文；三态）────────────────────────────────────────────
   // - 已有对话：绑定目录 = conv.workdirOverride（权威，侧栏分组同源），
@@ -504,10 +525,15 @@ export default function App() {
         : draftWorkdir !== undefined
           ? draftWorkdir
           : (agentWorkdir ?? null);
-      const convId = await sendCommand(text, activeConvId, bindWorkdir);
+      // 新对话创建即记录「当时的授权档位」：草稿里选的档位随对话固化，
+      // 保证每个对话的授权互不影响（不写到全局默认，不影响既有对话）。
+      const bindApproval = activeConvId ? undefined : draftApprovalMode;
+      const convId = await sendCommand(text, activeConvId, bindWorkdir, bindApproval);
       updateActiveConvId(convId);
       setStreaming(null);
       setDraftWorkdir(undefined);
+      // 草稿档位随首条消息固化进对话，草稿选择清空（下一个草稿重新跟随全局默认）
+      setDraftApprovalMode(null);
       await refreshConversations();
       const conv = await getConversation(convId);
       setActiveConv(conv);
@@ -516,46 +542,68 @@ export default function App() {
       await refreshTerminal();
     });
 
+  /// 切换 Agent。
+  /// Agent 是**对话级**绑定（创建时固化）：在已有对话里切到别的 Agent 会
+  /// 进入草稿态（下一条消息以新 Agent 开新对话），旧对话原样保留、可随时
+  /// 切回；草稿态则直接改草稿的 Agent（并同步后端 active agent）。
   const handleSwitchAgent = (agentId: string) =>
     runQuietly(async () => {
-      if (agentId === activeAgentId) return;
+      if (agentId === convAgentId) return;
       await switchActiveAgent(agentId);
-      setActiveAgentId(agentId);
+      setDraftAgentId(agentId);
       await refreshTerminal();
       // 对话绑定 agent（方案 §6.2）：当前对话属于别的 agent 时切到草稿态，
       // 下一条消息会以新 agent 开新对话；旧对话保留可随时切回。
       if (activeConv && activeConv.agentId !== agentId) {
         updateActiveConvId(null);
         setActiveConv(null);
+        // 回到草稿：草稿里的临时选择（档位）清空，重新跟随全局默认
+        setDraftApprovalMode(null);
       }
     });
 
   // key 形如 `${providerId}::${modelId}`，拆开后配对提交，后端才能区分
   // 同名模型来自哪家（"跟随 Agent 配置" 传 key=""，即清除偏好）。
+  //
+  // 模型是**对话级**设置：已有对话写该对话的模型覆盖（只影响这一个对话，
+  // 其它对话不受影响）；草稿态没有对话可写，改的是该 Agent 的默认模型
+  // （= 新对话的起点，仍随对话创建时继承为"跟随 Agent 配置"）。
   const handleSelectModel = (key: string) =>
     runQuietly(async () => {
-      const agentForModel = activeConv?.agentId ?? activeAgentId;
-      if (key === "") {
-        await setDefaultModel(agentForModel, null, null);
+      const modelId = key === "" ? null : key.slice(key.indexOf("::") + 2);
+      const providerId = key === "" ? null : key.slice(0, key.indexOf("::"));
+      if (activeConvId) {
+        await setConversationModel(activeConvId, modelId, providerId);
+        setActiveConv((prev) =>
+          prev && prev.id === activeConvId
+            ? { ...prev, modelOverride: modelId, modelProviderOverride: providerId }
+            : prev,
+        );
       } else {
-        const sep = key.indexOf("::");
-        const providerId = key.slice(0, sep);
-        const modelId = key.slice(sep + 2);
-        await setDefaultModel(agentForModel, modelId, providerId);
+        await setDefaultModel(effectiveAgentId, modelId, providerId);
+        await refreshModels(effectiveAgentId);
       }
-      await refreshModels(agentForModel);
     });
 
+  /// 切换授权档位。授权是**对话级**设置：
+  /// - 已有对话 → 写该对话的档位（其它对话不受影响）；
+  /// - 草稿态 → 只改草稿（发送首条消息时随对话固化，全局默认不动）。
   const handleSetApprovalMode = (mode: ApprovalMode) =>
     runQuietly(async () => {
-      setApprovalModeState(mode);
-      const applied = await setApprovalMode(mode);
-      setApprovalModeState(applied as ApprovalMode);
-      await refreshSecurity();
+      if (activeConvId) {
+        await setConversationApprovalMode(activeConvId, mode);
+        setActiveConv((prev) =>
+          prev && prev.id === activeConvId ? { ...prev, approvalMode: mode } : prev,
+        );
+      } else {
+        // 草稿：只记在本地（随首条消息随对话固化），不动全局默认，
+        // 也就不会影响任何已有对话。
+        setDraftApprovalMode(mode);
+      }
     });
 
   const handleClearTerminal = () =>
-    runQuietly(() => clearTerminal(activeConv?.agentId ?? activeAgentId));
+    runQuietly(() => clearTerminal(effectiveAgentId));
 
   const handleRevealPairing = () =>
     runQuietly(async () => {
@@ -582,6 +630,7 @@ export default function App() {
     updateActiveConvId(null);
     setActiveConv(null);
     setDraftWorkdir(undefined);
+    setDraftApprovalMode(null);
     setSettingsOpen(false);
   };
 
@@ -627,7 +676,7 @@ export default function App() {
 
   // ─── Derived State ──────────────────────────────────────────────────────
 
-  const convAgentId = activeConv?.agentId ?? activeAgentId;
+  const convAgentId = effectiveAgentId;
   const activeTerminal =
     terminals.find((t) => t.agentId === convAgentId) ?? null;
   const agentNameMap = new Map(
@@ -683,9 +732,15 @@ export default function App() {
       providerId: p.id,
     })),
   );
+  // 当前生效模型 = **对话级覆盖**（用户在这个对话里选的）> 该 Agent 的默认
+  // 模型偏好（全局，作为"跟随 Agent 配置"的落点）> Agent 配置里的 active。
+  const convModelOverride = activeConv?.modelOverride ?? null;
+  const convProviderOverride = activeConv?.modelProviderOverride ?? null;
   const currentModelId =
-    models?.preferredModelId ?? models?.activeModelId ?? "";
-  const currentProviderId = models?.preferredProviderId ?? null;
+    convModelOverride ?? models?.preferredModelId ?? models?.activeModelId ?? "";
+  const currentProviderId = convModelOverride
+    ? convProviderOverride
+    : models?.preferredProviderId ?? null;
   // 选中判定：id 匹配的前提下，若偏好记录了 provider 则精确到 provider；
   // 旧记录（无 provider）退回第一个 id 命中。
   const currentModelKey =
@@ -694,6 +749,11 @@ export default function App() {
         m.id === currentModelId &&
         (currentProviderId == null || m.providerId === currentProviderId),
     )?.key ?? "";
+
+  // 生效授权档位 = **对话级**（创建时固化 / 对话内改档位）
+  //               > 草稿里手选的 > 全局默认。旧对话（未固化档位）回落全局。
+  const effectiveApprovalMode: ApprovalMode =
+    activeConv?.approvalMode ?? (draftApprovalMode ?? globalApprovalMode);
 
   // 侧栏三区：置顶 / 常规 / 归档（后端已按 pinned 优先 + 最新活动排好）
   // 侧栏：目录分组 + 归档（后端已按 pinned 优先 + 最新活动排好，
@@ -860,22 +920,25 @@ export default function App() {
       <div data-tauri-drag-region className="flex h-7 shrink-0 select-none items-center justify-end bg-background">
         <div className="flex h-full">
           <button
+            type="button"
             className="flex h-full w-11 items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground"
-            onClick={() => void getCurrentWindow().minimize()}
+            onClick={() => winAction(() => getCurrentWindow().minimize())}
             title={t("win.minimize")}
           >
             <Minus size={14} />
           </button>
           <button
+            type="button"
             className="flex h-full w-11 items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground"
-            onClick={() => void getCurrentWindow().toggleMaximize()}
+            onClick={() => winAction(() => getCurrentWindow().toggleMaximize())}
             title={t("win.maximize")}
           >
             <Square size={11} />
           </button>
           <button
+            type="button"
             className="flex h-full w-11 items-center justify-center text-muted-foreground hover:bg-destructive hover:text-white"
-            onClick={() => void getCurrentWindow().close()}
+            onClick={() => winAction(() => getCurrentWindow().close())}
             title={t("win.close")}
           >
             <X size={14} />
@@ -1084,11 +1147,11 @@ export default function App() {
                     />
                   )}
 
-                  {/* 切换授权模式 */}
+                  {/* 切换授权模式（对话级：只影响当前对话 / 草稿） */}
                   <ComposerDropdown
                     title={t("bar.approval")}
                     icon={<ShieldCheck size={14} className="shrink-0" />}
-                    value={approvalMode}
+                    value={effectiveApprovalMode}
                     options={APPROVAL_MODES.map((m) => ({
                       value: m.id,
                       label: t("bar.approvalItem", { label: m.label }),
@@ -1097,8 +1160,8 @@ export default function App() {
                     onChange={(v) => handleSetApprovalMode(v as ApprovalMode)}
                     triggerClassName={cn(
                       "max-w-36",
-                      approvalMode === "askAll" && "text-warning",
-                      approvalMode === "auto" && "text-success",
+                      effectiveApprovalMode === "askAll" && "text-warning",
+                      effectiveApprovalMode === "auto" && "text-success",
                     )}
                   />
 

@@ -121,8 +121,15 @@ export async function sendCommand(
   conversationId: string | null,
   /** 草稿物化（conversationId=null）时绑定的工作目录；undefined 不传。 */
   workdir?: string | null,
+  /** 草稿物化时固化的授权档位（对话级，之后各对话独立）；undefined 不传。 */
+  approvalMode?: ApprovalMode | null,
 ): Promise<string> {
-  return invoke<string>("send_command", { text, conversationId, workdir: workdir ?? null });
+  return invoke<string>("send_command", {
+    text,
+    conversationId,
+    workdir: workdir ?? null,
+    approvalMode: approvalMode ?? null,
+  });
 }
 
 /**
@@ -258,6 +265,36 @@ export async function setConversationWorkdir(
   return invoke<void>("set_conversation_workdir", {
     conversationId: id,
     workdir: workdir ?? "",
+  });
+}
+
+/**
+ * 设置 / 清除某个对话的授权档位（null = 清除，回落全局默认）。
+ * 授权是**对话级**设置：只影响这一个对话。
+ */
+export async function setConversationApprovalMode(
+  id: string,
+  mode: ApprovalMode | null,
+): Promise<void> {
+  return invoke<void>("set_conversation_approval_mode", {
+    conversationId: id,
+    mode: mode ?? null,
+  });
+}
+
+/**
+ * 设置 / 清除某个对话的模型覆盖（modelId=null = 清除，回落该 Agent 默认模型）。
+ * modelId 与 providerId 成对提交（同名模型可能来自多个厂商）。
+ */
+export async function setConversationModel(
+  id: string,
+  modelId: string | null,
+  providerId: string | null,
+): Promise<void> {
+  return invoke<void>("set_conversation_model", {
+    conversationId: id,
+    modelId: modelId ?? null,
+    providerId: providerId ?? null,
   });
 }
 

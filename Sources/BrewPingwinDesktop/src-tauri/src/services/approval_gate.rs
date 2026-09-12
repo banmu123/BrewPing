@@ -1,11 +1,13 @@
 //! 授权网关：在命令进入 agent 之前判定「放行」还是「挂起等确认」。
 //!
 //! 与 macOS `Sources/App/ApprovalGate.swift` 行为一致：
-//! - 三档模式 `safe`（默认）/ `askAll` / `auto`，**全局**一份（刻意不做 per-agent）；
+//! - 三档模式 `safe`（默认）/ `askAll` / `auto`；
+//!   档位**按对话**存放（`Conversation.approval_mode`，创建时固化），
+//!   对话未设置时回落到本网关的全局默认值（`~/.brewping/approval.json`）；
 //! - `safe` 命中危险模式且不在「总是允许」白名单里 → 挂起；
 //! - pending 有效期 300 秒，超时自动作废（缺席不表态 ≠ 默认放行）；
 //! - 「总是允许」只接受**已知的** danger code，拒绝未知 code 注入持久化；
-//! - 状态落在 `~/.brewping/approval.json`（权限 0600）。
+//! - 全局档位与白名单落在 `~/.brewping/approval.json`（权限 0600）。
 //!
 //! 职责单一 —— 只管**判定与队列**，不执行命令。执行动作由调用方
 //! （HTTP 层的 `/api/approvals/:id`，或桌面前端）拿到 `Resolution` 后完成，
@@ -157,8 +159,18 @@ impl ApprovalGate {
     // ─── Check ───────────────────────────────────────────────────────────────
 
     pub fn check(&self, text: &str) -> Decision {
+        self.check_with(text, self.mode())
+    }
+
+    /// 按**指定档位**判定。
+    ///
+    /// 授权档位是**对话级**设置（`Conversation.approval_mode`，创建时固化），
+    /// 调用方（HTTP 层）传入该对话的档位；对话未设置时回落到本网关的全局
+    /// 默认值。白名单（always allow）保持全局一份 —— 它描述的是
+    /// 「这台机器允许哪些危险模式」，与某个对话无关。
+    pub fn check_with(&self, text: &str, mode: ApprovalMode) -> Decision {
         let mut inner = self.inner.lock().expect("approval gate poisoned");
-        match inner.mode {
+        match mode {
             ApprovalMode::Auto => Decision::Allow,
             ApprovalMode::AskAll => {
                 let reasons = vec![DangerHit {
@@ -555,6 +567,33 @@ mod tests {
         }
         assert!(g.pending_approvals().is_empty(), "过期 pending 应被清理");
         assert!(g.decide(&id, "approve").is_none(), "过期 pending 不得被执行");
+        let _ = std::fs::remove_file(path);
+    }
+
+    // TC-AG-15  对话级档位：check_with 用「传入的」档位判定，与网关全局档位解耦
+    #[test]
+    fn check_with_uses_the_passed_mode() {
+        let (g, path) = gate("checkwith");
+        // 网关全局是 safe（默认），但对话 A 固化了 auto → 危险命令放行
+        assert!(matches!(
+            g.check_with("rm -rf /", ApprovalMode::Auto),
+            Decision::Allow
+        ));
+        // 对话 B 固化了 askAll → 连普通命令也挂起
+        assert!(matches!(
+            g.check_with("ls -la", ApprovalMode::AskAll),
+            Decision::Pending(_)
+        ));
+        // 显式传档位不得改动网关自身的全局档位
+        assert_eq!(g.mode(), ApprovalMode::Safe);
+        // 全局档位被改后，显式入参依然是唯一依据
+        g.set_mode(ApprovalMode::Auto);
+        assert!(matches!(
+            g.check_with("rm -rf /", ApprovalMode::Safe),
+            Decision::Pending(_)
+        ));
+        // 无参 check 仍走全局档位（旧行为不变）
+        assert!(matches!(g.check("rm -rf /"), Decision::Allow));
         let _ = std::fs::remove_file(path);
     }
 }
