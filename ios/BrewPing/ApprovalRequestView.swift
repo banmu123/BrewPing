@@ -34,14 +34,19 @@ struct ApprovalRequestView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Command")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.bpMutedForeground)
             Text(approval.text ?? "")
                 .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(Color.bpForeground)
                 .textSelection(.enabled)
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.secondarySystemBackground))
+                .background(Color.bpCard)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.bpBorder, lineWidth: 1)
+                )
         }
     }
 
@@ -49,11 +54,11 @@ struct ApprovalRequestView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Reason")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.bpMutedForeground)
             ForEach(approval.localizedReasons(), id: \.self) { reason in
                 Label(reason, systemImage: "exclamationmark.circle")
                     .font(.callout)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.bpDestructive)
             }
         }
     }

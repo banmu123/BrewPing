@@ -29,6 +29,9 @@ struct BrewPingApp: App {
                 //    全部按新语言重绘。切语言是低频操作，重建代价可以接受。
                 .environment(\.locale, language.current.locale)
                 .id(language.current)
+                // 全局品牌色：拿铁暖咖（与 Windows 桌面端 --primary 一致）。
+                // 放在根上，所有 sheet / NavigationStack 里的链接、Picker、开关统一跟着变。
+                .tint(Color.bpPrimary)
                 // 配对链接入口：放在 App 根，比放在 ContentView 更稳 —— 冷启动时
                 //  .onOpenURL 会在 ContentView 还没 onAppear 之前就触发，
                 //  pendingAction 存下来，等 ContentView 起来后 onChange 再消费。

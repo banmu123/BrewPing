@@ -94,6 +94,8 @@ struct ContentView: View {
     @State private var agents: [AgentEntry] = []
     @State private var discoveryMessage = ""
     @State private var showHelp = false
+    /// 控制面板弹窗（Agent 列表 / 会话启停 / 模型 / 授权 / 工作目录）。
+    @State private var showControls = false
 
     // 命令的提交与轮询统一由 CommandSubmitter 负责（见 CommandReceiver.swift），
     // 视图只是它的观察者。这样即使界面没被创建，Watch 来的命令也能照常执行。
@@ -126,25 +128,48 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 deviceTabBar
 
-                Form {
-                    if deviceStore.devices.isEmpty {
-                        emptyStateCard
-                    } else if let device = activeDevice, !DeviceAuth.isPaired(device) {
-                        notPairedCard(device)
+                // 已配对设备：主页 = 桌面端同步过来的对话（按绑定的工作目录分组）；
+                // 未添加 / 未配对时才是引导表单。
+                // 原有的 Agent 列表、会话启停、模型 / 授权 / 工作目录等控制项
+                // 收进右上角「控制面板」弹窗（功能不变，只是不再占主页）。
+                if let device = activeDevice, DeviceAuth.isPaired(device) {
+                    if statusError != nil {
+                        statusBannerRow
                     }
+                    ConversationListView(
+                        device: device,
+                        online: online,
+                        agentNames: agentNameMap
+                    )
+                } else {
+                    Form {
+                        if deviceStore.devices.isEmpty {
+                            emptyStateCard
+                        } else if let device = activeDevice {
+                            notPairedCard(device)
+                        }
 
-                    statusBanner
-                    agentListCard
-                    sessionCard
-                    messageSection
-
-                    Section("Result") {
-                        resultView
+                        statusBanner
                     }
+                    .scrollContentBackground(.hidden)
+                    .background(Color.bpBackground)
+                    .tint(Color.bpPrimary)
                 }
             }
+            .background(Color.bpBackground)
             .navigationTitle("BrewPing")
+            .navigationDestination(for: ConversationRoute.self) { route in
+                conversationDestination(route)
+            }
             .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showControls = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                    }
+                    .accessibilityLabel(Text("Controls"))
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         showHelp = true
@@ -153,6 +178,9 @@ struct ContentView: View {
                     }
                     .accessibilityLabel("Help and About")
                 }
+            }
+            .sheet(isPresented: $showControls) {
+                controlPanel
             }
             .sheet(isPresented: $showHelp) {
                 HelpView()
@@ -214,6 +242,101 @@ struct ContentView: View {
 
     // MARK: - 首次启动 / 空状态
 
+    // MARK: - 对话主页 / 控制面板（本轮新增）
+
+    /// 对话详情的导航目标（既有对话 / 新对话草稿）。
+    @ViewBuilder
+    private func conversationDestination(_ route: ConversationRoute) -> some View {
+        if let device = activeDevice {
+            switch route {
+            case .existing(let id):
+                ConversationDetailView(
+                    conversationId: id,
+                    device: device,
+                    online: online,
+                    agentNames: agentNameMap,
+                    fallbackAgentId: activeAgentID
+                )
+            case .draft:
+                ConversationDetailView(
+                    conversationId: nil,
+                    device: device,
+                    online: online,
+                    agentNames: agentNameMap,
+                    fallbackAgentId: activeAgentID
+                )
+            }
+        } else {
+            Text("Add a device first")
+                .font(.footnote)
+                .foregroundStyle(Color.bpMutedForeground)
+        }
+    }
+
+    /// agentId → 显示名（复用已拉取的 /api/agents 结果，避免对话列表再打一次接口）。
+    private var agentNameMap: [String: String] {
+        var map: [String: String] = [:]
+        for agent in agents {
+            map[agent.id] = agent.name
+        }
+        return map
+    }
+
+    /// 连接异常提示（非 Form 版：主页是 List 时也要能看到原因）。
+    @ViewBuilder
+    private var statusBannerRow: some View {
+        if let statusError, hasDevice {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.bpWarning)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: statusError)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.bpForeground)
+                    if let device = activeDevice {
+                        Text("Make sure \(BrewPingConfig.macAppName) is running on \(device.host), and that both devices are on the same Wi-Fi.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.bpMutedForeground)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Color.bpWarning.opacity(0.12))
+        }
+    }
+
+    /// 控制面板：原有的状态、Agent 列表、会话启停、模型 / 授权 / 工作目录入口。
+    private var controlPanel: some View {
+        NavigationStack {
+            Form {
+                statusBanner
+                agentListCard
+                sessionCard
+
+                if !sessionMessage.isEmpty {
+                    Section {
+                        Text(verbatim: sessionMessage)
+                            .font(.footnote)
+                            .foregroundStyle(Color.bpWarning)
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.bpBackground)
+            .tint(Color.bpPrimary)
+            .navigationTitle("Controls")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { showControls = false }
+                }
+            }
+        }
+    }
+
     /// 没有设备时的引导卡片。
     /// 审核员下载后看到的第一屏就是这里 —— 必须自解释"需要配套 Mac 端"，
     /// 否则会被判定为 2.1 App Completeness 问题。
@@ -244,7 +367,7 @@ struct ContentView: View {
 
                 Text("BrewPing needs **\(BrewPingConfig.macAppName)** running on your Mac. Your iPhone is the remote control; your Mac runs the coding agents.")
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.bpMutedForeground)
 
                 VStack(alignment: .leading, spacing: 6) {
                     guideStep(1, "Install and open \(BrewPingConfig.macAppName) on your Mac.")
@@ -267,7 +390,7 @@ struct ContentView: View {
                     ProgressView()
                     Text("Scanning for \(BrewPingConfig.macAppName) on this Wi-Fi...")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.bpMutedForeground)
                 }
             }
             ForEach(bonjour.discoveredHosts) { host in
@@ -278,19 +401,19 @@ struct ContentView: View {
                         // 图标跟随广播方声明的主机类型（Mac/Win/Linux），不再写死 macstudio。
                         Image(systemName: host.osType.icon)
                             .font(.title3)
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(Color.bpPrimary)
                             .frame(width: 28)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(host.name)
                                 .font(.callout)
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(Color.bpForeground)
                             Text("\(host.host):\(host.port)")
                                 .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color.bpMutedForeground)
                         }
                         Spacer()
                         Image(systemName: "plus.circle.fill")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(Color.bpPrimary)
                     }
                 }
                 .buttonStyle(.plain)
@@ -298,7 +421,7 @@ struct ContentView: View {
             if !bonjour.isSearching && !bonjour.isResolving && bonjour.discoveredHosts.isEmpty {
                 Label("No BrewPing Mac found on this Wi-Fi yet.", systemImage: "wifi.exclamationmark")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.bpMutedForeground)
             }
         } header: {
             Text("Macs on this Wi-Fi")
@@ -332,7 +455,7 @@ struct ContentView: View {
 
             Text("No Mac at hand? Demo Mode walks through the whole flow locally, without any hardware.")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.bpMutedForeground)
         }
     }
 
@@ -421,7 +544,7 @@ struct ContentView: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text("\(index).")
                 .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.bpMutedForeground)
             Text(key)
                 .font(.footnote)
         }
@@ -434,7 +557,7 @@ struct ContentView: View {
                 .font(.callout)
             Text("Open \(BrewPingConfig.macAppName) on \(device.host), reveal its pairing code, then enter the code for this device.")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.bpMutedForeground)
             Button {
                 beginEditing(device)
             } label: {
@@ -450,14 +573,14 @@ struct ContentView: View {
             Section {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color.bpWarning)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(verbatim: statusError)
                             .font(.footnote)
                         if let device = activeDevice {
                             Text("Make sure \(BrewPingConfig.macAppName) is running on \(device.host), and that both devices are on the same Wi-Fi.")
                                 .font(.caption2)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color.bpMutedForeground)
                         }
                     }
                 }
@@ -483,11 +606,11 @@ struct ContentView: View {
                             .font(.system(size: 13, weight: .medium))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 7)
-                            .background(Capsule().fill(Color.blue.opacity(0.12)))
+                            .background(Capsule().fill(Color.bpPrimary.opacity(0.12)))
                     } else {
                         Image(systemName: "plus.circle.fill")
                             .font(.system(size: 20))
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(Color.bpPrimary)
                     }
                 }
                 .buttonStyle(.plain)
@@ -496,7 +619,7 @@ struct ContentView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color.bpBackground)
     }
 
     private func deviceTab(_ device: ManagedDevice) -> some View {
@@ -514,22 +637,22 @@ struct ContentView: View {
                     if !DeviceAuth.isPaired(device) {
                         Image(systemName: "key.slash")
                             .font(.system(size: 9))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Color.bpWarning)
                     }
                 }
                 Circle()
-                    .fill(isActive && online ? Color.green : (isActive ? Color.orange : Color.gray))
+                    .fill(isActive && online ? Color.bpSuccess : (isActive ? Color.bpWarning : Color.bpMutedForeground))
                     .frame(width: 5, height: 5)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(isActive ? Color.blue.opacity(0.15) : Color(.tertiarySystemGroupedBackground))
+                    .fill(isActive ? Color.bpAccent : Color.bpCard)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(isActive ? Color.blue.opacity(0.4) : Color.clear, lineWidth: 1)
+                    .stroke(isActive ? Color.bpPrimary.opacity(0.4) : Color.bpBorder, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -599,7 +722,7 @@ struct ContentView: View {
                     if !discoveryMessage.isEmpty {
                         Text(verbatim: discoveryMessage)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.bpMutedForeground)
                     }
                 }
 
@@ -622,7 +745,7 @@ struct ContentView: View {
                     if !pairingMessage.isEmpty {
                         Text(verbatim: pairingMessage)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.bpMutedForeground)
                     }
                 } header: {
                     Text("Pairing")
@@ -805,12 +928,12 @@ struct ContentView: View {
                         ? LocalizedStringKey("Detecting agents...")
                         : LocalizedStringKey("No agents detected. Connect a paired Mac to list the coding agents installed on it.")))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.bpMutedForeground)
             } else {
                 ForEach(agents) { agent in
                     HStack(spacing: 10) {
                         Circle()
-                            .fill(agent.installed ? Color.green : Color.gray.opacity(0.5))
+                            .fill(agent.installed ? Color.bpSuccess : Color.bpMutedForeground.opacity(0.5))
                             .frame(width: 10, height: 10)
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
@@ -822,21 +945,21 @@ struct ContentView: View {
                                         .fontWeight(.semibold)
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
-                                        .background(Capsule().fill(Color.green.opacity(0.15)))
-                                        .foregroundStyle(.green)
+                                        .background(Capsule().fill(Color.bpSuccess.opacity(0.15)))
+                                        .foregroundStyle(Color.bpSuccess)
                                 }
                             }
                             // 版本号是数据、不翻译；没有版本号时才显示本地化文案。
                             if agent.installed, let version = agent.version, !version.isEmpty {
                                 Text(verbatim: version)
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Color.bpMutedForeground)
                             } else {
                                 Text(agent.installed
                                      ? LocalizedStringKey("Installed")
                                      : LocalizedStringKey("Not Installed"))
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Color.bpMutedForeground)
                             }
                         }
                         Spacer()
@@ -855,7 +978,7 @@ struct ContentView: View {
                 // 免责声明在 BrewPingConfig 里是 String，显式转成 key 才能被翻译。
                 Text(LocalizedStringKey(BrewPingConfig.trademarkDisclaimer))
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.bpMutedForeground)
             }
         }
     }
@@ -874,7 +997,7 @@ struct ContentView: View {
                         .frame(width: 10, height: 10)
                     Text(sessionStateText)
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.bpMutedForeground)
                 }
             }
             modelRow
@@ -884,7 +1007,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Session ID")
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.bpMutedForeground)
                     Text(String(sessionID.prefix(12)) + "...")
                         .font(.caption)
                         .textSelection(.enabled)
@@ -893,7 +1016,7 @@ struct ContentView: View {
             if !sessionMessage.isEmpty {
                 Text(verbatim: sessionMessage)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.bpMutedForeground)
             }
             // 会话启停按钮的显示条件：
             //  - 正在跑会话 → 必须显示（否则切到非 OpenCode 的默认 Agent 后就停不掉了）；
@@ -906,11 +1029,11 @@ struct ContentView: View {
             } else {
                 HStack(spacing: 6) {
                     Image(systemName: "bolt.circle.fill")
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(Color.bpPrimary)
                         .font(.caption)
                     Text("Ready — type a command below to send")
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.bpMutedForeground)
                 }
             }
         }
@@ -961,7 +1084,7 @@ struct ContentView: View {
                     // 模型名是用户配置的数据，不翻译。
                     Text(verbatim: modelStore.activeModelName ?? "—")
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.bpMutedForeground)
                         .lineLimit(1)
                 }
             }
@@ -994,7 +1117,7 @@ struct ContentView: View {
                     // workdir 是主机上的路径数据，不翻译。
                     Text(verbatim: activeAgentWorkdir ?? "—")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.bpMutedForeground)
                         .lineLimit(1)
                         .truncationMode(.head)
                 }
@@ -1017,7 +1140,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
                     Image(systemName: approvalMode.mode == .auto ? "shield.slash" : "shield.lefthalf.filled")
-                        .foregroundStyle(approvalMode.mode == .auto ? .orange : .secondary)
+                        .foregroundStyle(approvalMode.mode == .auto ? Color.bpWarning : Color.bpMutedForeground)
                         .font(.callout)
                     Text("Approval Mode")
                         .font(.callout)
@@ -1035,12 +1158,12 @@ struct ContentView: View {
                 }
                 Text(approvalMode.mode.summary)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.bpMutedForeground)
                 // 切换失败时明确告知原因，不要让用户面对"点了没反应"的静默回退。
                 if let error = approvalMode.lastError {
                     Text(error)
                         .font(.caption2)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.bpDestructive)
                 }
             }
         }
@@ -1079,16 +1202,16 @@ struct ContentView: View {
     }
 
     private var actionTint: Color {
-        guard hasDevice else { return .gray }
-        return sessionState == .running ? .red : .green
+        guard hasDevice else { return Color.bpMutedForeground }
+        return sessionState == .running ? Color.bpDestructive : Color.bpSuccess
     }
 
     private var sessionDotColor: Color {
         switch sessionState {
-        case .running: return .green
-        case .starting: return .orange
-        case .stopping: return .orange
-        case .offline: return online ? .gray : .red
+        case .running: return Color.bpSuccess
+        case .starting: return Color.bpWarning
+        case .stopping: return Color.bpWarning
+        case .offline: return online ? Color.bpMutedForeground : Color.bpDestructive
         }
     }
 
@@ -1126,7 +1249,7 @@ struct ContentView: View {
                      ? LocalizedStringKey("Start a session to enable sending.")
                      : LocalizedStringKey("Add a device to enable sending."))
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.bpMutedForeground)
             }
         }
     }
@@ -1139,7 +1262,7 @@ struct ContentView: View {
         case .idle:
             Text("No message sent yet.")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.bpMutedForeground)
         case .sending:
             HStack(spacing: 8) {
                 ProgressView()
@@ -1148,7 +1271,7 @@ struct ContentView: View {
             }
         case .delivered:
             HStack(spacing: 8) {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.bpSuccess)
                 Text("Delivered")
                     .font(.callout)
                 Spacer()
@@ -1156,7 +1279,7 @@ struct ContentView: View {
             }
         case .working:
             HStack(spacing: 8) {
-                Circle().fill(Color.orange).frame(width: 10, height: 10)
+                Circle().fill(Color.bpWarning).frame(width: 10, height: 10)
                 Text("Working")
                     .font(.callout)
                 Spacer()
@@ -1165,7 +1288,7 @@ struct ContentView: View {
         case .completed(let response):
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.bpSuccess)
                     durationSuffix("Completed").font(.callout).fontWeight(.medium)
                 }
                 agentModelLine
@@ -1176,22 +1299,22 @@ struct ContentView: View {
         case .completedRaw(let raw):
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.bpSuccess)
                     durationSuffix("Completed").font(.callout).fontWeight(.medium)
                 }
                 agentModelLine
                 Text("Raw screen output")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.bpMutedForeground)
                 Text(raw)
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.bpMutedForeground)
                     .textSelection(.enabled)
             }
         case .failed(let error):
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(Color.bpDestructive)
                     durationSuffix("Failed").font(.callout).fontWeight(.medium)
                 }
                 agentModelLine
@@ -1199,11 +1322,11 @@ struct ContentView: View {
                     Text(failureReasonLabel(reason))
                         .font(.caption)
                         .fontWeight(.medium)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.bpDestructive)
                 }
                 Text(error)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.bpMutedForeground)
                     .textSelection(.enabled)
             }
         }
@@ -1221,12 +1344,12 @@ struct ContentView: View {
             if !sessionAgentNameFromStatus.isEmpty {
                 Text(sessionAgentNameFromStatus)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.bpMutedForeground)
             }
             if let model = lastModelId {
                 Text(model)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.bpMutedForeground)
             }
         }
     }
@@ -1263,6 +1386,8 @@ struct ContentView: View {
         agents = []
         // 设备被切走/移除：缓存的模型属于旧设备，必须失效重拉。
         modelStore.invalidate()
+        // 同理：对话列表/详情也属于旧设备，必须清空，否则会串到另一台机器上。
+        ConversationStore.shared.invalidate()
     }
 
     // MARK: - Polling

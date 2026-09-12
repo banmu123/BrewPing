@@ -91,7 +91,7 @@ struct FolderBrowserView: View {
             Section {
                 HStack(spacing: 8) {
                     Image(systemName: "folder.fill")
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(Color.bpPrimary)
                         .font(.caption)
                     TextField("Path on host", text: $store.pathInput)
                         .font(.caption.monospaced())
@@ -136,7 +136,7 @@ struct FolderBrowserView: View {
                                 Text(verbatim: drive)
                             } icon: {
                                 Image(systemName: "internaldrive.fill")
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Color.bpMutedForeground)
                             }
                         }
                     }
@@ -182,7 +182,7 @@ struct FolderBrowserView: View {
                 Section {
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                            .foregroundStyle(Color.bpSuccess)
                         // workdir 是主机数据，不翻译。
                         Text(verbatim: currentWorkdir)
                             .font(.caption.monospaced())
@@ -197,7 +197,7 @@ struct FolderBrowserView: View {
                 Section {
                     Text(verbatim: settingNotice)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.bpDestructive)
                 }
             }
         }
@@ -235,7 +235,7 @@ struct FolderBrowserView: View {
     private func rowLabel(_ entry: BrowseEntry) -> some View {
         HStack(spacing: 10) {
             Image(systemName: entry.isUnreadable ? "folder.badge.questionmark" : "folder.fill")
-                .foregroundStyle(entry.isUnreadable ? Color.secondary : Color.blue)
+                .foregroundStyle(entry.isUnreadable ? Color.bpMutedForeground : Color.bpPrimary)
                 .font(.body)
                 .frame(width: 24)
 
@@ -243,11 +243,11 @@ struct FolderBrowserView: View {
                 // 目录名是主机上的数据，不翻译。
                 Text(verbatim: entry.name)
                     .font(.callout)
-                    .foregroundStyle(entry.isUnreadable ? .secondary : .primary)
+                    .foregroundStyle(entry.isUnreadable ? Color.bpMutedForeground : Color.bpForeground)
                 if entry.isSymlink == true {
                     Text("Symbolic link")
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.bpMutedForeground)
                 }
             }
 
@@ -256,12 +256,12 @@ struct FolderBrowserView: View {
             if entry.isGit {
                 Image(systemName: "arrow.triangle.branch")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.bpWarning)
             }
             if entry.isUnreadable {
                 Image(systemName: "lock")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.bpMutedForeground)
             } else {
                 Image(systemName: "chevron.right")
                     .font(.caption2)

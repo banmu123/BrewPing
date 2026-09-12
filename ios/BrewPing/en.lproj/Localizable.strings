@@ -245,3 +245,22 @@
 "Working Folder Entry" = "Working Folder";
 "Working Folder Entry Hint" = "This agent doesn't support working folders yet";
 "Drives" = "Drives";
+
+/* MARK: - Conversations (synced from the desktop app, grouped by folder) */
+"New Conversation" = "New Conversation";
+"Unbound Folder" = "Unbound Folder";
+"(untitled)" = "(untitled)";
+"%@ msgs" = "%@ msgs";
+"No conversations yet. Send a message to create one." = "No conversations yet. Send a message to create one.";
+"This desktop version has no conversation list. Update the desktop app." = "This desktop version has no conversation list. Update the desktop app.";
+"Conversation not found" = "Conversation not found";
+"Server error %@" = "Server error %@";
+"Invalid host or port" = "Invalid host or port";
+"%@ is thinking…" = "%@ is thinking…";
+"No messages yet." = "No messages yet.";
+"You" = "You";
+"Message %@" = "Message %@";
+"Online" = "Online";
+"Controls" = "Controls";
+"This chat's folder. File operations use it." = "This chat's folder. File operations use it.";
+"Not bound — the CLI default folder is used." = "Not bound — the CLI default folder is used.";

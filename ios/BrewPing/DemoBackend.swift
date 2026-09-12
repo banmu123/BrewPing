@@ -238,7 +238,89 @@ final class DemoBackend {
             lock.unlock()
             return (200, ["success": true, "agentId": agentID, "workdir": saved ?? NSNull()] as [String: Any])
         }
+        // ── 对话（多对话管理，与桌面端 /api/conversations 同构）──
+        // Demo 里给两条固定对话（一条绑定目录、一条未绑定），覆盖列表页的两种分组。
+        if method == "GET", path == "/api/conversations" {
+            return (200, ["success": true, "conversations": Self.demoConversations()])
+        }
+        if method == "GET", path.hasPrefix("/api/conversations/") {
+            let id = String(path.dropFirst("/api/conversations/".count))
+            guard let conv = Self.demoConversations().first(where: { ($0["id"] as? String) == id }) else {
+                return (404, ["success": false, "error": "conversation not found"])
+            }
+            var detail = conv
+            detail["messages"] = Self.demoMessages(id: id)
+            return (200, ["success": true, "conversation": detail])
+        }
         return (404, ["success": false, "error": "not found"])
+    }
+
+    /// Demo 对话列表（两条：绑定目录 / 未绑定目录）。
+    private static func demoConversations() -> [[String: Any]] {
+        let now = Date().timeIntervalSince1970 * 1000
+        return [
+            [
+                "id": "demo-cakewalk",
+                "agentId": "opencode",
+                "title": "当下是哪个目录",
+                "titleSource": "firstMessage",
+                "createdAtMs": now - 3_600_000,
+                "updatedAtMs": now - 1_200_000,
+                "archived": false,
+                "isPinned": false,
+                "modelOverride": NSNull(),
+                "workdirOverride": "D:\\cakewalk",
+                "latestCommandId": NSNull(),
+                "messageCount": 3,
+            ],
+            [
+                "id": "demo-unbound",
+                "agentId": "opencode",
+                "title": "你好",
+                "titleSource": "firstMessage",
+                "createdAtMs": now - 7_200_000,
+                "updatedAtMs": now - 6_000_000,
+                "archived": false,
+                "isPinned": false,
+                "modelOverride": NSNull(),
+                "workdirOverride": NSNull(),
+                "latestCommandId": NSNull(),
+                "messageCount": 3,
+            ],
+        ]
+    }
+
+    /// Demo 转录（与真实契约同形：role / text / source / commandId / createdAtMs）。
+    private static func demoMessages(id: String) -> [[String: Any]] {
+        let now = Date().timeIntervalSince1970 * 1000
+        let bound = id == "demo-cakewalk"
+        let userText = bound ? "当下是哪个目录" : "你好"
+        let reply = bound
+            ? "当前目录是 D:\\cakewalk。\n\n这是 **Demo 设备** 模拟的回复，用来演示对话列表与转录的完整流程。"
+            : "你好！有什么可以帮你的？\n\n这是 **Demo 设备** 模拟的回复，用来演示对话列表与转录的完整流程。"
+        return [
+            [
+                "role": "system",
+                "text": "当前工作目录是 \(bound ? "D:\\cakewalk" : "(未绑定)")。",
+                "source": NSNull(),
+                "commandId": NSNull(),
+                "createdAtMs": now - 300_000,
+            ],
+            [
+                "role": "user",
+                "text": userText,
+                "source": "ios",
+                "commandId": NSNull(),
+                "createdAtMs": now - 290_000,
+            ],
+            [
+                "role": "assistant",
+                "text": reply,
+                "source": NSNull(),
+                "commandId": NSNull(),
+                "createdAtMs": now - 280_000,
+            ],
+        ]
     }
 
     /// 解析原始 query string（`a=1&b=2`）。只做 percent-decode，不抛错。

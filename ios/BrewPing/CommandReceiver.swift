@@ -186,7 +186,10 @@ final class CommandSubmitter: ObservableObject {
     /// - Parameters:
     ///   - text: 命令正文。
     ///   - fromWatch: 为 `true` 时表示命令来自手表，最终结果需要通过 WCSession 回传。
-    func submit(text: String, fromWatch: Bool) {
+    ///   - conversationId: 目标对话 id（对话详情页发送时传入）。`nil` = 沿用桌面端
+    ///     三层回落（显式对话 → agent → 当前 active），**旧行为完全不变**
+    ///     （桌面端 `MessageBody.conversationId` 是 `#[serde(default)]`）。
+    func submit(text: String, fromWatch: Bool, conversationId: String? = nil) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -205,7 +208,12 @@ final class CommandSubmitter: ObservableObject {
 
         pollTask = Task { [weak self] in
             guard let self else { return }
-            await self.post(text: trimmed, device: device, fromWatch: fromWatch)
+            await self.post(
+                text: trimmed,
+                device: device,
+                fromWatch: fromWatch,
+                conversationId: conversationId
+            )
         }
     }
 
@@ -271,13 +279,23 @@ final class CommandSubmitter: ObservableObject {
         }
     }
 
-    private func post(text: String, device: ManagedDevice, fromWatch: Bool) async {
+    private func post(
+        text: String,
+        device: ManagedDevice,
+        fromWatch: Bool,
+        conversationId: String? = nil
+    ) async {
         guard var request = BrewPingHTTP.request(device: device, path: "/api/message", method: "POST", timeout: 30) else {
             fail(with: L("No Mac connected. Add a device first."), fromWatch: fromWatch)
             return
         }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text])
+        var body: [String: Any] = ["text": text]
+        // 指定对话时透传；不带 = 桌面端按「显式对话 → agent → active」三层回落（旧行为）
+        if let conversationId, !conversationId.isEmpty {
+            body["conversationId"] = conversationId
+        }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         do {
             let (data, response) = try await BrewPingHTTP.session.data(for: request)

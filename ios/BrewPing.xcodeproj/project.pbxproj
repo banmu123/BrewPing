@@ -57,6 +57,10 @@ BB00000100000000000000D1 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBu
 		AA0000010000000000000106 /* ApprovalRequestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000105 /* ApprovalRequestView.swift */; };
 		AA0000010000000000000108 /* ApprovalModeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000107 /* ApprovalModeStore.swift */; };
 		AA0000010000000000000110 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000109 /* QRScannerView.swift */; };
+		AA0000010000000000000500 /* LatteTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000501 /* LatteTheme.swift */; };
+		AA0000010000000000000502 /* ConversationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000503 /* ConversationStore.swift */; };
+		AA0000010000000000000504 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000505 /* ConversationListView.swift */; };
+		AA0000010000000000000506 /* ConversationDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000507 /* ConversationDetailView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -130,6 +134,10 @@ BB00000100000000000000D0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; 
 		AA0000010000000000000105 /* ApprovalRequestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalRequestView.swift; sourceTree = "<group>"; };
 		AA0000010000000000000107 /* ApprovalModeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalModeStore.swift; sourceTree = "<group>"; };
 		AA0000010000000000000109 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
+		AA0000010000000000000501 /* LatteTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatteTheme.swift; sourceTree = "<group>"; };
+		AA0000010000000000000503 /* ConversationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationStore.swift; sourceTree = "<group>"; };
+		AA0000010000000000000505 /* ConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListView.swift; sourceTree = "<group>"; };
+		AA0000010000000000000507 /* ConversationDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationDetailView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -185,6 +193,10 @@ BB00000100000000000000D0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; 
 				AA0000010000000000000105 /* ApprovalRequestView.swift */,
 				AA0000010000000000000107 /* ApprovalModeStore.swift */,
 				AA0000010000000000000109 /* QRScannerView.swift */,
+				AA0000010000000000000501 /* LatteTheme.swift */,
+				AA0000010000000000000503 /* ConversationStore.swift */,
+				AA0000010000000000000505 /* ConversationListView.swift */,
+				AA0000010000000000000507 /* ConversationDetailView.swift */,
 				AA00000100000000000000F3 /* en */,
 				AA00000100000000000000F5 /* zh-Hans */,
 				AA000001000000000000001C /* Assets.xcassets */,
@@ -368,6 +380,10 @@ BB00000100000000000000D0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; 
 				AA0000010000000000000106 /* ApprovalRequestView.swift in Sources */,
 				AA0000010000000000000108 /* ApprovalModeStore.swift in Sources */,
 				AA0000010000000000000110 /* QRScannerView.swift in Sources */,
+				AA0000010000000000000500 /* LatteTheme.swift in Sources */,
+				AA0000010000000000000502 /* ConversationStore.swift in Sources */,
+				AA0000010000000000000504 /* ConversationListView.swift in Sources */,
+				AA0000010000000000000506 /* ConversationDetailView.swift in Sources */,
 				AA0000010000000000000013 /* Event.swift in Protocol Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

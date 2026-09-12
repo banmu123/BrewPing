@@ -243,3 +243,22 @@
 "Working Folder Entry" = "工作目录";
 "Working Folder Entry Hint" = "该 Agent 尚未支持工作目录";
 "Drives" = "盘符";
+
+/* MARK: - 对话（从桌面端同步，按工作目录分组） */
+"New Conversation" = "新对话";
+"Unbound Folder" = "未绑定目录";
+"(untitled)" = "（尚未命名）";
+"%@ msgs" = "%@ 条";
+"No conversations yet. Send a message to create one." = "还没有对话。发一条消息即自动创建。";
+"This desktop version has no conversation list. Update the desktop app." = "当前桌面端版本不支持对话列表，请更新桌面端。";
+"Conversation not found" = "对话不存在";
+"Server error %@" = "服务器错误 %@";
+"Invalid host or port" = "主机或端口无效";
+"%@ is thinking…" = "%@ 正在思考…";
+"No messages yet." = "暂无消息";
+"You" = "我";
+"Message %@" = "给 %@ 发送消息…";
+"Online" = "在线";
+"Controls" = "控制面板";
+"This chat's folder. File operations use it." = "本对话绑定的工作目录，文件操作将作用于它。";
+"Not bound — the CLI default folder is used." = "未绑定目录，将使用 CLI 默认位置。";
