@@ -3,6 +3,8 @@ import BrewPingCore
 
 struct MenuBarView: View {
     @ObservedObject var core: DesktopCore
+    /// 菜单打开时从 ConversationStore 拉一次快照（点行切换激活对话）。
+    @State private var conversationSummaries: [ConversationSummary] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -142,6 +144,65 @@ struct MenuBarView: View {
 
             Divider()
 
+            // Conversations（多对话；与 Windows 端 / iOS 端同一份数据）
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Conversations")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        conversationSummaries = ConversationStore.shared.list(includeArchived: false)
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Refresh conversations")
+                }
+                if conversationSummaries.isEmpty {
+                    Text("No conversations yet — send a message from iPhone or terminal.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    let activeID = ConversationStore.shared.activeConversation()
+                    ForEach(conversationSummaries) { summary in
+                        Button {
+                            ConversationStore.shared.setActiveConversation(summary.id)
+                            conversationSummaries = ConversationStore.shared.list(includeArchived: false)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: summary.id == activeID ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(summary.id == activeID ? Color.green : Color.secondary)
+                                    .font(.caption2)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    // 标题来自用户消息，是数据、不翻译
+                                    Text(summary.title ?? "(untitled)")
+                                        .font(.callout)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                    HStack(spacing: 4) {
+                                        // agent 名是数据、不翻译
+                                        Text(verbatim: core.agents.first { $0.id == summary.agentId }?.name ?? summary.agentId)
+                                        Text("·")
+                                        Text("\(summary.messageCount) msgs")
+                                    }
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Set as the active conversation")
+                    }
+                }
+            }
+
+            Divider()
+
             // Show Terminal
             Button {
                 TerminalWindowManager.shared.showTerminal()
@@ -168,8 +229,9 @@ struct MenuBarView: View {
         .padding(12)
         .frame(width: 260)
         .task {
-            // 打开菜单时刷新状态
+            // 打开菜单时刷新状态与对话列表
             await core.refreshStatus()
+            conversationSummaries = ConversationStore.shared.list(includeArchived: false)
         }
     }
 

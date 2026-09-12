@@ -36,6 +36,19 @@ enum HTTPAPI {
         case let ("POST", path) where path.hasPrefix("/api/approvals/"):
             let id = String(path.dropFirst("/api/approvals/".count))
             return approvalDecideResponse(id, request: request, router: router)
+        case ("GET", "/api/conversations"):
+            return conversationsListResponse()
+        case ("POST", "/api/conversations"):
+            return conversationCreateResponse(request, router: router)
+        case let ("POST", path) where path.hasPrefix("/api/conversations/") && path.hasSuffix("/activate"):
+            let id = String(path.dropFirst("/api/conversations/".count).dropLast("/activate".count))
+            return conversationActivateResponse(id)
+        case let ("GET", path) where path.hasPrefix("/api/conversations/"):
+            return conversationDetailResponse(String(path.dropFirst("/api/conversations/".count)))
+        case let ("PATCH", path) where path.hasPrefix("/api/conversations/"):
+            return conversationPatchResponse(String(path.dropFirst("/api/conversations/".count)), request: request)
+        case let ("DELETE", path) where path.hasPrefix("/api/conversations/"):
+            return conversationDeleteResponse(String(path.dropFirst("/api/conversations/".count)))
         case ("POST", "/api/session/stop"):
             return lifecycleResponse(router.route(.stopSession))
         case ("POST", "/api/session/start"):
@@ -284,24 +297,54 @@ enum HTTPAPI {
             return .json(400, "Bad Request", ["success": false, "error": "text is empty"])
         }
 
-        // 授权门卫：safe 模式命中危险 / askAll 模式时挂起，返回 pending 让 iOS 弹确认；
-        // 未命中则放行。auto 模式永远放行。
-        switch ApprovalGate.shared.check(text: text) {
+        // ── 对话路由（三层回落，与 Windows 端一致）────────────────────────────
+        // 显式 conversationId → 当前激活对话 → 以当前默认 Agent 新建一条
+        // （老客户端「直接发」也会落进自己的对话，不再依赖全局会话）。
+        let store = ConversationStore.shared
+        var conversation: ConversationRecord?
+        let conversationID: String
+        if let raw = body["conversationId"] as? String, !raw.isEmpty {
+            guard let conv = store.get(raw) else {
+                return .json(404, "Not Found", ["success": false, "error": "conversation not found"])
+            }
+            if conv.archived {
+                return .json(409, "Conflict", ["success": false, "error": "conversation is archived — restore it first"])
+            }
+            conversation = conv
+            conversationID = conv.id
+        } else if let activeID = store.activeConversation(), let conv = store.get(activeID), !conv.archived {
+            conversation = conv
+            conversationID = conv.id
+        } else {
+            let conv = store.create(agentID: AgentManager.shared.defaultAgentID)
+            store.setActiveConversation(conv.id)
+            conversation = conv
+            conversationID = conv.id
+        }
+
+        // 授权门卫按**该对话**的档位判定（授权是对话级设置）；
+        // pending 记住所属对话，批准后回同一条对话执行。
+        let conversationMode = conversation?.approvalMode.flatMap(ApprovalMode.init(rawValue:))
+        switch ApprovalGate.shared.check(text: text, mode: conversationMode, conversationID: conversationID) {
         case .pending(let approval):
             return pendingApprovalResponse(approval)
         case .allow:
             break
         }
 
-        // 将 iOS 发来的消息写入当前 Agent 的 TerminalState
-        return executeCommand(text: text, router: router)
+        return executeCommand(text: text, conversationID: conversationID, router: router)
     }
 
     /// 公共执行入口：把命令正文写进 TerminalState 并提交给 agent。
     /// `messageResponse`（直接放行）与 `approvalDecideResponse`（用户批准后）共用，
     /// 保证两条路径的 TerminalState 回显与响应结构完全一致。
-    private static func executeCommand(text: String, router: CommandRouter) -> HTTPResponse {
-        let agentId = AgentManager.shared.activeAgentID
+    ///
+    /// `conversationID` 非空时：命令由**该对话绑定的 Agent** 执行，cwd / 模型
+    /// 按「对话级覆盖 ?? Agent 偏好」解析；用户条目与终态结果回写对话转录。
+    private static func executeCommand(text: String, conversationID: String?, router: CommandRouter) -> HTTPResponse {
+        let store = ConversationStore.shared
+        let conversation = conversationID.flatMap { store.get($0) }
+        let agentId = conversation?.agentId ?? AgentManager.shared.activeAgentID
         if let state = AgentManager.shared.terminalState(for: agentId) {
             DispatchQueue.main.async {
                 state.appendLine("[iOS] > \(text)", type: .system)
@@ -309,14 +352,41 @@ enum HTTPAPI {
             }
         }
 
-        let resp = router.route(.submit(text: text))
-        if resp.ok {
+        let context = CommandContext(
+            conversationID: conversationID,
+            workdir: conversation?.workdirOverride,
+            modelID: conversation?.modelOverride,
+            providerID: conversation?.modelProviderOverride
+        )
+        let resp = router.route(.submit(text: text, context: context))
+        if resp.ok, let commandId = resp.commandId {
+            if let conversationID {
+                // 转录落盘（单一写入口）：用户条目 + 调度指针
+                store.append(
+                    conversationID: conversationID,
+                    role: "user",
+                    text: text,
+                    source: "http",
+                    commandID: commandId
+                )
+                store.setLatestCommand(id: conversationID, commandID: commandId)
+            }
             return .json(200, "OK", [
                 "success": true,
-                "commandId": resp.commandId ?? "",
+                "commandId": commandId,
                 "sessionId": resp.sessionID ?? "",
                 "status": resp.status ?? CommandStatus.queued.rawValue
             ])
+        }
+        if let conversationID {
+            store.append(
+                conversationID: conversationID,
+                role: "error",
+                text: resp.error ?? "send failed",
+                source: nil,
+                commandID: nil
+            )
+            store.setLatestCommand(id: conversationID, commandID: nil)
         }
         return .json(409, "Conflict", ["success": false, "error": resp.error ?? "send failed"])
     }
@@ -365,8 +435,8 @@ enum HTTPAPI {
             guard let text = resolution.text else {
                 return .json(409, "Conflict", ["success": false, "error": "approval has no command text"])
             }
-            // 复用与 messageResponse 相同的执行路径，保证回显与响应一致。
-            return executeCommand(text: text, router: router)
+            // 复用与 messageResponse 相同的执行路径（含所属对话上下文），保证回显与响应一致。
+            return executeCommand(text: text, conversationID: resolution.conversationID, router: router)
         default:
             return .json(400, "Bad Request", ["success": false, "error": "unknown action"])
         }
@@ -436,5 +506,155 @@ enum HTTPAPI {
             object["completedAt"] = ISO8601DateFormatter().string(from: completedAt)
         }
         return .json(200, "OK", object)
+    }
+
+    // MARK: - Conversations (多对话管理；契约与 Windows 端 /api/conversations 逐字对齐)
+
+    private static func conversationsListResponse() -> HTTPResponse {
+        let conversations = ConversationStore.shared.list(includeArchived: true).map { $0.apiObject }
+        return .json(200, "OK", ["success": true, "conversations": conversations])
+    }
+
+    private static func conversationDetailResponse(_ id: String) -> HTTPResponse {
+        guard !id.isEmpty, let conv = ConversationStore.shared.get(id) else {
+            return .json(404, "Not Found", ["success": false, "error": "conversation not found"])
+        }
+        return .json(200, "OK", ["success": true, "conversation": conv.apiObject])
+    }
+
+    private static func conversationCreateResponse(_ request: HTTPRequest, router: CommandRouter) -> HTTPResponse {
+        guard let object = try? JSONSerialization.jsonObject(with: request.body, options: []),
+              let body = object as? [String: Any] else {
+            return .json(400, "Bad Request", ["success": false, "error": "expected JSON body {\"agentId\": \"...\", \"firstMessage\"?: \"...\"}"])
+        }
+        let agentID = (body["agentId"] as? String) ?? AgentManager.shared.defaultAgentID
+        guard !agentID.isEmpty else {
+            return .json(400, "Bad Request", ["success": false, "error": "agentId is empty"])
+        }
+        guard AgentDiscovery.shared.discover().contains(where: { $0.id == agentID }) else {
+            return .json(400, "Bad Request", ["success": false, "error": "unknown agent: \(agentID)"])
+        }
+
+        let store = ConversationStore.shared
+        let conv = store.createWithOptions(
+            agentID: agentID,
+            workdir: body["workdir"] as? String,
+            approvalMode: body["approvalMode"] as? String
+        )
+        // 无 active 对话时激活（有 active 不动 —— 切换必须显式）
+        if store.activeConversation() == nil {
+            store.setActiveConversation(conv.id)
+        }
+
+        // 首条消息 → 立即提交执行（转录由执行链路唯一写入）
+        var payload: [String: Any] = [
+            "success": true,
+            "conversation": store.get(conv.id)?.apiObject ?? conv.apiObject
+        ]
+        let firstMessage = (body["firstMessage"] as? String) ?? ""
+        if !firstMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let response = executeCommand(text: firstMessage, conversationID: conv.id, router: router)
+            payload["submitStatus"] = response.status
+        }
+        return .json(200, "OK", payload)
+    }
+
+    private static func conversationPatchResponse(_ id: String, request: HTTPRequest) -> HTTPResponse {
+        let store = ConversationStore.shared
+        guard store.get(id) != nil else {
+            return .json(404, "Not Found", ["success": false, "error": "conversation not found"])
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: request.body, options: []),
+              let body = object as? [String: Any] else {
+            return .json(400, "Bad Request", ["success": false, "error": "expected JSON body"])
+        }
+
+        // 归档前置检查：存在在飞命令 → 409（等命令终态再归档）
+        if (body["archived"] as? Bool) == true,
+           let conv = store.get(id), let cmdID = conv.latestCommandId,
+           let cmd = CommandStore.shared.get(cmdID),
+           cmd.status == .queued || cmd.status == .sent || cmd.status == .working {
+            return .json(409, "Conflict", [
+                "success": false,
+                "error": "conversation has a command in flight — wait for it to finish"
+            ])
+        }
+        // 恢复前置检查：绑定目录必须仍存在
+        if (body["archived"] as? Bool) == false,
+           let conv = store.get(id),
+           let dir = ConversationStore.workdirMissing(conv) {
+            return .json(409, "Conflict", [
+                "success": false,
+                "error": "workdir no longer exists: \(dir) — change the working folder before restoring"
+            ])
+        }
+
+        do {
+            if let workdir = body["workdir"] as? String {
+                _ = try store.setWorkdir(id: id, workdir: workdir)
+            }
+            // 切换对话绑定的 Agent（必须真实存在；服务端自动清除该对话的模型覆盖）
+            if let agentID = body["agentId"] as? String, !agentID.isEmpty {
+                guard AgentDiscovery.shared.discover().contains(where: { $0.id == agentID }) else {
+                    return .json(400, "Bad Request", ["success": false, "error": "unknown agent: \(agentID)"])
+                }
+                _ = try store.setAgent(id: id, agentID: agentID)
+            }
+            if let mode = body["approvalMode"] as? String {
+                _ = try store.setApprovalMode(id: id, mode: mode)
+            }
+            if let modelID = body["modelId"] as? String {
+                _ = try store.setModel(id: id, modelID: modelID, providerID: body["modelProviderId"] as? String)
+            }
+            let summary = try store.patch(
+                id: id,
+                title: body["title"] as? String,
+                archived: body["archived"] as? Bool,
+                pinned: body["pinned"] as? Bool
+            )
+            // 归档 active 对话 → active 置空
+            if (body["archived"] as? Bool) == true, store.activeConversation() == id {
+                store.setActiveConversation(nil)
+            }
+            return .json(200, "OK", ["success": true, "conversation": summary.apiObject])
+        } catch let error as ConversationStore.StoreError {
+            let status: Int
+            switch error {
+            case .notFound: status = 404
+            case .archived, .notArchived, .workdirMissing: status = 409
+            case .invalidWorkdir: status = 400
+            }
+            return .json(status, "Error", ["success": false, "error": error.localizedDescription])
+        } catch {
+            return .json(500, "Internal Server Error", ["success": false, "error": "\(error)"])
+        }
+    }
+
+    private static func conversationDeleteResponse(_ id: String) -> HTTPResponse {
+        do {
+            try ConversationStore.shared.delete(id: id)
+            return .json(200, "OK", ["success": true])
+        } catch let error as ConversationStore.StoreError {
+            let status: Int
+            switch error {
+            case .notFound: status = 404
+            case .archived, .notArchived, .workdirMissing, .invalidWorkdir: status = 409
+            }
+            return .json(status, "Error", ["success": false, "error": error.localizedDescription])
+        } catch {
+            return .json(500, "Internal Server Error", ["success": false, "error": "\(error)"])
+        }
+    }
+
+    private static func conversationActivateResponse(_ id: String) -> HTTPResponse {
+        let store = ConversationStore.shared
+        guard let conv = store.get(id) else {
+            return .json(404, "Not Found", ["success": false, "error": "conversation not found"])
+        }
+        if conv.archived {
+            return .json(409, "Conflict", ["success": false, "error": "conversation is archived — restore it first"])
+        }
+        store.setActiveConversation(id)
+        return .json(200, "OK", ["success": true, "conversation": store.get(id)?.apiObject ?? conv.apiObject])
     }
 }

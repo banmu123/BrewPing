@@ -15,6 +15,8 @@ struct CommandInfo: Codable {
     var error: String?
     var failureReason: String?
     var modelId: String?
+    /// 命令所属的对话（多对话转录回写用；nil = 旧命令 / 无对话）。
+    var conversationId: String?
     var duration: TimeInterval?
     var completedAt: Date?
 }
@@ -50,7 +52,7 @@ final class CommandStore {
         }
     }
 
-    func create(text: String, sessionId: String, modelId: String? = nil) -> CommandInfo {
+    func create(text: String, sessionId: String, modelId: String? = nil, conversationID: String? = nil) -> CommandInfo {
         let info = CommandInfo(
             commandId: CommandStore.newID(),
             sessionId: sessionId,
@@ -62,6 +64,7 @@ final class CommandStore {
             error: nil,
             failureReason: nil,
             modelId: modelId,
+            conversationId: conversationID,
             duration: nil,
             completedAt: nil
         )

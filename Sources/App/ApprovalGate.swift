@@ -6,6 +6,8 @@ struct PendingApproval: Codable {
     var text: String
     var reasons: [DangerHit]
     var createdAt: Date
+    /// 挂起时所属的对话（授权是**对话级**设置；批准后回同一条对话执行）。
+    var conversationID: String?
 }
 
 /// 授权门卫：在命令进入 agent 之前判定「放行」还是「挂起等确认」。
@@ -29,6 +31,8 @@ final class ApprovalGate {
         var action: String          // "approve" | "deny" | "always_approve"
         var text: String?           // approve/always_approve 时为挂起的命令正文
         var reasonCodes: [String]   // 用于 always_approve 时记入白名单
+        /// pending 所属的对话（授权是对话级设置，批准后沿同一条对话执行）。
+        var conversationID: String?
     }
 
     private let lock = NSLock()
@@ -60,17 +64,24 @@ final class ApprovalGate {
 
     // MARK: - Check
 
-    func check(text: String) -> Decision {
+    /// 按指定档位判定。授权档位是**对话级**设置：`mode` 传该对话固化的档位
+    /// （nil = 全局默认）；`conversationID` 随 pending 记住，批准后回同一条对话执行。
+    /// 「总是允许」白名单保持全局 —— 它描述的是这台机器允许哪些危险模式。
+    func check(text: String, mode: ApprovalMode? = nil, conversationID: String? = nil) -> Decision {
         lock.lock(); defer { lock.unlock() }
-        switch mode {
+        switch mode ?? self.mode {
         case .auto:
             return .allow
         case .askAll:
-            return .pending(makeApprovalLocked(text: text, reasons: [DangerHit(code: "ask_all", detail: "")]))
+            return .pending(makeApprovalLocked(
+                text: text,
+                reasons: [DangerHit(code: "ask_all", detail: "")],
+                conversationID: conversationID
+            ))
         case .safe:
             let hits = DangerPattern.detect(in: text).filter { !alwaysAllowCodes.contains($0.code) }
             guard !hits.isEmpty else { return .allow }
-            return .pending(makeApprovalLocked(text: text, reasons: hits))
+            return .pending(makeApprovalLocked(text: text, reasons: hits, conversationID: conversationID))
         }
     }
 
@@ -98,16 +109,16 @@ final class ApprovalGate {
 
         switch action {
         case "deny":
-            return Resolution(action: "deny", text: nil, reasonCodes: approval.reasons.map { $0.code })
+            return Resolution(action: "deny", text: nil, reasonCodes: approval.reasons.map { $0.code }, conversationID: approval.conversationID)
         case "approve":
-            return Resolution(action: "approve", text: approval.text, reasonCodes: approval.reasons.map { $0.code })
+            return Resolution(action: "approve", text: approval.text, reasonCodes: approval.reasons.map { $0.code }, conversationID: approval.conversationID)
         case "always_approve":
             // 只白名单化"已知的" danger code，拒绝未知 code 注入持久化。
             for reason in approval.reasons where DangerPattern.knownCodes.contains(reason.code) {
                 alwaysAllowCodes.insert(reason.code)
             }
             persistLocked()
-            return Resolution(action: "always_approve", text: approval.text, reasonCodes: approval.reasons.map { $0.code })
+            return Resolution(action: "always_approve", text: approval.text, reasonCodes: approval.reasons.map { $0.code }, conversationID: approval.conversationID)
         default:
             return nil
         }
@@ -115,12 +126,13 @@ final class ApprovalGate {
 
     // MARK: - Internals
 
-    private func makeApprovalLocked(text: String, reasons: [DangerHit]) -> PendingApproval {
+    private func makeApprovalLocked(text: String, reasons: [DangerHit], conversationID: String? = nil) -> PendingApproval {
         let approval = PendingApproval(
             id: "apv_" + UUID().uuidString,
             text: text,
             reasons: reasons,
-            createdAt: Date()
+            createdAt: Date(),
+            conversationID: conversationID
         )
         pending[approval.id] = approval
         return approval

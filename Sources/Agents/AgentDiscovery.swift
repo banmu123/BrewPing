@@ -20,10 +20,20 @@ public enum SystemCommand {
         return paths
     }
 
-    public static func run(executablePath: String, arguments: [String], timeoutSeconds: TimeInterval, additionalPATHEntries: [String] = []) -> (exitCode: Int32, output: String)? {
+    public static func run(
+        executablePath: String,
+        arguments: [String],
+        timeoutSeconds: TimeInterval,
+        additionalPATHEntries: [String] = [],
+        workingDirectory: String? = nil
+    ) -> (exitCode: Int32, output: String)? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
+        // 对话级工作目录（headless 型 Agent）：子进程在指定目录下执行
+        if let workingDirectory {
+            process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
+        }
         if !additionalPATHEntries.isEmpty {
             var environment = ProcessInfo.processInfo.environment
             let current = environment["PATH"] ?? "/usr/bin:/bin"
