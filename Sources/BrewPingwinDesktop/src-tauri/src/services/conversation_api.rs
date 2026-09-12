@@ -53,6 +53,9 @@ pub struct CreateConversationBody {
     /// submit 流程唯一写入，避免双写）。
     #[serde(rename = "firstMessage", default)]
     first_message: Option<String>,
+    /// 创建时绑定的工作目录（空 = 不绑定；与桌面 Tauri `send_command.workdir` 对齐）。
+    #[serde(rename = "workdir", default)]
+    workdir: Option<String>,
 }
 
 /// POST /api/conversations —— 物化一个对话。
@@ -79,7 +82,9 @@ pub async fn handle_create_conversation(
         }
     }
 
-    let conv = state.conversations.create(&agent_id);
+    let conv = state
+        .conversations
+        .create_with_workdir(&agent_id, body.workdir.as_deref());
 
     // 无 active 时激活（有 active 不动——切换必须显式，掩盖心智的问题见方案 §6.4）。
     {
@@ -151,6 +156,10 @@ pub struct PatchConversationBody {
     archived: Option<bool>,
     #[serde(default)]
     pinned: Option<bool>,
+    /// 更改绑定目录（`null` 不动；要解绑传空串——JSON null 与缺省不可分，
+    /// 与 Tauri 侧 `Option<String>` 语义对齐）。
+    #[serde(default)]
+    workdir: Option<String>,
 }
 
 fn conv_error_response(err: ConvError) -> Response {
@@ -159,6 +168,7 @@ fn conv_error_response(err: ConvError) -> Response {
         ConvError::Archived => 409,
         ConvError::NotArchived => 409,
         ConvError::WorkdirMissing(_) => 409,
+        ConvError::InvalidWorkdir(_) => 400,
     };
     json_response(status, serde_json::json!({ "success": false, "error": err.to_string() }))
 }
@@ -196,6 +206,13 @@ pub async fn handle_patch_conversation(
             if let Some(dir) = super::conversation_store::ConversationStore::workdir_missing(&conv) {
                 return conv_error_response(ConvError::WorkdirMissing(dir));
             }
+        }
+    }
+
+    // 绑定目录更改：走 set_workdir（含目录存在性校验；空串 = 解绑）。
+    if let Some(workdir) = &body.workdir {
+        if let Err(err) = state.conversations.set_workdir(&id, Some(workdir.as_str())) {
+            return conv_error_response(err);
         }
     }
 

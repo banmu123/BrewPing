@@ -342,6 +342,9 @@ async fn send_command(
     core: tauri::State<'_, DesktopCore>,
     text: String,
     conversation_id: Option<String>,
+    // 草稿物化时绑定的目录（`conversation_id` 为 None 时生效；
+    // 空串 = 明确不绑定）。已有对话的改绑走 `set_conversation_workdir`。
+    workdir: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let text = text.trim().to_string();
@@ -372,7 +375,10 @@ async fn send_command(
         }
         None => {
             let agent_id = core.terminal.active_agent_id.read().await.clone();
-            let conv = core.state.conversations.create(&agent_id);
+            let conv = core
+                .state
+                .conversations
+                .create_with_workdir(&agent_id, workdir.as_deref());
             {
                 let mut active = core.state.active_conversation_id.write().await;
                 *active = Some(conv.id.clone());
@@ -425,6 +431,7 @@ async fn get_agent_models(
     }
     let config = services::agent_config::discover(&agent_id);
     let preferred = core.state.model_prefs.get(&agent_id);
+    let preferred_provider = core.state.model_prefs.get_provider(&agent_id);
 
     let providers: Vec<serde_json::Value> = config
         .providers
@@ -460,6 +467,7 @@ async fn get_agent_models(
         "providers": providers,
         "activeModelId": config.active_model_id,
         "preferredModelId": preferred,
+        "preferredProviderId": preferred_provider,
     }))
 }
 
@@ -472,13 +480,70 @@ async fn set_default_model(
     core: tauri::State<'_, DesktopCore>,
     agent_id: String,
     model_id: Option<String>,
+    provider_id: Option<String>,
 ) -> Result<(), String> {
     if agent_id.trim().is_empty() {
         return Err("agentId is empty".to_string());
     }
-    core.state.model_prefs.set(&agent_id, model_id.as_deref());
-    log::info!("Default model for '{}' set to {:?}", agent_id, model_id);
+    core.state
+        .model_prefs
+        .set(&agent_id, model_id.as_deref(), provider_id.as_deref());
+    log::info!(
+        "Default model for '{}' set to {:?} (provider {:?})",
+        agent_id,
+        model_id,
+        provider_id
+    );
     Ok(())
+}
+
+// ─── Workdir 命令（composer 目录条；复用 folder_browser 的白名单与校验）───────
+
+/// 某个 Agent 当前生效的工作目录（用户偏好；未设置时 None = CLI 默认 cwd）。
+#[tauri::command]
+async fn get_agent_workdir(
+    core: tauri::State<'_, DesktopCore>,
+    agent_id: String,
+) -> Result<Option<String>, String> {
+    Ok(core.state.workdir_prefs.get(&agent_id))
+}
+
+/// 设置 / 清除某个 Agent 的工作目录（经 `validate_workdir` 白名单校验）。
+#[tauri::command]
+async fn set_agent_workdir(
+    core: tauri::State<'_, DesktopCore>,
+    agent_id: String,
+    path: Option<String>,
+) -> Result<Option<String>, String> {
+    match path.as_deref().map(str::trim) {
+        None | Some("") => {
+            core.state.workdir_prefs.set(&agent_id, None);
+            Ok(None)
+        }
+        Some(p) => match services::folder_browser::validate_workdir(p) {
+            Ok(dir) => {
+                core.state.workdir_prefs.set(&agent_id, Some(&dir));
+                log::info!("Workdir for '{}' set to {}", agent_id, dir);
+                Ok(Some(dir))
+            }
+            Err(e) => Err(format!("invalid workdir ({})", e.code())),
+        },
+    }
+}
+
+/// 目录浏览根列表（主目录 + 各盘符，仅固定盘/可移动盘/网络盘）。
+#[tauri::command]
+async fn browse_roots() -> Result<services::folder_browser::BrowseRoots, String> {
+    Ok(services::folder_browser::list_roots())
+}
+
+/// 浏览某个目录（None = 主目录；受 allowlist 约束，UNC 拒绝）。
+#[tauri::command]
+async fn browse_folder(
+    path: Option<String>,
+) -> Result<services::folder_browser::BrowseResult, String> {
+    services::folder_browser::browse_directory(path.as_deref(), false, None, None)
+        .map_err(|e| format!("browse failed ({})", e.code()))
 }
 
 // ─── Conversation commands（多对话管理，方案 §5.2）────────────────────────────
@@ -611,6 +676,23 @@ async fn toggle_pin_conversation(
     core.state
         .conversations
         .patch(&conversation_id, None, None, Some(pinned))
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("conversations-changed", serde_json::json!({ "id": conversation_id }));
+    Ok(())
+}
+
+/// 更改对话的绑定目录（`None` / 空串 = 解绑，回落 CLI 默认 / agent 偏好）。
+/// 目录历史分组与执行 cwd 都以该字段为准；目录不存在时后端拒绝。
+#[tauri::command]
+async fn set_conversation_workdir(
+    core: tauri::State<'_, DesktopCore>,
+    conversation_id: String,
+    workdir: Option<String>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    core.state
+        .conversations
+        .set_workdir(&conversation_id, workdir.as_deref())
         .map_err(|e| e.to_string())?;
     let _ = app.emit("conversations-changed", serde_json::json!({ "id": conversation_id }));
     Ok(())
@@ -846,6 +928,10 @@ pub fn run() {
             clear_terminal,
             get_agent_models,
             set_default_model,
+            get_agent_workdir,
+            set_agent_workdir,
+            browse_roots,
+            browse_folder,
             list_conversations,
             get_conversation,
             rename_conversation,
@@ -853,6 +939,7 @@ pub fn run() {
             delete_conversation,
             activate_conversation,
             toggle_pin_conversation,
+            set_conversation_workdir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -108,6 +108,8 @@ pub enum ConvError {
     NotArchived,
     /// 恢复时 workdir_override 指向的目录已不存在（错误文案 = 用户动作指引）。
     WorkdirMissing(String),
+    /// 绑定 / 更改目录时目标不存在或不是目录（set_workdir 前置校验）。
+    InvalidWorkdir(String),
 }
 
 impl std::fmt::Display for ConvError {
@@ -120,8 +122,19 @@ impl std::fmt::Display for ConvError {
                 f,
                 "workdir no longer exists: {dir} — change the working folder before restoring"
             ),
+            ConvError::InvalidWorkdir(dir) => {
+                write!(f, "workdir does not exist or is not a directory: {dir}")
+            }
         }
     }
+}
+
+/// 绑定目录的统一归一化：trim 后空串视为不绑定（`None`）。
+fn normalize_workdir(workdir: Option<&str>) -> Option<String> {
+    workdir
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
 }
 
 /// 索引文件结构（派生缓存，权威数据是逐对话文件）。
@@ -182,6 +195,12 @@ impl ConversationStore {
     /// 创建对话（不 spawn 任何进程、不写消息——用户消息永远走
     /// `append` 单一写入口，方案 §6.3）。
     pub fn create(&self, agent_id: &str) -> Conversation {
+        self.create_with_workdir(agent_id, None)
+    }
+
+    /// 创建对话并绑定工作目录（目录历史分组的数据源）。
+    /// 空串 / 纯空白视为不绑定（与前端「留空」语义一致）。
+    pub fn create_with_workdir(&self, agent_id: &str, workdir: Option<&str>) -> Conversation {
         let ts = now_ms();
         let conv = Conversation {
             id: new_id(),
@@ -193,7 +212,7 @@ impl ConversationStore {
             archived: false,
             is_pinned: false,
             model_override: None,
-            workdir_override: None,
+            workdir_override: normalize_workdir(workdir),
             latest_command_id: None,
             messages: Vec::new(),
         };
@@ -203,6 +222,42 @@ impl ConversationStore {
         }
         self.persist(&conv);
         conv
+    }
+
+    /// 更改既有对话的绑定目录（`None` = 解绑）。目录必须真实存在
+    /// （执行 cwd 白名单之外的防护在 command_runner / folder_browser，
+    /// 这里只挡“绑一个不存在的目录”这种明显误操作）。
+    /// 与 rename 一致不 bump `updated_at_ms`（改目录不应拉动列表排序）。
+    pub fn set_workdir(
+        &self,
+        conv_id: &str,
+        workdir: Option<&str>,
+    ) -> Result<ConversationSummary, ConvError> {
+        let normalized = normalize_workdir(workdir);
+        if let Some(dir) = &normalized {
+            if !std::path::Path::new(dir).is_dir() {
+                return Err(ConvError::InvalidWorkdir(dir.clone()));
+            }
+        }
+        let updated = {
+            let inner = self.inner.lock().expect("conversation store poisoned");
+            let conv = inner.get(conv_id).ok_or(ConvError::NotFound)?.clone();
+            drop(inner);
+            let mut conv = conv;
+            conv.workdir_override = normalized;
+            {
+                let mut inner = self.inner.lock().expect("conversation store poisoned");
+                if !inner.contains_key(conv_id) {
+                    return Err(ConvError::NotFound);
+                }
+                inner.insert(conv_id.to_string(), conv.clone());
+            }
+            summary(&conv)
+        };
+        if let Some(conv) = self.get(conv_id) {
+            self.persist(&conv);
+        }
+        Ok(updated)
     }
 
     pub fn get(&self, id: &str) -> Option<Conversation> {
@@ -709,6 +764,76 @@ mod tests {
             ConversationStore::workdir_missing(&store.get(&conv.id).unwrap()),
             Some(gone.to_string_lossy().to_string())
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // TC-CV-10  创建时绑定目录：空串视为不绑定；持久化后可读回
+    #[test]
+    fn create_with_workdir_binds_and_persists() {
+        let dir = temp_dir("cv10");
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = ConversationStore::with_dir(dir.join("store"));
+
+        let bound = store.create_with_workdir("opencode", Some(dir.to_string_lossy().as_ref()));
+        assert_eq!(
+            bound.workdir_override.as_deref(),
+            Some(dir.to_string_lossy().as_ref())
+        );
+        let unbound_empty = store.create_with_workdir("opencode", Some("   "));
+        assert!(unbound_empty.workdir_override.is_none(), "空白等于不绑定");
+        let unbound = store.create("opencode");
+        assert!(unbound.workdir_override.is_none());
+
+        // 空对话会在下次启动时被 startup_recover 清理（TC-CV-07 的既定行为），
+        // 所以落盘验证前先给 bound 追加一条消息让它"活过"重载。
+        store.append(&bound.id, "user", "hello", None, None);
+
+        // 落盘可复用（重开 store 后 summary 仍带目录）
+        let again = ConversationStore::with_dir(dir.join("store"));
+        let listed = again.list(false);
+        let hit = listed.iter().find(|s| s.id == bound.id).unwrap();
+        assert_eq!(
+            hit.workdir_override.as_deref(),
+            Some(dir.to_string_lossy().as_ref())
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // TC-CV-11  set_workdir：改绑 / 解绑 / 不存在目录被拒；不改 updated_at
+    #[test]
+    fn set_workdir_updates_unbinds_and_rejects_missing() {
+        let dir = temp_dir("cv11");
+        let real = dir.join("real-dir");
+        std::fs::create_dir_all(&real).unwrap();
+        let store = ConversationStore::with_dir(dir.join("store"));
+        let conv = store.create("opencode");
+        let before = store.get(&conv.id).unwrap().updated_at_ms;
+
+        // 改绑
+        let s = store
+            .set_workdir(&conv.id, Some(real.to_string_lossy().as_ref()))
+            .unwrap();
+        assert_eq!(
+            s.workdir_override.as_deref(),
+            Some(real.to_string_lossy().as_ref())
+        );
+        // 改目录不拉动排序
+        assert_eq!(store.get(&conv.id).unwrap().updated_at_ms, before);
+        // 解绑（None / 空串等价）
+        let s = store.set_workdir(&conv.id, None).unwrap();
+        assert!(s.workdir_override.is_none());
+        let s = store.set_workdir(&conv.id, Some("")).unwrap();
+        assert!(s.workdir_override.is_none());
+        // 不存在的目录被拒
+        let err = store
+            .set_workdir(&conv.id, Some(dir.join("nope").to_string_lossy().as_ref()))
+            .unwrap_err();
+        assert!(matches!(err, ConvError::InvalidWorkdir(_)));
+        // 未知对话
+        assert!(matches!(
+            store.set_workdir("conv_missing", None),
+            Err(ConvError::NotFound)
+        ));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

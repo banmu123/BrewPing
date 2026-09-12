@@ -8,6 +8,8 @@ import type {
   AgentModelsInfo,
   Conversation,
   ConversationSummary,
+  BrowseRootsInfo,
+  BrowseResultInfo,
 } from "./types";
 
 /**
@@ -114,8 +116,10 @@ export async function switchActiveAgent(agentId: string): Promise<void> {
 export async function sendCommand(
   text: string,
   conversationId: string | null,
+  /** 草稿物化（conversationId=null）时绑定的工作目录；undefined 不传。 */
+  workdir?: string | null,
 ): Promise<string> {
-  return invoke<string>("send_command", { text, conversationId });
+  return invoke<string>("send_command", { text, conversationId, workdir: workdir ?? null });
 }
 
 /**
@@ -137,16 +141,51 @@ export async function getAgentModels(agentId: string): Promise<AgentModelsInfo> 
 
 /**
  * 记住某个 Agent 的用户默认模型（modelId 传 null 清除偏好）。
+ * providerId 可选：同名模型由多个 provider 提供时用于精确区分。
  */
 export async function setDefaultModel(
   agentId: string,
   modelId: string | null,
+  providerId?: string | null,
 ): Promise<void> {
-  return invoke<void>("set_default_model", { agentId, modelId });
+  return invoke<void>("set_default_model", {
+    agentId,
+    modelId,
+    providerId: providerId ?? null,
+  });
+}
+
+// ─── Workdir / folder browse（composer 目录条） ──────────────────────────────
+
+/** 某个 Agent 当前的工作目录（null = 未设置，CLI 用默认 cwd）。 */
+export async function getAgentWorkdir(agentId: string): Promise<string | null> {
+  return invoke<string | null>("get_agent_workdir", { agentId });
+}
+
+/**
+ * 设置 / 清除某个 Agent 的工作目录（path 传 null 清除；后端经白名单校验）。
+ * 返回校验后的规范路径。
+ */
+export async function setAgentWorkdir(
+  agentId: string,
+  path: string | null,
+): Promise<string | null> {
+  return invoke<string | null>("set_agent_workdir", { agentId, path });
+}
+
+/** 浏览根列表（主目录 + 各盘符）。 */
+export async function browseRoots(): Promise<BrowseRootsInfo> {
+  return invoke<BrowseRootsInfo>("browse_roots");
+}
+
+/** 浏览某个目录（path 传 null = 主目录）。 */
+export async function browseFolder(
+  path: string | null,
+): Promise<BrowseResultInfo> {
+  return invoke<BrowseResultInfo>("browse_folder", { path });
 }
 
 // ─── Conversation commands（多对话管理，方案 P3/P4） ─────────────────────────
-
 /**
  * 列出对话（含归档由 includeArchived 控制；后端按 pinned 优先 + 最新活动排序）。
  */
@@ -162,14 +201,14 @@ export async function listConversations(
  * 读取完整对话（转录层，打开对话才加载）。
  */
 export async function getConversation(id: string): Promise<Conversation> {
-  return invoke<Conversation>("get_conversation", { id });
+  return invoke<Conversation>("get_conversation", { conversationId: id });
 }
 
 /**
  * 激活某对话（切换窗口；触发 active-conversation-changed 事件）。
  */
 export async function activateConversation(id: string): Promise<void> {
-  return invoke<void>("activate_conversation", { id });
+  return invoke<void>("activate_conversation", { conversationId: id });
 }
 
 /**
@@ -179,14 +218,17 @@ export async function setConversationArchived(
   id: string,
   archived: boolean,
 ): Promise<void> {
-  return invoke<void>("set_conversation_archived", { id, archived });
+  return invoke<void>("set_conversation_archived", {
+    conversationId: id,
+    archived,
+  });
 }
 
 /**
  * 彻底删除对话（仅归档态允许，后端校验）。
  */
 export async function deleteConversation(id: string): Promise<void> {
-  return invoke<void>("delete_conversation", { id });
+  return invoke<void>("delete_conversation", { conversationId: id });
 }
 
 /**
@@ -196,5 +238,22 @@ export async function togglePinConversation(
   id: string,
   pinned: boolean,
 ): Promise<void> {
-  return invoke<void>("toggle_pin_conversation", { id, pinned });
+  return invoke<void>("toggle_pin_conversation", {
+    conversationId: id,
+    pinned,
+  });
+}
+
+/**
+ * 更改对话的绑定目录（null / 空串 = 解绑）。目录不存在时后端拒绝。
+ * 侧栏目录分组与执行 cwd 都以该绑定为准。
+ */
+export async function setConversationWorkdir(
+  id: string,
+  workdir: string | null,
+): Promise<void> {
+  return invoke<void>("set_conversation_workdir", {
+    conversationId: id,
+    workdir: workdir ?? "",
+  });
 }

@@ -199,6 +199,10 @@ struct SetModelBody {
     agent_id: String,
     #[serde(rename = "modelId", default)]
     model_id: Option<String>,
+    /// 可选：模型所属 providerId。不同 provider 会暴露相同 modelId，
+    /// 带上才能区分同名模型（旧客户端不传 = None，行为不变）。
+    #[serde(rename = "providerId", default)]
+    provider_id: Option<String>,
 }
 
 /// `POST /api/message` 命中危险模式时的响应（与 macOS `pendingApprovalResponse` 一致）。
@@ -456,6 +460,7 @@ async fn handle_agent_models(
 
     let config = agent_config::discover(&agent_id);
     let preferred = state.model_prefs.get(&agent_id);
+    let preferred_provider = state.model_prefs.get_provider(&agent_id);
 
     let providers: Vec<serde_json::Value> = config
         .providers
@@ -493,6 +498,7 @@ async fn handle_agent_models(
             "providers": providers,
             "activeModelId": config.active_model_id,
             "preferredModelId": preferred,
+            "preferredProviderId": preferred_provider,
         }),
     )
 }
@@ -514,8 +520,17 @@ async fn handle_set_default_model(
             }),
         );
     }
-    state.model_prefs.set(&body.agent_id, body.model_id.as_deref());
-    log::info!("Default model for '{}' set to {:?}", body.agent_id, body.model_id);
+    state.model_prefs.set(
+        &body.agent_id,
+        body.model_id.as_deref(),
+        body.provider_id.as_deref(),
+    );
+    log::info!(
+        "Default model for '{}' set to {:?} (provider {:?})",
+        body.agent_id,
+        body.model_id,
+        body.provider_id
+    );
     json_response(
         200,
         serde_json::json!({
@@ -2316,6 +2331,184 @@ mod tests {
             assert!(c.get("messageCount").is_some(), "列表必须带 messageCount");
         }
         let _ = b_id;
+    }
+
+    // ─── 流式增量（回归：回复必须"边接收边推"，而不是进程结束才整段出现）────
+
+    /// 广播事件录制器（替代 tauri 的 emit，测试里直接收集事件）。
+    type EventLog = Arc<std::sync::Mutex<Vec<(String, serde_json::Value)>>>;
+
+    async fn spawn_server_with_events(log: EventLog) -> TestServer {
+        let mut state = test_state();
+        let sink = log.clone();
+        state.app_events = Some(Arc::new(move |event, payload| {
+            sink.lock()
+                .expect("event log poisoned")
+                .push((event.to_string(), payload));
+        }));
+        let (port, handle) = start_server(state.clone(), next_port(), None)
+            .await
+            .expect("HTTP 服务应能成功绑定端口");
+        TestServer {
+            port,
+            state,
+            _handle: handle,
+        }
+    }
+
+    /// 分三批、每批间隔约 1s 输出的回声脚本（模拟 CLI 慢慢吐字）。
+    async fn install_slow_echo_opencode(srv: &TestServer) -> std::path::PathBuf {
+        let bat =
+            std::env::temp_dir().join(format!("brewping-slow-{}.cmd", uuid::Uuid::new_v4()));
+        std::fs::write(
+            &bat,
+            b"@echo off\r\necho PART-ONE\r\nping -n 2 127.0.0.1 >nul\r\necho PART-TWO\r\nping -n 2 127.0.0.1 >nul\r\necho PART-THREE\r\n",
+        )
+        .unwrap();
+        srv.state.agents.write().await[0] = AgentEntry {
+            id: "opencode".to_string(),
+            name: "OpenCode".to_string(),
+            installed: true,
+            active: true,
+            executable: Some(bat.to_string_lossy().to_string()),
+            version: Some("1.0.0".into()),
+        };
+        bat
+    }
+
+    /// 等命令落终态（assistant 或 error 条目出现），返回最新快照。
+    async fn wait_for_reply(
+        srv: &TestServer,
+        conv_id: &str,
+    ) -> crate::services::conversation_store::Conversation {
+        for _ in 0..200 {
+            if let Some(c) = srv.state.conversations.get(conv_id) {
+                if c.messages.iter().any(|m| m.role == "assistant" || m.role == "error") {
+                    return c;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("命令结束后应落一条 assistant / error 转录");
+    }
+
+    // TC-CR-01  执行期间必须持续推送 conversation-delta，且文本单调增长
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn stdout_is_streamed_as_deltas_before_completion() {
+        let log: EventLog = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let srv = spawn_server_with_events(log.clone()).await;
+        let bat = install_slow_echo_opencode(&srv).await;
+        post(srv.port, "/api/session/start", "");
+
+        let (code, v) = post(srv.port, "/api/message", r#"{"text":"stream me"}"#);
+        assert_eq!(code, 200);
+        let conv_id = v["sessionId"].as_str().unwrap().to_string();
+        let cmd_id = v["commandId"].as_str().unwrap().to_string();
+        let conv = wait_for_reply(&srv, &conv_id).await;
+
+        let events = log.lock().unwrap().clone();
+        let deltas: Vec<(String, String, bool)> = events
+            .iter()
+            .filter(|(name, _)| name == "conversation-delta")
+            .map(|(_, p)| {
+                (
+                    p["text"].as_str().unwrap_or_default().to_string(),
+                    p["conversationId"].as_str().unwrap_or_default().to_string(),
+                    p["done"].as_bool().unwrap_or(false),
+                )
+            })
+            .collect();
+
+        // 1) 增量必须写进"当前会话"，不能串台
+        assert!(
+            deltas.iter().all(|(_, cid, _)| cid == &conv_id),
+            "增量的 conversationId 必须都是当前对话: {deltas:?}"
+        );
+        assert!(
+            events
+                .iter()
+                .filter(|(n, _)| n == "conversation-delta")
+                .all(|(_, p)| p["commandId"].as_str() == Some(cmd_id.as_str())),
+            "增量必须绑定到本次命令"
+        );
+
+        // 2) 必须在进程退出前就推过多次（流式，而非一次性整段）
+        assert!(
+            deltas.len() >= 2,
+            "慢速回声脚本应产生多个增量分片，实际 {deltas:?}"
+        );
+        assert!(
+            deltas.first().unwrap().0.contains("PART-ONE"),
+            "第一帧就该带上已收到的内容: {deltas:?}"
+        );
+        assert!(
+            deltas.last().unwrap().0.contains("PART-THREE"),
+            "末帧必须包含最后一批输出: {deltas:?}"
+        );
+        // 3) text 是累积全文 → 单调增长（丢帧也能自愈）
+        for w in deltas.windows(2) {
+            assert!(
+                w[1].0.starts_with(&w[0].0) || w[1].0.len() >= w[0].0.len(),
+                "增量文本必须单调增长: {:?} -> {:?}",
+                w[0].0,
+                w[1].0
+            );
+        }
+        // 4) 末帧带 done，且之后还要补一次 conversations-changed（解除 busy）
+        assert!(deltas.last().unwrap().2, "最后一个增量必须标记 done");
+        let last_delta_idx = events
+            .iter()
+            .rposition(|(n, _)| n == "conversation-delta")
+            .unwrap();
+        assert!(
+            events
+                .iter()
+                .skip(last_delta_idx + 1)
+                .any(|(n, _)| n == "conversations-changed"),
+            "done 之后必须补一次 conversations-changed，否则前端会卡在 busy"
+        );
+        // 5) 增量不落盘：转录里仍然只有一条 assistant 条目
+        assert_eq!(
+            conv.messages.iter().filter(|m| m.role == "assistant").count(),
+            1,
+            "流式增量不得污染转录"
+        );
+        assert!(
+            conv.messages
+                .iter()
+                .any(|m| m.role == "assistant" && m.text.contains("PART-THREE"))
+        );
+        let _ = std::fs::remove_file(&bat);
+    }
+
+    // TC-CR-02  非零退出：stderr 走 error 条目，且收尾必须清掉调度指针
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn failing_command_streams_and_settles() {
+        let log: EventLog = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let srv = spawn_server_with_events(log.clone()).await;
+        let bat =
+            std::env::temp_dir().join(format!("brewping-fail-{}.cmd", uuid::Uuid::new_v4()));
+        std::fs::write(&bat, b"@echo off\r\necho boom 1>&2\r\nexit /b 3\r\n").unwrap();
+        srv.state.agents.write().await[0] = AgentEntry {
+            id: "opencode".to_string(),
+            name: "OpenCode".to_string(),
+            installed: true,
+            active: true,
+            executable: Some(bat.to_string_lossy().to_string()),
+            version: Some("1.0.0".into()),
+        };
+        post(srv.port, "/api/session/start", "");
+        let (code, v) = post(srv.port, "/api/message", r#"{"text":"will fail"}"#);
+        assert_eq!(code, 200);
+        let conv_id = v["sessionId"].as_str().unwrap().to_string();
+        let conv = wait_for_reply(&srv, &conv_id).await;
+
+        assert!(conv.messages.iter().any(|m| m.role == "error" && m.text.contains("boom")));
+        assert_eq!(
+            conv.latest_command_id, None,
+            "收尾必须清掉调度指针，否则前端一直 busy"
+        );
+        let _ = std::fs::remove_file(&bat);
     }
 
     // TC-CA-05  新端点鉴权：GET 免 nonce、写操作需 nonce（与鉴权矩阵一致）

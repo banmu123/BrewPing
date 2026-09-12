@@ -100,6 +100,35 @@ export interface AgentModelsInfo {
   providers: ProviderInfo[];
   activeModelId: string | null;
   preferredModelId: string | null;
+  /// 用户偏好对应的 providerId（同名模型跨 provider 时用于精确勾选；
+  /// 旧记录 / 未带 provider 时为 null）。
+  preferredProviderId?: string | null;
+}
+
+// ─── Folder browse（composer 目录条；对齐 folder_browser.rs 的 serde 契约）──
+
+/// 浏览根列表（主目录 + 盘符；drives 仅 Windows 有）。
+export interface BrowseRootsInfo {
+  platform: string;
+  pathSeparator: string;
+  homeDir: string;
+  drives: string[];
+}
+
+/// 目录里的一项（只列目录可入层级；文件条目由后端一并返回但 UI 不展示）。
+export interface BrowseEntryInfo {
+  name: string;
+  absolutePath: string;
+  isSymlink: boolean;
+  hidden: boolean;
+}
+
+/// 浏览结果（分页字段保留但目录条场景不会触达截断）。
+export interface BrowseResultInfo {
+  path: string;
+  parentPath: string | null;
+  entries: BrowseEntryInfo[];
+  truncated: boolean;
 }
 
 // ─── Conversations（多对话管理，对齐 conversation_store.rs 的 serde 契约）────
@@ -134,4 +163,13 @@ export interface ConversationSummary {
 /// 完整对话（转录层：打开对话才加载）。
 export interface Conversation extends ConversationSummary {
   messages: TranscriptEntry[];
+}
+
+/// 流式增量事件（`conversation-delta`）：命令执行过程中后端边读边推。
+/// `text` 是**累积全文**（幂等：丢一帧会被下一帧自愈），`done` 标记流已结束。
+export interface ConversationDelta {
+  conversationId: string;
+  commandId: string;
+  text: string;
+  done: boolean;
 }

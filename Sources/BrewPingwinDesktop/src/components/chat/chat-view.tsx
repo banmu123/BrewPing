@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import { ArrowUp } from "lucide-react";
 import type { TranscriptEntry } from "../../api/types";
 import { MarkdownRenderer } from "./markdown-renderer";
-import { Badge } from "../ui/badge";
 import { cn } from "../../lib/utils";
 import { CONVERSATION_CONTENT_WIDTH_CLASS } from "../../lib/conversation-layout";
 
@@ -13,6 +12,8 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "error" | "system";
   text: string;
+  /** 消息时间（转录条目的 createdAtMs）；老数据兜底无时间。 */
+  createdAtMs?: number;
 }
 
 /// 转录条目 → 渲染消息（当前唯一映射；system 条目原样透传为系统行）。
@@ -21,7 +22,20 @@ export function fromTranscript(entries: TranscriptEntry[]): ChatMessage[] {
     id: e.id,
     role: e.role,
     text: e.text,
+    createdAtMs: e.createdAtMs,
   }));
+}
+
+/** 时间戳文案（对齐参考样式「星期五 20:48」）。 */
+function timeLabel(ms?: number): string | null {
+  if (!ms) return null;
+  const d = new Date(ms);
+  return d.toLocaleString("zh-CN", {
+    weekday: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 /// 老数据兜底：终端行 → 对话消息（方案 §6.3 保留，不再作为主数据源）。
@@ -85,11 +99,9 @@ export { COMPOSER_SELECT_CLASS };
 
 export function MessageList({
   messages,
-  agentName,
   isStreaming,
 }: {
   messages: ChatMessage[];
-  agentName: string;
   isStreaming: boolean;
 }) {
   const lastId = messages.length > 0 ? messages[messages.length - 1].id : "-1";
@@ -97,9 +109,20 @@ export function MessageList({
     <div className={CONVERSATION_CONTENT_WIDTH_CLASS}>
       {messages.map((msg) =>
         msg.role === "user" ? (
-          <div key={msg.id} className="mb-3 flex justify-end">
-            <div className="max-w-[85%] rounded-lg bg-secondary px-3 py-2 text-sm text-secondary-foreground select-text whitespace-pre-wrap break-words">
-              {msg.text}
+          <div key={msg.id} className="mb-4">
+            {/* 时间戳 + 右对齐（参考截图：星期五 20:48） */}
+            {timeLabel(msg.createdAtMs) && (
+              <div className="mb-1 flex items-center justify-end gap-1.5 text-[10px] text-muted-foreground">
+                <span>{timeLabel(msg.createdAtMs)}</span>
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/15 text-[9px] font-medium text-primary">
+                  我
+                </span>
+              </div>
+            )}
+            <div className="flex justify-end">
+              <div className="max-w-[85%] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2.5 text-sm leading-relaxed text-secondary-foreground select-text whitespace-pre-wrap break-words">
+                {msg.text}
+              </div>
             </div>
           </div>
         ) : msg.role === "error" ? (
@@ -117,17 +140,8 @@ export function MessageList({
             {msg.text}
           </div>
         ) : (
-          <div key={msg.id} className="mb-4">
-            <div className="mb-1 flex items-center gap-1.5">
-              <Badge variant="secondary" className="text-[10px]">
-                {agentName}
-              </Badge>
-              {isStreaming && msg.id === lastId && (
-                <span className="text-[10px] text-muted-foreground">
-                  正在输出…
-                </span>
-              )}
-            </div>
+          // 助手消息：无头像无角标，Markdown 直接通栏排版（对齐参考截图）
+          <div key={msg.id} className="mb-5">
             <MarkdownRenderer
               text={msg.text}
               isStreaming={isStreaming && msg.id === lastId}
@@ -149,6 +163,7 @@ export function ChatView({
   onDraftChange,
   onSend,
   composerToolbar,
+  composerTopBar,
 }: {
   /** 权威转录（后端 conversation store），不再从终端行推导 */
   messages: ChatMessage[];
@@ -161,6 +176,8 @@ export function ChatView({
   onSend: (text: string) => Promise<void>;
   /** composer 内的工具栏（agent / 模型 / 授权切换） */
   composerToolbar?: ReactNode;
+  /** composer 卡片上方的独立条（工作目录选择），与卡片同宽 */
+  composerTopBar?: ReactNode;
 }) {
   const isStreaming =
     isBusy &&
@@ -193,7 +210,7 @@ export function ChatView({
         <LandingGreeting agentName={agentName} />
       ) : (
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto py-4">
-          <MessageList messages={messages} agentName={agentName} isStreaming={isStreaming} />
+          <MessageList messages={messages} isStreaming={isStreaming} />
           {showThinking && (
             <div className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
               <span className="thinking-dot" />
@@ -206,6 +223,8 @@ export function ChatView({
       {/* Composer 停靠区（§6.1 壳类）：一整块圆角卡片 = 输入区 + 内嵌工具栏行 */}
       <div className={COMPOSER_SHELL_CLASS}>
         <div className={CONVERSATION_CONTENT_WIDTH_CLASS}>
+          {/* 卡片上方独立条：工作目录展示与选择 */}
+          {composerTopBar}
           <div className={COMPOSER_CARD_CLASS}>
             <textarea
               value={draft}
