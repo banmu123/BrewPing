@@ -90,6 +90,9 @@
   - 浏览 `\\server\share` 类 **UNC 路径会触发 SMB 认证**（主机名 + NTLM 哈希外泄，SMB relay）→ 必须在 realpath 之前按字符串拒绝。
   - 验证子进程 cwd：Windows 用户态**没有查询进程 cwd 的 API**（cwd 在目标 PEB 里），`wmic` / `Get-Process` / `Get-CimInstance Win32_Process` **都只给 exe 路径**。可用手段只有：`cmd /c cd` 机制单测、失败码探针、Sysinternals **Process Explorer** 的 `Properties → Image → Current Directory`。
 
+- **Windows 桌面端：改 `src-tauri/capabilities/*.json` 后必须强制重编**（`cargo clean -p brewping-desktop`，再 `npm run tauri dev`），否则编译产物里的 ACL 可能还是旧的 → 窗口命令（minimize / toggle-maximize / close / start-dragging）一律被拒；而 `core:default`（事件、listen）与 app 自有命令不受影响，现象是「对话/设置全正常，只有无边框自绘标题栏的按钮点了没反应」。**窗口类 IPC 前端必须 `.catch` 记录错误**——用 `void p` 会把 rejection 静默吞掉，只剩"没反应"这种无从下手的信息。
+- **Windows 桌面端「对话级设置」语义（2026-09-12 定稿）**：**Agent** 创建时绑定（`conv.agentId`，composer 里切 Agent = 开新草稿，方案 §6.2）；**模型** = 对话覆盖（`model_override` + `model_provider_override` 成对存取，缺 provider 会拼错 opencode 的 `provider/model`）> Agent 全局偏好 > 配置 active；**授权** = 对话档位（创建时随草稿固化，`send_command` 的 `approvalMode` 参数）> 全局 approval.json。草稿里的手选**不写全局默认**（`draftApprovalMode: null` = 跟随全局；`refreshSecurity` 5s 轮询只更新 global，不冲草稿手选）。⚠️ 遗留：桌面 Tauri 发送路径不过 ApprovalGate（safe/askAll 桌面不拦截、无 pending UI），只有 HTTP 路径受门控。
+
 ## 占位值 / 上架配置
 
 集中在 `ios/BrewPing/BrewPingConfig.swift`：
