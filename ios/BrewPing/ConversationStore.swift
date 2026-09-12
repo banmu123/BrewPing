@@ -401,13 +401,13 @@ final class ConversationStore: ObservableObject {
     /// 调用方重取详情（agentId / modelOverride 都变了）。
     @discardableResult
     func setAgent(device: ManagedDevice?, id: String, agentID: String) async -> Bool {
-        await patch(device: device, id: id, body: ["agentId": agentID])
+        return await patch(device: device, id: id, body: ["agentId": agentID])
     }
 
     /// 设置 / 清除对话的授权档位（对话级，互不影响）。
     @discardableResult
     func setApprovalMode(device: ManagedDevice?, id: String, mode: String) async -> Bool {
-        await patch(device: device, id: id, body: ["approvalMode": mode])
+        return await patch(device: device, id: id, body: ["approvalMode": mode])
     }
 
     /// 设置 / 清除对话的模型覆盖（`modelID = nil` = 清除，回落该 Agent 默认模型）。
@@ -421,6 +421,6 @@ final class ConversationStore: ObservableObject {
     ) async -> Bool {
         var body: [String: Any] = ["modelId": modelID ?? ""]
         body["modelProviderId"] = providerID ?? ""
-        await patch(device: device, id: id, body: body)
+        return await patch(device: device, id: id, body: body)
     }
 }
