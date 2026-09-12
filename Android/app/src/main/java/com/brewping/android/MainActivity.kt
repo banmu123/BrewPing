@@ -24,6 +24,8 @@ class MainActivity : ComponentActivity() {
                         app.repository,
                         app.deviceStore,
                         CommandReceiver(),
+                        app.conversationStore,
+                        app.modelStore,
                     )
                 )
                 HomeScreen(viewModel = viewModel)

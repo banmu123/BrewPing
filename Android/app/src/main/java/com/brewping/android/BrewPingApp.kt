@@ -4,7 +4,13 @@ import android.app.Application
 import com.brewping.android.api.DesktopApiClient
 import com.brewping.android.discovery.DesktopDiscoveryManager
 import com.brewping.android.repository.DesktopRepository
+import com.brewping.android.store.ConversationStore
 import com.brewping.android.store.DeviceStore
+import com.brewping.android.store.ModelStore
+import com.brewping.android.store.PairingStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 /**
  * Application class — provides singleton instances of Discovery, API, Repository, and DeviceStore.
@@ -23,14 +29,26 @@ class BrewPingApp : Application() {
     lateinit var deviceStore: DeviceStore
         private set
 
+    lateinit var conversationStore: ConversationStore
+        private set
+
+    lateinit var modelStore: ModelStore
+        private set
+
+    lateinit var pairingStore: PairingStore
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
 
         deviceStore = DeviceStore(this)
         discoveryManager = DesktopDiscoveryManager(this)
-        apiClient = DesktopApiClient()
+        pairingStore = PairingStore(this)
+        apiClient = DesktopApiClient(pairingStore)
         repository = DesktopRepository(discoveryManager, apiClient)
+        conversationStore = ConversationStore(apiClient)
+        modelStore = ModelStore(apiClient, CoroutineScope(SupervisorJob() + Dispatchers.Main), this)
     }
 
     companion object {

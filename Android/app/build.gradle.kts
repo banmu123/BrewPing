@@ -84,6 +84,14 @@ dependencies {
     // OkHttp
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // QR 扫码（配对码）：zxing 纯 Java 解码 + CameraX 取景
+    implementation("com.google.zxing:core:3.5.3")
+    val camerax = "1.4.2"
+    implementation("androidx.camera:camera-core:$camerax")
+    implementation("androidx.camera:camera-camera2:$camerax")
+    implementation("androidx.camera:camera-lifecycle:$camerax")
+    implementation("androidx.camera:camera-view:$camerax")
+
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
 

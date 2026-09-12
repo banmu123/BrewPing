@@ -1,5 +1,13 @@
 package com.brewping.android.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -16,14 +24,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -40,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,20 +55,32 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.brewping.android.model.AgentEntry
-import com.brewping.android.model.CommandPhase
+import com.brewping.android.model.DesktopDevice
 import com.brewping.android.model.DeviceOSType
 import com.brewping.android.model.ManagedDevice
-import com.brewping.android.model.SessionState
-import com.brewping.android.ui.theme.BrewPingAmber
-import com.brewping.android.ui.theme.BrewPingGreen
-import com.brewping.android.ui.theme.BrewPingGreenDim
-import com.brewping.android.ui.theme.BrewPingOnSurfaceVariant
-import com.brewping.android.ui.theme.BrewPingPrimary
-import com.brewping.android.ui.theme.BrewPingRed
-import com.brewping.android.ui.theme.BrewPingSurfaceVariant
+import com.brewping.android.ui.theme.BrewMotion
+import com.brewping.android.ui.theme.LatteAccent
+import com.brewping.android.ui.theme.LatteBackground
+import com.brewping.android.ui.theme.LatteBorder
+import com.brewping.android.ui.theme.LatteCard
+import com.brewping.android.ui.theme.LatteDestructive
+import com.brewping.android.ui.theme.LatteMuted
+import com.brewping.android.ui.theme.LatteOnSurface
+import com.brewping.android.ui.theme.LatteOnSurfaceVariant
+import com.brewping.android.ui.theme.LattePrimary
+import com.brewping.android.ui.theme.LatteSuccess
+import com.brewping.android.ui.theme.LatteWarning
+
+// ─── 主页（对齐 iOS：设备 tab + 对话列表 + 对话详情）────────────────────────────
+//
+// 连接机器后先显示对话列表（按绑定工作目录分组），点进去是对话详情
+// （转录 + 输入框）。Agent / 模型 / 授权在对话详情的设置面板里按对话设置。
+// 旧版的 Agent 列表 / 会话启停 / Message / Result 表单已随 iOS 一并移除
+// （iOS 端「控制面板」同样已删除，功能并入对话设置）。
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,245 +89,145 @@ fun HomeScreen(viewModel: HomeViewModel) {
     val activeDeviceID by viewModel.activeDeviceID.collectAsState()
     val online by viewModel.online.collectAsState()
     val agents by viewModel.agents.collectAsState()
-    val sessionState by viewModel.sessionState.collectAsState()
-    val sessionMessage by viewModel.sessionMessage.collectAsState()
-    val lifecycleBusy by viewModel.lifecycleBusy.collectAsState()
-    val commandPhase by viewModel.commandPhase.collectAsState()
-    val messageText by viewModel.messageText.collectAsState()
-    val sessionID by viewModel.sessionID.collectAsState()
-    val sessionAgentID by viewModel.sessionAgentID.collectAsState()
-    val sessionAgentName by viewModel.sessionAgentName.collectAsState()
+    val route by viewModel.conversationRoute.collectAsState()
+    val desktopDevice by viewModel.desktopDevice.collectAsState()
+    val conversationsLoading by viewModel.conversationStore.loading.collectAsState()
 
     var showAddDevice by remember { mutableStateOf(false) }
     var editingDevice by remember { mutableStateOf<ManagedDevice?>(null) }
+    /** 待配对设备（添加/发现后未配对 → 弹配对对话框：输码或扫码）。 */
+    var showPairFor by remember { mutableStateOf<ManagedDevice?>(null) }
+    /** 配对对话框预填的码（扫码所得；长度 6 时自动发起配对）。 */
+    var pairInitialCode by remember { mutableStateOf("") }
+    /** QR 扫码（"pair" = 配对对话框扫码；"form" = 添加设备表单扫码）。 */
+    var showQrScan by remember { mutableStateOf(false) }
+    var qrTarget by remember { mutableStateOf("form") }
+    /** 表单扫码结果（DeviceFormDialog 预填 host/port/name）。 */
+    var qrFormPayload by remember { mutableStateOf<com.brewping.android.model.PairPayload?>(null) }
+    val discovered by viewModel.discoveredDevices.collectAsState()
+    val pairingVersion by viewModel.pairingVersion.collectAsState()
 
-    val scrollState = rememberScrollState()
+    // 详情页内返回 = 关闭对话（系统返回键 + 顶栏返回钮一致）
+    BackHandler(enabled = route != null) { viewModel.closeConversation() }
 
     Scaffold(
+        containerColor = LatteBackground,
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
                     Text(
                         text = "BrewPing",
                         fontWeight = FontWeight.SemiBold,
+                        color = LatteOnSurface,
                     )
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = LatteBackground,
                 ),
             )
         },
     ) { innerPadding ->
-        Surface(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
-            color = MaterialTheme.colorScheme.background,
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // ─── Device Tab Bar ───────────────────────────────────────────
-                DeviceTabBar(
-                    devices = devices,
-                    activeDeviceID = activeDeviceID,
-                    online = online,
-                    onSelect = { viewModel.setActiveDevice(it) },
-                    onAdd = { showAddDevice = true },
-                    onEdit = { editingDevice = it },
-                    onDelete = { viewModel.removeDevice(it) },
-                )
+            // ─── Device Tab Bar（对齐 iOS deviceTabBar）─────────────────────
+            DeviceTabBar(
+                devices = devices,
+                activeDeviceID = activeDeviceID,
+                online = online,
+                onSelect = { viewModel.setActiveDevice(it) },
+                onAdd = { showAddDevice = true },
+                onEdit = { editingDevice = it },
+                onDelete = { viewModel.removeDevice(it) },
+            )
 
-                // ─── Scrollable Content ───────────────────────────────────────
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(scrollState)
-                        .padding(16.dp),
-                ) {
-                    // ─── Agents Section ───────────────────────────────────────
-                    SectionCard(title = "AI Agents") {
-                        if (agents.isEmpty()) {
-                            Text(
-                                text = if (online) "Detecting agents..." else "Connect to detect agents.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = BrewPingOnSurfaceVariant,
-                            )
-                        } else {
-                            agents.forEach { agent ->
-                                AgentRow(
-                                    agent = agent,
-                                    isDefault = agent.active,
-                                    onSetDefault = { viewModel.setDefaultAgent(agent.id) },
-                                    lifecycleBusy = lifecycleBusy,
-                                )
-                            }
-                        }
+            // ─── Content：对话列表 ↔ 对话详情（push/pop 转场，对齐 iOS NavigationStack）
+            val routeKey = when (route) {
+                is ConversationRoute.Existing -> "existing-" + (route as ConversationRoute.Existing).id
+                is ConversationRoute.Draft -> "draft"
+                null -> "list"
+            }
+            AnimatedContent(
+                targetState = routeKey,
+                modifier = Modifier.weight(1f),
+                transitionSpec = {
+                    val slide = tween<IntOffset>(BrewMotion.Normal, easing = BrewMotion.StandardEasing)                    val fade = tween<Float>(BrewMotion.Fast, easing = BrewMotion.FastEasing)
+                    if (targetState == "list") {
+                        // 返回（pop）：详情滑出右侧，列表自左浅移淡入
+                        (slideOutHorizontally(slide) { it } + fadeOut(fade)) togetherWith
+                            (slideInHorizontally(slide) { -it / 3 } + fadeIn(fade))
+                    } else {
+                        // 前进（push）：详情自右滑入，列表向左浅移淡出
+                        (slideInHorizontally(slide) { it } + fadeIn(fade)) togetherWith
+                            (slideOutHorizontally(slide) { -it / 3 } + fadeOut(fade))
                     }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // ─── Active Agent / Session Section ───────────────────────
-                    SectionCard(title = "Active Agent") {
-                        // Only show agent name when there's an active session
-                        // (matches iOS: uses sessionAgentNameFromStatus exclusively)
-                        val displayName = sessionAgentName
-
-                        if (displayName.isNotEmpty() && sessionState != SessionState.Offline) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = displayName,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                SessionStateDot(state = sessionState, online = online)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = sessionStateLabel(sessionState),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = BrewPingOnSurfaceVariant,
-                                )
-                            }
-
-                            // Session ID (matches iOS)
-                            if (sessionID.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Column {
-                                    Text(
-                                        text = "Session ID",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = BrewPingOnSurfaceVariant,
-                                    )
-                                    Text(
-                                        text = sessionID.take(12) + "...",
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                }
-                            }
-
-                            if (sessionMessage.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = sessionMessage,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = BrewPingOnSurfaceVariant,
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            if (sessionAgentID == "opencode") {
-                                when (sessionState) {
-                                    SessionState.Offline -> {
-                                        Button(
-                                            onClick = { viewModel.startSession() },
-                                            enabled = !lifecycleBusy,
-                                            colors = ButtonDefaults.buttonColors(containerColor = BrewPingGreen),
-                                        ) {
-                                            Text("Start Session")
-                                        }
-                                    }
-                                    SessionState.Running -> {
-                                        Button(
-                                            onClick = { viewModel.stopSession() },
-                                            enabled = !lifecycleBusy,
-                                            colors = ButtonDefaults.buttonColors(containerColor = BrewPingRed),
-                                        ) {
-                                            Text("Stop Session")
-                                        }
-                                    }
-                                    SessionState.Starting, SessionState.Stopping -> {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = if (sessionState == SessionState.Starting) "Starting..." else "Stopping...",
-                                                color = BrewPingOnSurfaceVariant,
-                                            )
-                                        }
-                                    }
-                                }
-                            } else {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("⚡", fontSize = 12.sp)
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Ready — type a command below to send",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = BrewPingOnSurfaceVariant,
-                                    )
-                                }
-                            }
-                        } else if (online) {
-                            // Online but no session — show "No active agent" + start button
-                            Text(
-                                text = "No active agent.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = BrewPingOnSurfaceVariant,
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(
-                                onClick = { viewModel.startSession() },
-                                enabled = !lifecycleBusy,
-                                colors = ButtonDefaults.buttonColors(containerColor = BrewPingGreen),
-                            ) {
-                                Text("Start Session")
-                            }
-                        } else {
-                            Text(
-                                text = "Connect to a device first.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = BrewPingOnSurfaceVariant,
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // ─── Message Section ──────────────────────────────────────
-                    SectionCard(title = "Message") {
-                        OutlinedTextField(
-                            value = messageText,
-                            onValueChange = { viewModel.updateMessageText(it) },
-                            label = { Text("Hello from Android") },
-                            modifier = Modifier.fillMaxWidth(),
-                            minLines = 2,
-                            maxLines = 5,
-                            enabled = sessionState == SessionState.Running,
+                },
+                label = "nav",
+            ) { key ->
+                val detailId: String? =
+                    if (key.startsWith("existing-")) key.removePrefix("existing-") else null
+                val showDetail = key != "list"
+                val device = desktopDevice
+                when {
+                    devices.isEmpty() -> Column(modifier = Modifier.fillMaxSize()) {
+                        DiscoveredDevicesSection(
+                            discovered = discovered,
+                            knownKeys = devices.map { "${it.host}:${it.port}" }.toSet(),
+                            onAdd = { found ->
+                                val managed = viewModel.addDiscoveredDevice(found)
+                                if (!viewModel.isPaired(managed.id)) showPairFor = managed
+                            },
                         )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Button(
-                            onClick = { viewModel.sendMessage() },
-                            enabled = sessionState == SessionState.Running
-                                    && messageText.isNotBlank()
-                                    && !commandPhase.isInFlight,
-                        ) {
-                            if (commandPhase.isInFlight) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Sending...")
-                            } else {
-                                Text("Send")
-                            }
-                        }
+                        EmptyStateCard(modifier = Modifier.padding(16.dp))
                     }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // ─── Result Section ───────────────────────────────────────
-                    SectionCard(title = "Result") {
-                        ResultView(
-                            phase = commandPhase,
-                            agentName = sessionAgentName,
+                    device == null -> EmptyStateCard(modifier = Modifier.padding(16.dp))
+                    showDetail -> ConversationDetailScreen(
+                        conversationId = detailId,
+                        device = device,
+                        online = online,
+                        agentNames = viewModel.agentNames,
+                        agents = agents,
+                        fallbackAgentId = viewModel.fallbackAgentId,
+                        store = viewModel.conversationStore,
+                        modelStore = viewModel.modelStore,
+                        commandPhase = viewModel.commandPhase.collectAsState().value,
+                        detailLoading = viewModel.conversationStore.detailLoading.collectAsState().value,
+                        onBack = { viewModel.closeConversation() },
+                        onSend = viewModel::sendInConversation,
+                        onReload = viewModel::reloadConversation,
+                        onSwitchAgent = viewModel::switchConversationAgent,
+                        onSetApproval = viewModel::setConversationApproval,
+                        onSetModel = viewModel::setConversationModel,
+                        onFetchFolderRoots = viewModel::fetchFolderRoots,
+                        onFetchFolder = viewModel::fetchFolder,
+                        onBindWorkdir = { path ->
+                            detailId?.let { viewModel.setConversationWorkdir(it, path) {} }
+                        },
+                    )
+                    else -> Column(modifier = Modifier.fillMaxSize()) {
+                        DiscoveredDevicesSection(
+                            discovered = discovered,
+                            knownKeys = devices.map { "${it.host}:${it.port}" }.toSet(),
+                            onAdd = { found ->
+                                val managed = viewModel.addDiscoveredDevice(found)
+                                if (!viewModel.isPaired(managed.id)) showPairFor = managed
+                            },
+                        )
+                        ConversationListScreen(
+                            store = viewModel.conversationStore,
+                            online = online,
+                            agentNames = viewModel.agentNames,
+                            isRefreshing = conversationsLoading,
+                            onRefresh = { viewModel.refreshConversations() },
+                            onOpenConversation = { viewModel.openConversation(it) },
+                            onNewConversation = { viewModel.openDraftConversation() },
+                            onPinConversation = { id, pinned -> viewModel.pinConversation(id, pinned) { viewModel.refreshConversations() } },
+                            onArchiveConversation = { id -> viewModel.archiveConversation(id) { viewModel.refreshConversations() } },
+                            modifier = Modifier.weight(1f),
                         )
                     }
-
-                    Spacer(modifier = Modifier.height(24.dp))
                 }
             }
         }
@@ -320,17 +237,24 @@ fun HomeScreen(viewModel: HomeViewModel) {
     if (showAddDevice) {
         DeviceFormDialog(
             title = "Add Device",
-            onDismiss = { showAddDevice = false },
-            onConfirm = { name, host, port, osType ->
-                viewModel.addDevice(
-                    ManagedDevice.new(
-                        name = name.ifEmpty { osType.label },
-                        host = host,
-                        port = port,
-                        osType = osType,
-                    )
+            scannedPayload = qrFormPayload,
+            onScan = { qrTarget = "form"; showQrScan = true },
+            onDismiss = { showAddDevice = false; qrFormPayload = null },
+            onConfirm = { name, host, port, osType, code ->
+                val managed = ManagedDevice.new(
+                    name = name.ifEmpty { osType.label },
+                    host = host,
+                    port = port,
+                    osType = osType,
                 )
+                viewModel.addDevice(managed)
+                viewModel.setActive(managed.id)
                 showAddDevice = false
+                qrFormPayload = null
+                if (code.length == 6) {
+                    pairInitialCode = code
+                    showPairFor = managed
+                }
             },
             viewModel = viewModel,
         )
@@ -345,23 +269,92 @@ fun HomeScreen(viewModel: HomeViewModel) {
             initialPort = device.port,
             initialOS = device.osType,
             onDismiss = { editingDevice = null },
-            onConfirm = { name, host, port, osType ->
-                viewModel.updateDevice(
-                    device.copy(
-                        name = name,
-                        host = host,
-                        port = port,
-                        osType = osType,
-                    )
-                )
+            onConfirm = { name, host, port, osType, code ->
+                val updated = device.copy(name = name, host = host, port = port, osType = osType)
+                viewModel.updateDevice(updated)
                 editingDevice = null
+                if (code.length == 6 && !viewModel.isPaired(updated.id)) {
+                    pairInitialCode = code
+                    showPairFor = updated
+                }
             },
             viewModel = viewModel,
         )
     }
+
+    // ─── Pairing Dialog（配对：6 位码 / 扫码，对齐 iOS PairingURLHandler）───────
+    showPairFor?.let { device ->
+        PairDialog(
+            device = device,
+            initialCode = pairInitialCode,
+            onDismiss = { showPairFor = null; pairInitialCode = "" },
+            onScan = { qrTarget = "pair"; showQrScan = true },
+            onPair = viewModel::pairWithCode,
+        )
+    }
+
+    // ─── QR 扫码（配对码 / 添加设备表单）─────────────────────────────────────
+    if (showQrScan) {
+        QrScanScreen(
+            onResult = { payload ->
+                showQrScan = false
+                if (qrTarget == "pair") {
+                    // 扫到的码可能属于别的机器：以码为准换目标设备
+                    val target = if (payload.host.isNotEmpty() && payload.host != showPairFor?.host) {
+                        ManagedDevice.new(
+                            name = payload.name.ifEmpty { "Desktop" },
+                            host = payload.host,
+                            port = payload.port,
+                        ).also { viewModel.addDevice(it); viewModel.setActive(it.id) }
+                    } else {
+                        showPairFor
+                    }
+                    pairInitialCode = payload.code
+                    if (target != null) showPairFor = target
+                } else {
+                    qrFormPayload = payload
+                    showAddDevice = true
+                }
+            },
+            onDismiss = { showQrScan = false },
+        )
+    }
 }
 
-// ─── Device Tab Bar (matches iOS deviceTabBar) ────────────────────────────────
+// ─── Empty state（对齐 iOS emptyStateCard）────────────────────────────────────
+
+@Composable
+private fun EmptyStateCard(modifier: Modifier = Modifier) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = LatteCard,
+        border = BorderStroke(1.dp, LatteBorder),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(24.dp),
+        ) {
+            Text(text = "☕", fontSize = 32.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Add your first computer",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = LatteOnSurface,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Run BrewPing on your computer, then add it with \"+\" to send commands from your phone.",
+                fontSize = 12.sp,
+                color = LatteOnSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
+    }
+}
+
+// ─── Device Tab Bar ──────────────────────────────────────────────────────────
 
 @Composable
 private fun DeviceTabBar(
@@ -374,7 +367,7 @@ private fun DeviceTabBar(
     onDelete: (String) -> Unit,
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        color = LatteCard,
         modifier = Modifier.fillMaxWidth(),
     ) {
         LazyRow(
@@ -398,7 +391,7 @@ private fun DeviceTabBar(
             // Add button
             item {
                 IconButton(onClick = onAdd) {
-                    Text("+", fontSize = 22.sp, color = BrewPingPrimary, fontWeight = FontWeight.Bold)
+                    Text("+", fontSize = 22.sp, color = LattePrimary, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -418,10 +411,12 @@ private fun DeviceTab(
 
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = if (isActive) BrewPingPrimary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant,
+        color = if (isActive) LatteAccent else LatteMuted,
         border = if (isActive) {
-            BorderStroke(1.dp, BrewPingPrimary.copy(alpha = 0.4f))
-        } else null,
+            BorderStroke(1.dp, LattePrimary.copy(alpha = 0.4f))
+        } else {
+            BorderStroke(1.dp, LatteBorder.copy(alpha = 0.6f))
+        },
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .clickable { onClick() },
@@ -438,13 +433,16 @@ private fun DeviceTab(
                     Text(
                         text = device.osType.label,
                         fontSize = 10.sp,
-                        color = BrewPingOnSurfaceVariant,
+                        color = LatteOnSurfaceVariant,
                     )
                     Text(
                         text = device.name.ifEmpty { device.host },
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
+                        color = LatteOnSurface,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.width(width = 96.dp),
                     )
                 }
                 Box(
@@ -452,9 +450,9 @@ private fun DeviceTab(
                         .size(5.dp)
                         .background(
                             color = when {
-                                isActive && isOnline -> BrewPingGreen
-                                isActive -> BrewPingAmber
-                                else -> BrewPingGreenDim
+                                isActive && isOnline -> LatteSuccess
+                                isActive -> LatteWarning
+                                else -> LatteMuted
                             },
                             shape = CircleShape,
                         ),
@@ -466,7 +464,7 @@ private fun DeviceTab(
                 Text(
                     text = "▾",
                     fontSize = 10.sp,
-                    color = BrewPingOnSurfaceVariant,
+                    color = LatteOnSurfaceVariant,
                     modifier = Modifier
                         .padding(start = 4.dp)
                         .clickable { showMenu = true },
@@ -474,15 +472,160 @@ private fun DeviceTab(
                 DropdownMenu(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
+                    containerColor = LatteCard,
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Edit") },
+                        text = { Text("Edit", color = LatteOnSurface) },
                         onClick = { showMenu = false; onEdit() },
                     )
                     DropdownMenuItem(
-                        text = { Text("Delete", color = BrewPingRed) },
+                        text = { Text("Delete", color = LatteDestructive) },
                         onClick = { showMenu = false; onDelete() },
                     )
+                }
+            }
+        }
+    }
+}
+
+// ─── Pairing Dialog（配对：6 位码 / 扫码）────────────────────────────────────
+
+@Composable
+private fun PairDialog(
+    device: ManagedDevice,
+    initialCode: String = "",
+    onDismiss: () -> Unit,
+    onScan: () -> Unit,
+    onPair: (ManagedDevice, code: String, onResult: (Boolean, String) -> Unit) -> Unit,
+) {
+    var code by remember { mutableStateOf(initialCode) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+
+    // 扫码预填 6 位码 → 自动发起配对
+    LaunchedEffect(initialCode) {
+        if (initialCode.length == 6) {
+            busy = true
+            message = null
+            onPair(device, initialCode) { ok, msg ->
+                busy = false
+                message = msg
+                if (ok) onDismiss()
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        containerColor = LatteCard,
+        title = { Text("Pair \"${device.name.ifEmpty { device.host }}\"", color = LatteOnSurface) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "1. Open the BrewPing app on the desktop and click \"Show Pairing Code\".\n2. Enter the 6-digit code, or scan the QR code next to it.",
+                    fontSize = 12.sp,
+                    color = LatteOnSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { code = it.filter { c -> c.isDigit() }.take(6) },
+                    label = { Text("6-digit pairing code") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onScan, enabled = !busy) {
+                        Text("Scan QR Code", color = LattePrimary)
+                    }
+                }
+                message?.let {
+                    Text(
+                        text = it,
+                        fontSize = 12.sp,
+                        color = if (it.startsWith("Paired")) LatteSuccess else LatteDestructive,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy && code.length == 6,
+                onClick = {
+                    busy = true
+                    message = null
+                    onPair(device, code) { ok, msg ->
+                        busy = false
+                        message = msg
+                        if (ok) onDismiss()
+                    }
+                },
+            ) {
+                Text(if (busy) "Pairing…" else "Pair", color = LattePrimary)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !busy) {
+                Text("Cancel", color = LatteOnSurfaceVariant)
+            }
+        },
+    )
+}
+
+// ─── Discovered Devices（局域网自动发现，一键添加）────────────────────────────
+
+@Composable
+private fun DiscoveredDevicesSection(
+    discovered: List<DesktopDevice>,
+    knownKeys: Set<String>,
+    onAdd: (DesktopDevice) -> Unit,
+) {
+    val newOnes = discovered.filter { "${it.ip}:${it.port}" !in knownKeys }
+    if (newOnes.isEmpty()) return
+    Surface(
+        color = LatteCard,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            item(key = "__label__") {
+                Text(
+                    text = "Nearby:",
+                    fontSize = 12.sp,
+                    color = LatteOnSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 10.dp),
+                )
+            }
+            items(newOnes, key = { it.id }) { found ->
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = LatteAccent,
+                    border = BorderStroke(1.dp, LattePrimary.copy(alpha = 0.4f)),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(start = 10.dp),
+                    ) {
+                        Column {
+                            Text(
+                                text = found.name.ifEmpty { found.ip },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = LatteOnSurface,
+                                maxLines = 1,
+                            )
+                            Text(
+                                text = "${found.ip}:${found.port}",
+                                fontSize = 9.sp,
+                                color = LatteOnSurfaceVariant,
+                            )
+                        }
+                        TextButton(onClick = { onAdd(found) }) {
+                            Text("Add", color = LattePrimary)
+                        }
+                    }
                 }
             }
         }
@@ -498,21 +641,35 @@ private fun DeviceFormDialog(
     initialHost: String = "",
     initialPort: String = "8787",
     initialOS: DeviceOSType = DeviceOSType.Mac,
+    scannedPayload: com.brewping.android.model.PairPayload? = null,
+    onScan: () -> Unit = {},
     onDismiss: () -> Unit,
-    onConfirm: (name: String, host: String, port: String, osType: DeviceOSType) -> Unit,
+    onConfirm: (name: String, host: String, port: String, osType: DeviceOSType, pairingCode: String) -> Unit,
     viewModel: HomeViewModel,
 ) {
     var name by remember { mutableStateOf(initialName) }
     var host by remember { mutableStateOf(initialHost) }
     var port by remember { mutableStateOf(initialPort) }
     var osType by remember { mutableStateOf(initialOS) }
+    var pairingCode by remember { mutableStateOf("") }
     var discoveryMessage by remember { mutableStateOf("") }
 
     val discoveryRunning by viewModel.discoveryRunning.collectAsState()
 
+    // 扫码预填：host / port / 名称 / 配对码（对齐 iOS PairingURLHandler）
+    LaunchedEffect(scannedPayload) {
+        scannedPayload?.let { payload ->
+            if (payload.host.isNotEmpty()) host = payload.host
+            if (payload.port.isNotEmpty()) port = payload.port
+            if (payload.name.isNotEmpty() && name.isEmpty()) name = payload.name
+            if (payload.code.isNotEmpty()) pairingCode = payload.code
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
+        containerColor = LatteCard,
+        title = { Text(title, color = LatteOnSurface) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
@@ -539,7 +696,7 @@ private fun DeviceFormDialog(
                 )
 
                 // OS Type picker
-                Text("System", style = MaterialTheme.typography.labelMedium, color = BrewPingOnSurfaceVariant)
+                Text("System", style = MaterialTheme.typography.labelMedium, color = LatteOnSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DeviceOSType.entries.forEach { os ->
                         FilterChip(
@@ -547,323 +704,72 @@ private fun DeviceFormDialog(
                             onClick = { osType = os },
                             label = { Text(os.label) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = BrewPingPrimary.copy(alpha = 0.15f),
-                                selectedLabelColor = BrewPingPrimary,
+                                selectedContainerColor = LattePrimary.copy(alpha = 0.15f),
+                                selectedLabelColor = LattePrimary,
                             ),
                         )
                     }
                 }
 
-                // Auto Discover button
-                TextButton(
-                    onClick = {
-                        viewModel.autoDiscoverForSheet { h, p, n, msg ->
-                            if (h.isNotEmpty()) {
-                                host = h
-                                port = p
-                                name = n
+                // Auto Discover + Scan QR
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            viewModel.autoDiscoverForSheet { h, p, n, msg ->
+                                if (h.isNotEmpty()) {
+                                    host = h
+                                    port = p
+                                    name = n
+                                }
+                                discoveryMessage = msg
                             }
-                            discoveryMessage = msg
+                        },
+                        enabled = !discoveryRunning,
+                    ) {
+                        if (discoveryRunning) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Searching...")
+                        } else {
+                            Text("Auto Discover", color = LattePrimary)
                         }
-                    },
-                    enabled = !discoveryRunning,
-                ) {
-                    if (discoveryRunning) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Searching...")
-                    } else {
-                        Text("Auto Discover")
+                    }
+                    TextButton(onClick = onScan, enabled = !discoveryRunning) {
+                        Text("Scan QR", color = LattePrimary)
                     }
                 }
+
+                // 配对码（可选：填了保存后自动发起配对）
+                OutlinedTextField(
+                    value = pairingCode,
+                    onValueChange = { pairingCode = it.filter { c -> c.isDigit() }.take(6) },
+                    label = { Text("Pairing code (optional)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
 
                 if (discoveryMessage.isNotEmpty()) {
                     Text(
                         text = discoveryMessage,
                         style = MaterialTheme.typography.bodySmall,
-                        color = BrewPingOnSurfaceVariant,
+                        color = LatteOnSurfaceVariant,
                     )
                 }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(name, host, port, osType) },
+                onClick = { onConfirm(name, host, port, osType, pairingCode.trim()) },
                 enabled = host.trim().isNotEmpty(),
             ) {
-                Text(if (initialHost.isEmpty()) "Add" else "Save")
+                Text(if (initialHost.isEmpty()) "Add" else "Save", color = LattePrimary)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text("Cancel", color = LatteOnSurfaceVariant)
             }
         },
     )
-}
-
-// ─── Agent Row ────────────────────────────────────────────────────────────────
-
-@Composable
-private fun AgentRow(
-    agent: AgentEntry,
-    isDefault: Boolean,
-    onSetDefault: () -> Unit,
-    lifecycleBusy: Boolean,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        StatusDot(color = if (agent.installed) BrewPingGreen else BrewPingGreenDim)
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = agent.name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                )
-                if (isDefault) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = BrewPingGreen.copy(alpha = 0.15f),
-                    ) {
-                        Text(
-                            text = "Default",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = BrewPingGreen,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
-                    }
-                }
-            }
-            Text(
-                text = agent.version.ifEmpty { if (agent.installed) "Installed" else "Not Installed" },
-                style = MaterialTheme.typography.bodySmall,
-                color = BrewPingOnSurfaceVariant,
-            )
-        }
-
-        if (!isDefault && agent.installed && agent.executable) {
-            TextButton(
-                onClick = onSetDefault,
-                enabled = !lifecycleBusy,
-            ) {
-                Text("Set Default")
-            }
-        }
-    }
-}
-
-// ─── Result View ──────────────────────────────────────────────────────────────
-
-@Composable
-private fun ResultView(phase: CommandPhase, agentName: String = "") {
-    when (phase) {
-        is CommandPhase.Idle -> {
-            Text(
-                text = "No message sent yet.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = BrewPingOnSurfaceVariant,
-            )
-        }
-        is CommandPhase.Sending -> {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Sending...", color = BrewPingOnSurfaceVariant)
-            }
-        }
-        is CommandPhase.Delivered -> {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("✓ ", color = BrewPingGreen, fontSize = 16.sp)
-                Text("Delivered", color = BrewPingGreen)
-                Spacer(modifier = Modifier.width(8.dp))
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-            }
-        }
-        is CommandPhase.Working -> {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusDot(color = BrewPingAmber)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Working", color = BrewPingAmber)
-                Spacer(modifier = Modifier.width(8.dp))
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-            }
-        }
-        is CommandPhase.Completed -> {
-            ResultContent(
-                icon = "✓",
-                iconColor = BrewPingGreen,
-                label = "Completed",
-                duration = phase.duration,
-                agentName = agentName,
-                modelId = phase.modelId,
-                content = phase.response,
-            )
-        }
-        is CommandPhase.CompletedRaw -> {
-            ResultContent(
-                icon = "✓",
-                iconColor = BrewPingGreen,
-                label = "Completed",
-                duration = phase.duration,
-                agentName = agentName,
-                modelId = phase.modelId,
-                content = phase.rawOutput,
-                subtitle = "Raw screen output",
-            )
-        }
-        is CommandPhase.Failed -> {
-            ResultContent(
-                icon = "✗",
-                iconColor = BrewPingRed,
-                label = "Failed",
-                duration = phase.duration,
-                agentName = agentName,
-                modelId = phase.modelId,
-                content = phase.error,
-                failureReason = phase.failureReason,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ResultContent(
-    icon: String,
-    iconColor: androidx.compose.ui.graphics.Color,
-    label: String,
-    duration: Double?,
-    agentName: String = "",
-    modelId: String?,
-    content: String,
-    subtitle: String? = null,
-    failureReason: String? = null,
-) {
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(icon, color = iconColor, fontSize = 16.sp)
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = label + if (duration != null) " · ${String.format("%.1f", duration)}s" else "",
-                color = iconColor,
-                fontWeight = FontWeight.Medium,
-            )
-        }
-        // Agent name + model line (matches iOS agentModelLine)
-        if (agentName.isNotEmpty() || modelId != null) {
-            Spacer(modifier = Modifier.height(2.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                if (agentName.isNotEmpty()) {
-                    Text(
-                        text = agentName,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = BrewPingOnSurfaceVariant,
-                    )
-                }
-                if (modelId != null) {
-                    Text(
-                        text = modelId,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = BrewPingOnSurfaceVariant,
-                    )
-                }
-            }
-        }
-        if (failureReason != null) {
-            Text(
-                text = failureReasonLabel(failureReason),
-                style = MaterialTheme.typography.bodySmall,
-                color = BrewPingRed,
-            )
-        }
-        if (subtitle != null) {
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = BrewPingOnSurfaceVariant)
-        }
-        if (content.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = BrewPingSurfaceVariant,
-            ) {
-                Text(
-                    text = content,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(12.dp),
-                )
-            }
-        }
-    }
-}
-
-private fun failureReasonLabel(reason: String): String = when (reason) {
-    "quota_exceeded" -> "Quota exceeded"
-    "authentication_failed" -> "Authentication failed"
-    "rate_limited" -> "Rate limited"
-    "network_error" -> "Network error"
-    "model_unavailable" -> "Model unavailable"
-    "provider_error" -> "Provider error"
-    "timeout" -> "Timeout"
-    "process_exited" -> "Process exited"
-    else -> reason
-}
-
-// ─── Section Card ─────────────────────────────────────────────────────────────
-
-@Composable
-private fun SectionCard(
-    title: String,
-    content: @Composable () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = BrewPingSurfaceVariant,
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelMedium,
-                color = BrewPingOnSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            content()
-        }
-    }
-}
-
-// ─── Status dots ──────────────────────────────────────────────────────────────
-
-@Composable
-private fun StatusDot(color: androidx.compose.ui.graphics.Color) {
-    Box(
-        modifier = Modifier
-            .size(8.dp)
-            .background(color = color, shape = CircleShape),
-    )
-}
-
-@Composable
-private fun SessionStateDot(state: SessionState, online: Boolean = false) {
-    val color = when (state) {
-        SessionState.Running -> BrewPingGreen
-        SessionState.Starting, SessionState.Stopping -> BrewPingAmber
-        SessionState.Offline -> if (online) BrewPingGreenDim else BrewPingRed
-    }
-    StatusDot(color = color)
-}
-
-private fun sessionStateLabel(state: SessionState): String = when (state) {
-    SessionState.Running -> "Running"
-    SessionState.Starting -> "Starting"
-    SessionState.Stopping -> "Stopping"
-    SessionState.Offline -> "Offline"
 }

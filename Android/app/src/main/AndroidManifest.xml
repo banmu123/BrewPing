@@ -10,6 +10,9 @@
     <!-- NSD (mDNS) discovery requires local network access on Android 13+ -->
     <uses-permission android:name="android.permission.NSD" />
 
+    <!-- QR 扫码配对（对齐 iOS NSCameraUsageDescription：仅用于扫配对码） -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
     <application
         android:name=".BrewPingApp"
         android:allowBackup="true"

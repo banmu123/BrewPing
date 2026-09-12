@@ -41,6 +41,9 @@ class DesktopRepository(
 
     // ─── Device & connection ──────────────────────────────────────────────────
 
+    /** 局域网内发现到的桌面设备（NSD `_brewping._tcp`，来自 DiscoveryManager）。 */
+    val discoveredDevices: StateFlow<List<DesktopDevice>> = discoveryManager.discoveredDevices
+
     private val _activeDevice = MutableStateFlow<DesktopDevice?>(null)
     val activeDevice: StateFlow<DesktopDevice?> = _activeDevice.asStateFlow()
 
@@ -244,14 +247,15 @@ class DesktopRepository(
 
     // ─── Message sending (matches iOS send/submit/poll) ───────────────────────
 
-    suspend fun submitMessage(device: DesktopDevice, text: String) {
+    /** 发送消息（`conversationId` 非空时显式指定目标对话，对齐 iOS 提交链路）。 */
+    suspend fun submitMessage(device: DesktopDevice, text: String, conversationId: String? = null) {
         // Confirm session is alive
         refreshStatus(device)
 
         commandPollJob?.cancel()
         _commandPhase.value = CommandPhase.Sending
 
-        val response = apiClient.submitMessage(device, text)
+        val response = apiClient.submitMessage(device, text, conversationId)
         if (response != null && response.commandId.isNotEmpty()) {
             _commandPhase.value = CommandPhase.Delivered
             startCommandPolling(device, response.commandId)
