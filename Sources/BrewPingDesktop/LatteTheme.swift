@@ -166,10 +166,38 @@ public enum LatteMetrics {
     /// `px-3 sm:px-4`：窄窗 12pt、宽窗 16pt
     public static let conversationGutterCompact: CGFloat = 12
     public static let conversationGutterRegular: CGFloat = 16
-    /// 会话内容主列的可用宽度（宽度不足时退让，等价于 max-w 的行为）
+
+    /// 列宽（含水平留白）：`min(46rem, 可用宽度)` —— 等价 Tailwind `max-w-[46rem]`。
+    public static func columnWidth(available: CGFloat) -> CGFloat {
+        max(0, min(conversationContentWidth, available))
+    }
+
+    /// 水平留白：`px-3 sm:px-4`，断点 640 → 12pt / 16pt。
+    public static func columnGutter(available: CGFloat) -> CGFloat {
+        available < 640 ? conversationGutterCompact : conversationGutterRegular
+    }
+
+    /// 列内可用宽度（列宽减去两侧留白）。
     public static func conversationWidth(available: CGFloat) -> CGFloat {
-        let gutter = available < 640 ? conversationGutterCompact : conversationGutterRegular
-        return max(0, min(conversationContentWidth, available) - gutter * 2)
+        let gutter = columnGutter(available: available)
+        return max(0, columnWidth(available: available) - gutter * 2)
+    }
+}
+
+// MARK: - 主区可用宽度（会话内容列按窗口尺寸收缩用）
+
+private struct ViewportWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 1024
+}
+
+public extension EnvironmentValues {
+    /// 会话主区的可用宽度，由 `DesktopRootView` 的 GeometryReader 注入。
+    ///
+    /// 会话内容列（`ConversationColumn`）靠它在窗口变窄时正确收缩 —— 直接用
+    /// `.frame(maxWidth:)` 只能给上限，无法算出「留白之后还剩多少」。
+    var viewportWidth: CGFloat {
+        get { self[ViewportWidthKey.self] }
+        set { self[ViewportWidthKey.self] = newValue }
     }
 }
 

@@ -7,14 +7,21 @@ import SwiftUI
 // 布局铁律（对齐 `conversation-layout.ts`）：滚动容器保持全宽，内容各自进列；
 // 水平留白挂在列上，不挂在滚动容器上。列宽 = max-w-[46rem]（736pt）。
 
-/// 简化版列：不需要 GeometryReader 的场景（固定宽度内容）。
-struct ConversationColumnSimple<Content: View>: View {
+/// 会话内容列：`mx-auto w-full max-w-[46rem] px-3 sm:px-4`
+///
+/// 用注入的 `viewportWidth` 而不是逐处 GeometryReader —— 后者在 VStack 里会
+/// 因为「GeometryReader 抢占剩余高度」把 composer 顶到奇怪的位置。宽度随窗口
+/// 变化实时重算，列宽与留白都跟着变（对齐 Tailwind 的断点行为）。
+struct ConversationColumn<Content: View>: View {
+    @Environment(\.viewportWidth) private var viewportWidth
     @ViewBuilder var content: Content
 
     var body: some View {
+        let column = LatteMetrics.columnWidth(available: viewportWidth)
+        let inner = LatteMetrics.conversationWidth(available: viewportWidth)
         content
-            .frame(maxWidth: LatteMetrics.conversationContentWidth, alignment: .leading)
-            .padding(.horizontal, 16)
+            .frame(width: inner, alignment: .leading)
+            .frame(width: column, alignment: .center)
             .frame(maxWidth: .infinity, alignment: .center)
     }
 }
@@ -59,7 +66,7 @@ struct ChatView: View {
                     MessageList(messages: app.messages, isStreaming: isStreaming)
 
                     if showThinking {
-                        ConversationColumnSimple {
+                        ConversationColumn {
                             HStack(spacing: 8) {
                                 ThinkingDot()
                                 Text(i18n.t(.chatThinking, ["agent": app.convAgentName]))
@@ -90,19 +97,18 @@ struct ChatView: View {
     // MARK: Composer 停靠区
 
     private var composer: some View {
-        ConversationColumnSimple {
+        ConversationColumn {
             VStack(spacing: 0) {
                 // 卡片上方独立条：工作目录展示与选择
                 WorkdirPickerView()
 
                 VStack(spacing: 0) {
-                    ComposerTextView(
+                    ComposerInput(
                         text: Binding(get: { app.draftText }, set: { app.setDraftText($0) }),
                         placeholder: i18n.t(.chatPlaceholder, ["agent": app.convAgentName]),
                         onSubmit: submit,
                         onFocusChange: { composerFocused = $0 }
                     )
-                    .frame(minHeight: 72, maxHeight: 176)
 
                     HStack(spacing: 2) {
                         composerToolbar
@@ -251,7 +257,7 @@ struct MessageList: View {
     private var lastId: String { messages.last?.id ?? "-1" }
 
     var body: some View {
-        ConversationColumnSimple {
+        ConversationColumn {
             VStack(spacing: 0) {
                 ForEach(messages) { msg in
                     row(msg)
@@ -362,7 +368,56 @@ struct LandingGreeting: View {
     }
 }
 
-// MARK: - Composer 输入框（NSTextView 包装：Enter 发送 / Shift+Enter 换行 / 自适应高度）
+// MARK: - Composer 输入框
+//
+// 两层结构：
+//   ComposerInput（SwiftUI）—— 负责内边距 / 占位符 / 高度钳制，尺寸与 Windows 的
+//     `min-h-[72px] max-h-44` + `px-4 pt-3.5 pb-1.5` 严格对齐（Tailwind 是
+//     border-box，72/176 **包含** 14+6 的上下内边距，所以内容区是 52…156）。
+//   ComposerTextView（NSViewRepresentable）—— NSTextView，负责文字输入。
+//
+// 🚨 必须用 `NSTextView.scrollableTextView()` 建，不能手写
+//    `NSScrollView() + NSTextView(frame: .zero)`：后者 documentView 的 frame 是
+//    .zero，AppKit 不会替它布局 → 文本框不可见也不可点击，表现为「点不进、打不了字」。
+//    （第一版就是这么错的。）
+// 🚨 Enter 发送要走 `textView(_:doCommandBy:)` 而不是 `keyDown` 覆写：
+//    前者是 NSTextView 的标准拦截点，输入法组字期间不会被调用，不会吞掉中文候选。
+
+/// 输入框外壳：内边距 + 占位符 + 高度钳制。
+struct ComposerInput: View {
+    @Binding var text: String
+    var placeholder: String
+    var onSubmit: () -> Void
+    var onFocusChange: (Bool) -> Void
+
+    var body: some View {
+        ComposerTextView(
+            text: $text,
+            placeholder: placeholder,
+            onSubmit: onSubmit,
+            onFocusChange: onFocusChange
+        )
+        .padding(.top, 14)      // pt-3.5
+        .padding(.bottom, 6)    // pb-1.5
+        .padding(.horizontal, 16) // px-4
+        // 🚨 不要写 .frame(minHeight: 72, maxHeight: 176)：那是**弹性**框，
+        //    父级有余量时它会一路顶到 maxHeight 并把内容垂直居中 →
+        //    输入框永远 176 高、文字浮在中间（第一版就是这个现象）。
+        //    高度范围已在 sizeThatFits 里钳好（内容 52…156，含内边距即 72…176），
+        //    fixedSize(vertical:) 保证父级不会再来拉伸它。
+        .fixedSize(horizontal: false, vertical: true)
+        .overlay(alignment: .topLeading) {
+            if text.isEmpty {
+                Text(placeholder)
+                    .font(.system(size: 14, design: .monospaced))
+                    .foregroundStyle(Latte.mutedForeground.opacity(0.7))
+                    .padding(.top, 14)
+                    .padding(.leading, 16)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+}
 
 struct ComposerTextView: NSViewRepresentable {
     @Binding var text: String
@@ -370,122 +425,116 @@ struct ComposerTextView: NSViewRepresentable {
     var onSubmit: () -> Void
     var onFocusChange: (Bool) -> Void
 
-    private static let minHeight: CGFloat = 72
-    private static let maxHeight: CGFloat = 176
+    /// 内容区高度范围（不含 SwiftUI 侧 14+6 的内边距）。
+    static let minContentHeight: CGFloat = 72 - 20    // 52
+    static let maxContentHeight: CGFloat = 176 - 20   // 156
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let textView = SubmitTextView()
-        textView.delegate = context.coordinator
-        textView.onSubmit = onSubmit
-        textView.onFocusChange = onFocusChange
+        // scrollableTextView() 会把 textContainer / autoresizingMask / min-maxSize
+        // 全部按 AppKit 的约定装好（NSTextView 的标准构造路径）。
+        let scrollView = NSTextView.scrollableTextView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.contentView.drawsBackground = false
 
+        guard let textView = scrollView.documentView as? NSTextView else { return scrollView }
+        configure(textView)
+        textView.delegate = context.coordinator
+        context.coordinator.textView = textView
+        return scrollView
+    }
+
+    private func configure(_ textView: NSTextView) {
         textView.isRichText = false
         textView.isEditable = true
         textView.isSelectable = true
         textView.drawsBackground = false
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.textContainerInset = NSSize(width: 12, height: 10)
+        textView.allowsUndo = true
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.smartInsertDeleteEnabled = false
         textView.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
         textView.textColor = NSColor(Latte.foreground)
         textView.insertionPointColor = NSColor(Latte.primary)
-        textView.allowsUndo = true
-        textView.textContainer?.widthTracksTextView = true
+        textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 0
-
-        let scrollView = NSScrollView()
-        scrollView.documentView = textView
-        scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = false
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.verticalScrollElasticity = .allowed
-        return scrollView
+        // 容器宽度跟随 textView 宽度；高度放开，由我们逐帧量出真实内容高度。
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.heightTracksTextView = false
+        textView.textContainer?.size = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        // 高度完全交给 sizeThatFits：不让 AppKit 的 minSize 锁死初始高度（否则
+        // 输入框在窄内容时会撑到 scrollableTextView 的默认高度）。
+        textView.minSize = .zero
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                  height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? SubmitTextView else { return }
-        textView.onSubmit = onSubmit
-        textView.onFocusChange = onFocusChange
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        context.coordinator.parent = self
+        context.coordinator.textView = textView
         if textView.string != text {
             textView.string = text
+            textView.invalidateIntrinsicContentSize()
         }
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
-        guard let textView = nsView.documentView as? NSTextView else { return nil }
-        context.coordinator.layoutManager(for: textView)?.ensureLayout(for: textView.textContainer!)
-        let used = context.coordinator.layoutManager(for: textView)?
-            .usedRect(for: textView.textContainer!).height ?? 0
-        let height = min(max(used + textView.textContainerInset.height * 2 + 4, Self.minHeight), Self.maxHeight)
-        return CGSize(width: proposal.width ?? 0, height: height)
+        let width = proposal.width ?? nsView.bounds.width
+        guard width > 1, let textView = context.coordinator.textView else {
+            return CGSize(width: max(width, 1), height: Self.minContentHeight)
+        }
+        // 量出自然高度；超过上限的部分交给 NSScrollView 滚动（等价 max-h-44 之后出滚动条）。
+        let used = Self.contentHeight(of: textView, width: width)
+        return CGSize(width: width, height: min(max(used, Self.minContentHeight), Self.maxContentHeight))
+    }
+
+    /// 量文本在给定宽度下的自然高度，并把 textView 的 frame 同步过去
+    /// （frame 高度用**未钳制**的值，这样超出上限时 NSScrollView 才会真的滚起来）。
+    static func contentHeight(of textView: NSTextView, width: CGFloat) -> CGFloat {
+        guard let container = textView.textContainer, let manager = textView.layoutManager else {
+            return minContentHeight
+        }
+        textView.frame = NSRect(x: 0, y: 0, width: width, height: 10_000)
+        manager.ensureLayout(for: container)
+        let used = ceil(manager.usedRect(for: container).height)
+        textView.frame = NSRect(x: 0, y: 0, width: width, height: max(used, minContentHeight))
+        return used
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
-        private let parent: ComposerTextView
+        var parent: ComposerTextView
+        weak var textView: NSTextView?
 
-        init(_ parent: ComposerTextView) {
-            self.parent = parent
-        }
+        init(_ parent: ComposerTextView) { self.parent = parent }
 
-        func layoutManager(for textView: NSTextView) -> NSLayoutManager? {
-            textView.layoutManager
+        /// Enter 发送 / Shift+Enter 换行。组字期间 AppKit 不会调用这里，
+        /// 所以中文候选词的回车不受影响。
+        func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
+            if NSApp.currentEvent?.modifierFlags.contains(.shift) == true { return false }
+            parent.onSubmit()
+            return true
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             parent.text = textView.string
+            // 让 SwiftUI 重新量高（内容换行 / 删行时输入框跟着长高或缩短）。
+            textView.invalidateIntrinsicContentSize()
         }
 
-        func textViewDidChangeSelection(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView,
-                  textView.window?.firstResponder === textView else { return }
-            parent.onFocusChange(true)
-        }
-
-        func textDidBeginEditing(_ notification: Notification) {
-            parent.onFocusChange(true)
-        }
-
-        func textDidEndEditing(_ notification: Notification) {
-            parent.onFocusChange(false)
-        }
-    }
-}
-
-/// Enter 发送 / Shift+Enter 换行；失焦时不做隐式提交（与 Windows textarea 一致）。
-private final class SubmitTextView: NSTextView {
-    var onSubmit: (() -> Void)?
-    var onFocusChange: ((Bool) -> Void)?
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func keyDown(with event: NSEvent) {
-        // Enter（含小键盘 Enter）= 发送；Shift+Enter = 换行；输入法组字期间一律不拦。
-        let isReturn = event.keyCode == 36 || event.keyCode == 76
-        let shift = event.modifierFlags.contains(.shift)
-        let composing = hasMarkedText()
-        if isReturn, !shift, !composing {
-            onSubmit?()
-            return
-        }
-        super.keyDown(with: event)
-    }
-
-    override func becomeFirstResponder() -> Bool {
-        let ok = super.becomeFirstResponder()
-        if ok { onFocusChange?(true) }
-        return ok
-    }
-
-    override func resignFirstResponder() -> Bool {
-        let ok = super.resignFirstResponder()
-        if ok { onFocusChange?(false) }
-        return ok
+        func textDidBeginEditing(_ notification: Notification) { parent.onFocusChange(true) }
+        func textDidEndEditing(_ notification: Notification) { parent.onFocusChange(false) }
     }
 }

@@ -50,7 +50,13 @@
 - **`SubmitSuccess.conversationID`** 是桌面 `send_command` 的返回值（不是 `sessionID`，那是 agent 会话 ID）。
 - **i18n**：`DesktopStrings.swift` 由 `Sources/BrewPingwinDesktop/src/i18n/locales.ts` **机械生成**（`LKey` + zh/en，148 key 严格对齐）。**改文案必须两端同批**。`LangMode`(system/zh/en) 存 UserDefaults `brewping.langMode`；不重启、不依赖系统语言。
 - **主题**：`LatteTheme.swift` 的 HSL 令牌逐条照搬 `app.css` 的 `:root`（`Color.latte(h:s:l:)` 自实现 HSL→sRGB）。改样式先改令牌，别在视图里写裸色值。
-- **布局常数**：`LatteMetrics`（控件高 36 / 侧栏 208 / 内容列 736 / gutter 12→16）对应 Windows 的 Tailwind 类。
+- **布局常数**：`LatteMetrics`（控件高 36 / 侧栏 208 / 内容列 736 / gutter 12→16）对应 Windows 的 Tailwind 类。**主区宽度**经 `EnvironmentValues.viewportWidth` 注入（`DesktopRootView` 里唯一一个 GeometryReader，只包主区）—— 会话内容列靠它算 `min(736, 可用)` 与断点留白；**别在会话内部逐处用 GeometryReader**（会吃掉 VStack 剩余高度，把 composer 顶飞）。
+- **🚨 SwiftUI 输入框（NSTextView 包装）两坑**（2026-09-13 修）：
+  1. **必须用 `NSTextView.scrollableTextView()` 构造**。手写 `NSScrollView() + NSTextView(frame: .zero)` 时 documentView 的 frame 是 `.zero`，AppKit 不替它布局 → 文本框不可见也不可点击（表现为"点不进、打不了字"）。
+  2. **`.frame(minHeight:maxHeight:)` 是弹性框不是钳制框**：父级有余量就顶到 maxHeight 并把内容垂直居中 → 输入框永远最大高、文字浮中间。高度范围要钳在 `sizeThatFits` 里，外壳只留 padding + `.fixedSize(horizontal: false, vertical: true)`。
+     - 超出上限后的滚动：`textView.frame.height` 用**未钳制**的自然高度（document 比 clip 高才滚得起来）。
+     - Enter 发送走 `NSTextViewDelegate.textView(_:doCommandBy:)`，**不要**覆写 `keyDown`（前者组字期间不触发，不吞中文候选）。
+     - Windows textarea 是 border-box：`min-h-[72px] max-h-44` **包含** `pt-3.5`(14)+`pb-1.5`(6) → 内容区 52…156，水平 16 走 SwiftUI padding（`textContainerInset` 只能给上下对称值）。
 - **禁用**：`osascript` System Events 自动化本机未授权（见"已知坑"）。
 - 改完必须 `swift build --disable-sandbox`；`swift test` 无 target（Mac 端暂无 XCTest）。
 

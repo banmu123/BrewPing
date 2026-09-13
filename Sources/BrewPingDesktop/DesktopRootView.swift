@@ -24,7 +24,7 @@ struct DesktopRootView: View {
             }
         }
         .background(Latte.background)
-        .frame(minWidth: 900, minHeight: 600)
+        .frame(minWidth: 520, minHeight: 520)
         .onAppear { app.start() }
     }
 
@@ -51,7 +51,13 @@ struct DesktopRootView: View {
             HStack(spacing: 0) {
                 SidebarView()
 
-                main
+                // 只在这里量一次主区宽度，注入环境供会话内容列使用 ——
+                // 逐处用 GeometryReader 会抢走 VStack 的剩余高度，把 composer 顶飞。
+                GeometryReader { proxy in
+                    main
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .environment(\.viewportWidth, proxy.size.width)
+                }
             }
             .frame(maxHeight: .infinity)
         }
