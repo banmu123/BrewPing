@@ -18,6 +18,10 @@ struct WatchComposer: View {
     let conversationId: String
 
     @State private var draft = ""
+    /// 输入框是否展开。🚨 不能用 `inputFocused` 兼任：聚焦只能作用于
+    /// **已渲染**的视图，而输入框的渲染条件又是 focused —— 互相等死，
+    /// 点麦克风永远弹不出键盘。用独立状态先渲染、再聚焦。
+    @State private var showInput = false
     @FocusState private var inputFocused: Bool
 
     private var inFlight: Bool {
@@ -92,12 +96,13 @@ struct WatchComposer: View {
             }
 
             // 输入框只在唤起键盘 / 有草稿时出现；棕底上文字用奶白
-            if inputFocused || hasDraft {
+            if showInput || hasDraft {
                 TextField("Type...", text: $draft)
                     .font(.system(size: 12))
                     .foregroundStyle(Color.bpOnBackground)
                     .focused($inputFocused)
                     .onSubmit { sendDraft() }
+                    .onAppear { inputFocused = true }  // 渲染出来后立刻聚焦 → 弹键盘
                     .padding(.horizontal, 6)
             }
 
@@ -109,7 +114,7 @@ struct WatchComposer: View {
     /// 居中单按钮，三态：🎤 麦克风 → ⏳ loading（锁定）→ ✓ 完成（短暂）→ 🎤。
     private var commandButton: some View {
         Button {
-            inputFocused = true
+            showInput = true
         } label: {
             Group {
                 switch sessionManager.commandState {
@@ -148,6 +153,7 @@ struct WatchComposer: View {
         sessionManager.sendCommand(draft, conversationId: conversationId)
         draft = ""
         inputFocused = false
+        showInput = false
     }
 
     private func finishAndRefresh() {
