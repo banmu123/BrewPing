@@ -6,16 +6,10 @@
 "App-internal switch. Changes take effect immediately — no need to restart or change iOS system language." = "应用内切换。选择后立即生效，无需重启应用或更改 iOS 系统语言。";
 
 /* MARK: - Empty State / Onboarding */
-"Get started" = "开始使用";
-"No Mac connected yet" = "尚未连接 Mac";
-"BrewPing needs **%@** running on your Mac. Your iPhone is the remote control; your Mac runs the coding agents." = "BrewPing 需要你的 Mac 上运行 **%@**。iPhone 是遥控器，Mac 才是真正运行编码 Agent 的地方。";
-"Install and open %@ on your Mac." = "在 Mac 上安装并打开 %@。";
-"Keep this iPhone and your Mac on the same Wi-Fi." = "让 iPhone 与 Mac 处于同一 Wi-Fi 网络。";
-"Reveal the 6-digit pairing code in %@." = "在 %@ 中显示 6 位配对码。";
-"Tap “Add Device” below, enter the code, and save." = "点击下方“添加设备”，输入配对码并保存。";
+"Add your first computer" = "添加第一台电脑";
+"Run BrewPing on your computer, then tap “Add Device” to send commands from your phone." = "在电脑上运行 BrewPing，然后点“添加设备”就能用手机发指令。";
+"Nearby" = "附近的电脑";
 "Add Device" = "添加设备";
-"Try Demo Mode" = "试用演示模式";
-"No Mac at hand? Demo Mode walks through the whole flow locally, without any hardware." = "手头没有 Mac？演示模式可在本地完整走一遍流程，不需要任何硬件。";
 "Add a device first" = "请先添加设备";
 "Download Desktop App" = "下载桌面端";
 "No desktop yet? Get BrewPing for Mac, Windows or Linux." = "还没有桌面端？前往下载 Mac / Windows / Linux 版。";
@@ -159,15 +153,6 @@
 "Showing the last known models. Pull to refresh to try again." = "当前显示的是上次获取到的模型列表，下拉刷新可重试。";
 "Can't load models: %@" = "无法加载模型列表：%@";
 "This host doesn't support model lists. Update the desktop app." = "这台主机不支持模型列表，请更新桌面端。";
-
-/* MARK: - 配对 v2：QR + 空状态自动发现 */
-"Scanning for %@ on this Wi-Fi..." = "正在此 Wi-Fi 下扫描 %@…";
-"No BrewPing Mac found on this Wi-Fi yet." = "本 Wi-Fi 下还没找到 BrewPing Mac。";
-"Macs on this Wi-Fi" = "此 Wi-Fi 下的 Mac";
-"If the list is empty, open %@ on your Mac and reveal the pairing code (a QR will appear)." = "若列表为空，请在 Mac 上打开 %@，并显示配对码（会同时显示一个二维码）。";
-"Add Manually" = "手动添加";
-"In %@, click the menu bar icon and tap “Show Pairing Code”. A QR code will appear." = "在 %@ 的菜单栏图标里点击「显示配对码」，会出现一个二维码。";
-"Scan the QR with your iPhone, or enter the 6-digit code in the device sheet." = "用 iPhone 扫描此二维码，或在设备表单里输入 6 位配对码。";
 
 /* MARK: - 授权确认（危险命令） */
 "Approval Required" = "需要授权确认";

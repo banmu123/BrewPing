@@ -6,16 +6,10 @@
  */
 
 /* ── Empty state ──────────────────────────────── */
-"Get started" = "Get started";
-"No Mac connected yet" = "No Mac connected yet";
-"BrewPing needs **%@** running on your Mac. Your iPhone is the remote control; your Mac runs the coding agents." = "BrewPing needs **%@** running on your Mac. Your iPhone is the remote control; your Mac runs the coding agents.";
-"Install and open %@ on your Mac." = "Install and open %@ on your Mac.";
-"Keep this iPhone and your Mac on the same Wi-Fi." = "Keep this iPhone and your Mac on the same Wi-Fi.";
-"Reveal the 6-digit pairing code in %@." = "Reveal the 6-digit pairing code in %@.";
-"Tap “Add Device” below, enter the code, and save." = "Tap “Add Device” below, enter the code, and save.";
+"Add your first computer" = "Add your first computer";
+"Run BrewPing on your computer, then tap “Add Device” to send commands from your phone." = "Run BrewPing on your computer, then tap “Add Device” to send commands from your phone.";
+"Nearby" = "Nearby";
 "Add Device" = "Add Device";
-"Try Demo Mode" = "Try Demo Mode";
-"No Mac at hand? Demo Mode walks through the whole flow locally, without any hardware." = "No Mac at hand? Demo Mode walks through the whole flow locally, without any hardware.";
 
 /* ── Pairing ──────────────────────────────────── */
 "Pairing required" = "Pairing required";
@@ -161,15 +155,6 @@
 "Showing the last known models. Pull to refresh to try again." = "Showing the last known models. Pull to refresh to try again.";
 "Can't load models: %@" = "Can't load models: %@";
 "This host doesn't support model lists. Update the desktop app." = "This host doesn't support model lists. Update the desktop app.";
-
-/* MARK: - Pairing v2: QR + Auto Discover on empty state */
-"Scanning for %@ on this Wi-Fi..." = "Scanning for %@ on this Wi-Fi...";
-"No BrewPing Mac found on this Wi-Fi yet." = "No BrewPing Mac found on this Wi-Fi yet.";
-"Macs on this Wi-Fi" = "Macs on this Wi-Fi";
-"If the list is empty, open %@ on your Mac and reveal the pairing code (a QR will appear)." = "If the list is empty, open %@ on your Mac and reveal the pairing code (a QR will appear).";
-"Add Manually" = "Add Manually";
-"In %@, click the menu bar icon and tap “Show Pairing Code”. A QR code will appear." = "In %@, click the menu bar icon and tap “Show Pairing Code”. A QR code will appear.";
-"Scan the QR with your iPhone, or enter the 6-digit code in the device sheet." = "Scan the QR with your iPhone, or enter the 6-digit code in the device sheet.";
 
 /* MARK: - Approval (dangerous command confirmation) */
 "Approval Required" = "Approval Required";

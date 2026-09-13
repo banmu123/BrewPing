@@ -140,11 +140,23 @@ struct ContentView: View {
                         online: online,
                         agentNames: agentNameMap
                     )
+                } else if deviceStore.devices.isEmpty {
+                    // 无设备：与 Android 空状态同构 —— 一张居中引导卡片，
+                    // 扫到电脑时下面多一张「附近」列表。不再用三段式 Form。
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            emptyStateCard
+                            nearbyCard
+                        }
+                        .padding(16)
+                    }
+                    .background(Color.bpBackground)
+                    .tint(Color.bpPrimary)
+                    .onAppear { bonjour.startSearching() }
+                    .onDisappear { bonjour.stopSearching() }
                 } else {
                     Form {
-                        if deviceStore.devices.isEmpty {
-                            emptyStateCard
-                        } else if let device = activeDevice {
+                        if let device = activeDevice {
                             notPairedCard(device)
                         }
 
@@ -301,143 +313,110 @@ struct ContentView: View {
     /// 控制面板已移除：Agent / 模型 / 授权的切换移到了对话详情的
     /// 「对话设置」面板（ConversationSettingsView，按对话独立生效）。
 
-    /// 没有设备时的引导卡片。
-    /// 审核员下载后看到的第一屏就是这里 —— 必须自解释"需要配套 Mac 端"，
-    /// 否则会被判定为 2.1 App Completeness 问题。
+    /// 没有设备时的引导卡片 —— 与 Android `EmptyStateCard` 同构：
+    /// 一张居中卡片（图标 / 标题 / 一句说明 / 一个主按钮 / 一行脚注）。
     ///
-    /// 由 3 个 Section 拼成：
-    ///   1. 引导说明（如何把 Mac 接进来）
-    ///   2. 局域网自动发现（核心改进：首装用户不用先点 "+" 也能看到 Mac）
-    ///   3. 手动 / Demo 入口
-    @ViewBuilder
+    /// 之前这里是「三段式 Form + 4 步编号引导 + 快捷入口」：同一件事被说了三四遍
+    /// （大段说明、编号步骤、发现列表的 footer、「没有 Mac？」脚注），
+    /// 而且「Add Manually」与设备栏的「Add Device」重复。现在收敛成一条主线，
+    /// 需要电脑端的自解释性仍然保留（审核员首屏就能看懂要配一台电脑）。
     private var emptyStateCard: some View {
-        Group {
-            getStartedSection
-            // 扫到任意 Mac，或正在扫，都展示该 Section —— 扫到 0 个时给"未找到"提示
-            // 比单纯不显示 Section 更友好。
-            discoveredMacsSection
-            quickActionsSection
-        }
-        .onAppear { bonjour.startSearching() }
-        .onDisappear { bonjour.stopSearching() }
-    }
+        VStack(spacing: 8) {
+            Text("☕")
+                .font(.system(size: 32))
 
-    /// Section 1：基础说明 + 引导步骤
-    private var getStartedSection: some View {
-        Section("Get started") {
-            VStack(alignment: .leading, spacing: 10) {
-                Label("No Mac connected yet", systemImage: "desktopcomputer")
-                    .font(.headline)
+            Text("Add your first computer")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Color.bpForeground)
 
-                Text("BrewPing needs **\(BrewPingConfig.macAppName)** running on your Mac. Your iPhone is the remote control; your Mac runs the coding agents.")
-                    .font(.callout)
-                    .foregroundStyle(Color.bpMutedForeground)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    guideStep(1, "Install and open \(BrewPingConfig.macAppName) on your Mac.")
-                    guideStep(2, "Keep this iPhone and your Mac on the same Wi-Fi.")
-                    guideStep(3, "In \(BrewPingConfig.macAppName), click the menu bar icon and tap “Show Pairing Code”. A QR code will appear.")
-                    guideStep(4, "Scan the QR with your iPhone, or enter the 6-digit code in the device sheet.")
-                }
-
-                // 还没有桌面端？引导去官网下载（与 Android 空状态的下载入口同语义）
-                Button {
-                    if let url = URL(string: "https://www.commitbrew.com/#download") {
-                        openURL(url)
-                    }
-                } label: {
-                    Label("Download Desktop App", systemImage: "arrow.down.circle.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .padding(.top, 4)
-
-                Text("No desktop yet? Get BrewPing for Mac, Windows or Linux.")
-                    .font(.caption2)
-                    .foregroundStyle(Color.bpMutedForeground)
-                    .frame(maxWidth: .infinity, alignment: .center)
-            }
-            .padding(.vertical, 4)
-        }
-    }
-
-    /// Section 2：局域网自动发现的 Mac。
-    /// 关键改进：首装用户**不再需要先点 + 再等"Auto Discover"按钮**，
-    /// 进入空状态时即开始扫描，结果直接以列表形式呈现。
-    private var discoveredMacsSection: some View {
-        Section {
-            if bonjour.isSearching || bonjour.isResolving {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Scanning for \(BrewPingConfig.macAppName) on this Wi-Fi...")
-                        .font(.footnote)
-                        .foregroundStyle(Color.bpMutedForeground)
-                }
-            }
-            ForEach(bonjour.discoveredHosts) { host in
-                Button {
-                    handleDiscoveredHost(host)
-                } label: {
-                    HStack(alignment: .center, spacing: 10) {
-                        // 图标跟随广播方声明的主机类型（Mac/Win/Linux），不再写死 macstudio。
-                        Image(systemName: host.osType.icon)
-                            .font(.title3)
-                            .foregroundStyle(Color.bpPrimary)
-                            .frame(width: 28)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(host.name)
-                                .font(.callout)
-                                .foregroundStyle(Color.bpForeground)
-                            Text("\(host.host):\(host.port)")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(Color.bpMutedForeground)
-                        }
-                        Spacer()
-                        Image(systemName: "plus.circle.fill")
-                            .foregroundStyle(Color.bpPrimary)
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-            if !bonjour.isSearching && !bonjour.isResolving && bonjour.discoveredHosts.isEmpty {
-                Label("No BrewPing Mac found on this Wi-Fi yet.", systemImage: "wifi.exclamationmark")
-                    .font(.footnote)
-                    .foregroundStyle(Color.bpMutedForeground)
-            }
-        } header: {
-            Text("Macs on this Wi-Fi")
-        } footer: {
-            // 引导去 Mac 端操作：用户看了"自动发现"列表后，最自然的下一步就是
-            // 走到 Mac 那边去找配对码 / QR。
-            Text("If the list is empty, open \(BrewPingConfig.macAppName) on your Mac and reveal the pairing code (a QR will appear).")
-                .font(.footnote)
-        }
-    }
-
-    /// Section 3：手动添加 / Demo 入口
-    private var quickActionsSection: some View {
-        Section {
-            HStack(spacing: 10) {
-                Button {
-                    startAddDevice()
-                } label: {
-                    Label("Add Manually", systemImage: "plus.circle.fill")
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button {
-                    deviceStore.addDemoDevice()
-                } label: {
-                    Label("Try Demo Mode", systemImage: "sparkles")
-                }
-                .buttonStyle(.bordered)
-            }
-            .padding(.vertical, 2)
-
-            Text("No Mac at hand? Demo Mode walks through the whole flow locally, without any hardware.")
-                .font(.footnote)
+            Text("Run BrewPing on your computer, then tap “Add Device” to send commands from your phone.")
+                .font(.system(size: 12))
                 .foregroundStyle(Color.bpMutedForeground)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                if let url = URL(string: "https://www.commitbrew.com/#download") {
+                    openURL(url)
+                }
+            } label: {
+                Label("Download Desktop App", systemImage: "arrow.down.circle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(Color.bpPrimary)
+            .padding(.top, 8)
+
+            Text("No desktop yet? Get BrewPing for Mac, Windows or Linux.")
+                .font(.system(size: 10))
+                .foregroundStyle(Color.bpMutedForeground.opacity(0.7))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 6)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.bpCard)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.bpBorder, lineWidth: 1)
+        }
+    }
+
+    /// 附近电脑（局域网自动发现）。只在**真的扫到**时才出现 ——
+    /// 去掉了 header/footer 与「未找到」占位，扫不到就没有这张卡。
+    @ViewBuilder
+    private var nearbyCard: some View {
+        if !bonjour.discoveredHosts.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Nearby")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.bpMutedForeground)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+
+                ForEach(bonjour.discoveredHosts) { host in
+                    Divider()
+                        .background(Color.bpBorder)
+                    Button {
+                        handleDiscoveredHost(host)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: host.osType.icon)
+                                .font(.title3)
+                                .foregroundStyle(Color.bpPrimary)
+                                .frame(width: 28)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(host.name)
+                                    .font(.callout)
+                                    .foregroundStyle(Color.bpForeground)
+                                Text("\(host.host):\(host.port)")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(Color.bpMutedForeground)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundStyle(Color.bpPrimary)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.bpCard)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.bpBorder, lineWidth: 1)
+            }
         }
     }
 
@@ -519,16 +498,6 @@ struct ContentView: View {
         } else {
             // 让用户输码
             beginEditing(device)
-        }
-    }
-
-    private func guideStep(_ index: Int, _ key: LocalizedStringKey) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("\(index).")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(Color.bpMutedForeground)
-            Text(key)
-                .font(.footnote)
         }
     }
 
