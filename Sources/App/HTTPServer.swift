@@ -150,6 +150,10 @@ final class HTTPServer {
         }
     }
 
+    /// 单个请求体上限：防异常/恶意超大 body 导致内存无限增长
+    /// （业务上限 = 消息文本，8MB 已远超所需）。头部超过 1MB 同样放弃。
+    private static let maxBodyBytes = 8 * 1_048_576
+
     private func receiveBody(
         _ connection: NWConnection,
         method: String,
@@ -158,11 +162,25 @@ final class HTTPServer {
         contentLength: Int,
         buffer: Data
     ) {
+        guard contentLength <= Self.maxBodyBytes, buffer.count <= Self.maxBodyBytes else {
+            respond(connection, .json(413, "Payload Too Large", [
+                "success": false,
+                "error": "request body too large"
+            ]))
+            return
+        }
         connection.receive(minimumIncompleteLength: 1, maximumLength: 262_144) { [weak self] data, _, isComplete, error in
             guard let self else { return }
             var buf = buffer
             if let data {
                 buf.append(data)
+            }
+            if buf.count > Self.maxBodyBytes {
+                self.respond(connection, .json(413, "Payload Too Large", [
+                    "success": false,
+                    "error": "request body too large"
+                ]))
+                return
             }
             if buf.count >= contentLength {
                 let body = buf.prefix(contentLength)

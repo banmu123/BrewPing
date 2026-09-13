@@ -87,23 +87,70 @@ pub enum ProcEvent {
 }
 
 /// 把一个子进程管道读到底，逐块投递（在阻塞线程里跑，绝不做 await）。
+///
+/// UTF-8 边界安全：`read` 的块边界可能把多字节字符（中文 emoji 等）切成两半，
+/// 直接 `from_utf8_lossy` 会在切点产出 U+FFFD 乱码。这里只投递**完整**的
+/// UTF-8 前缀，不完整的尾字节留到下一块；真正的非法字节序列按 lossy 放行。
 pub fn pump_pipe<R: std::io::Read>(
     mut pipe: R,
     tx: tokio::sync::mpsc::UnboundedSender<ProcEvent>,
     wrap: fn(String) -> ProcEvent,
 ) {
     let mut buf = [0u8; 4096];
+    let mut pending: Vec<u8> = Vec::new();
+    let send = |bytes: &[u8]| -> bool {
+        if bytes.is_empty() {
+            return true;
+        }
+        let text = String::from_utf8_lossy(bytes).to_string();
+        if text.is_empty() {
+            return true;
+        }
+        tx.send(wrap(text)).is_ok()
+    };
     loop {
         match pipe.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
-                let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
-                if tx.send(wrap(chunk)).is_err() {
-                    break; // 接收端已丢弃（命令被放弃）
+                pending.extend_from_slice(&buf[..n]);
+                loop {
+                    match std::str::from_utf8(&pending) {
+                        // 全部合法 → 整块投递
+                        Ok(_) => {
+                            if !send(&pending) {
+                                return;
+                            }
+                            pending.clear();
+                            break;
+                        }
+                        Err(e) => match e.error_len() {
+                            // 尾部是半个多字节字符：合法前缀先走，尾字节等下一块
+                            None => {
+                                let valid = e.valid_up_to();
+                                if !send(&pending[..valid]) {
+                                    return;
+                                }
+                                pending.drain(..valid);
+                                break;
+                            }
+                            // 真非法字节：连同替换单元一起 lossy 放行，不阻塞后续数据
+                            Some(bad) => {
+                                let end = e.valid_up_to() + bad;
+                                if !send(&pending[..end]) {
+                                    return;
+                                }
+                                pending.drain(..end);
+                            }
+                        },
+                    }
                 }
             }
             Err(_) => break,
         }
+    }
+    // 收尾：把没凑成完整序列的尾字节（流在字符中间被截断）lossy 投出去
+    if !send(&pending) {
+        return;
     }
 }
 
@@ -184,6 +231,11 @@ pub async fn execute_agent_command(
     agent_id: String,
     text: String,
 ) {
+    // 串行化（对齐 macOS `CommandRunner.headlessQueue`）：先拿全局执行锁，
+    // 再把状态置为 working —— 排队中的命令对轮询端保持 `queued`，
+    // 转录里的回复严格按提交顺序落库（tokio Mutex 为 FIFO 公平队列）。
+    let _exec_guard = state.exec_lock.lock().await;
+
     let start = std::time::Instant::now();
     state.command_store.set_working(&command_id).await;
 

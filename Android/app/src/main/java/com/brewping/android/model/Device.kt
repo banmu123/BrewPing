@@ -51,6 +51,8 @@ sealed interface CommandPhase {
     data object Sending : CommandPhase
     data object Delivered : CommandPhase
     data object Working : CommandPhase
+    /** 桌面端授权门卫挂起（safe 命中危险 / askAll）：等待用户在手机上确认。 */
+    data class PendingApproval(val approval: PendingApprovalInfo) : CommandPhase
     data class Completed(val response: String, val duration: Double? = null, val modelId: String? = null) : CommandPhase
     data class CompletedRaw(val rawOutput: String, val duration: Double? = null, val modelId: String? = null) : CommandPhase
     data class Failed(val error: String, val duration: Double? = null, val failureReason: String? = null, val modelId: String? = null) : CommandPhase
@@ -80,10 +82,35 @@ data class AgentsResponse(
     val defaultAgent: String = "",
 )
 
+/** 一条危险命中的机器可读标识 + 命中的原始片段（对齐 iOS ApprovalReasonInfo）。 */
+data class ApprovalReasonInfo(
+    val code: String = "",
+    val detail: String = "",
+)
+
+/** 一条等待用户确认的命令（桌面端挂起，手机端弹窗；对齐 iOS PendingApprovalInfo）。 */
+data class PendingApprovalInfo(
+    val id: String = "",
+    val text: String = "",
+    val reasons: List<ApprovalReasonInfo> = emptyList(),
+)
+
+/** `POST /api/approvals/:id` 的响应（对齐 iOS ApprovalDecisionResponse）。 */
+data class ApprovalDecisionResponse(
+    val success: Boolean = false,
+    val status: String = "",
+    val commandId: String = "",
+    val error: String = "",
+)
+
 data class SubmitResponse(
     val success: Boolean = false,
     val commandId: String = "",
     val sessionId: String = "",
+    /** "queued" | "pending_approval" | …（桌面端 SubmitResponse.status）。 */
+    val status: String = "",
+    /** 非空 = 命中授权门卫，客户端弹确认（对齐 iOS SubmitResponse.approval）。 */
+    val approval: PendingApprovalInfo? = null,
     val error: String = "",
 )
 

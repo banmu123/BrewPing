@@ -76,6 +76,10 @@ pub struct PendingApproval {
     /// 序列化为 ISO8601（秒级、UTC），与 macOS `ISO8601DateFormatter()` 输出一致。
     #[serde(serialize_with = "serialize_iso8601")]
     pub created_at: DateTime<Utc>,
+    /// 提交时所属的对话：批准后回**同一条对话**执行（对齐 macOS
+    /// `ApprovalGate.PendingApproval.conversationID`）。不随 API 暴露。
+    #[serde(skip_serializing)]
+    pub conversation_id: Option<String>,
 }
 
 fn serialize_iso8601<S: serde::Serializer>(
@@ -102,6 +106,8 @@ pub struct Resolution {
     pub text: Option<String>,
     /// 用于 always_approve 时记入白名单。
     pub reason_codes: Vec<String>,
+    /// 批准 / 拒绝后回写的目标对话（提交时记住的归属；缺省回落 active）。
+    pub conversation_id: Option<String>,
 }
 
 /// pending 有效期：超过后自动作废，避免"挂起没人管"的命令永久占坑。
@@ -159,7 +165,7 @@ impl ApprovalGate {
     // ─── Check ───────────────────────────────────────────────────────────────
 
     pub fn check(&self, text: &str) -> Decision {
-        self.check_with(text, self.mode())
+        self.check_with(text, self.mode(), None)
     }
 
     /// 按**指定档位**判定。
@@ -168,7 +174,15 @@ impl ApprovalGate {
     /// 调用方（HTTP 层）传入该对话的档位；对话未设置时回落到本网关的全局
     /// 默认值。白名单（always allow）保持全局一份 —— 它描述的是
     /// 「这台机器允许哪些危险模式」，与某个对话无关。
-    pub fn check_with(&self, text: &str, mode: ApprovalMode) -> Decision {
+    ///
+    /// `conversation_id` 随 pending 记住：批准后回同一条对话执行，
+    /// 不会落进「当时恰好 active」的别的对话（与 macOS 行为一致）。
+    pub fn check_with(
+        &self,
+        text: &str,
+        mode: ApprovalMode,
+        conversation_id: Option<&str>,
+    ) -> Decision {
         let mut inner = self.inner.lock().expect("approval gate poisoned");
         match mode {
             ApprovalMode::Auto => Decision::Allow,
@@ -177,7 +191,7 @@ impl ApprovalGate {
                     code: "ask_all".to_string(),
                     detail: String::new(),
                 }];
-                Decision::Pending(make_pending(&mut inner, text, reasons))
+                Decision::Pending(make_pending(&mut inner, text, reasons, conversation_id))
             }
             ApprovalMode::Safe => {
                 let hits: Vec<DangerHit> = danger_pattern::detect(text)
@@ -187,7 +201,7 @@ impl ApprovalGate {
                 if hits.is_empty() {
                     Decision::Allow
                 } else {
-                    Decision::Pending(make_pending(&mut inner, text, hits))
+                    Decision::Pending(make_pending(&mut inner, text, hits, conversation_id))
                 }
             }
         }
@@ -226,11 +240,13 @@ impl ApprovalGate {
                 action: "deny".to_string(),
                 text: None,
                 reason_codes,
+                conversation_id: approval.conversation_id.clone(),
             }),
             "approve" => Some(Resolution {
                 action: "approve".to_string(),
                 text: Some(approval.text),
                 reason_codes,
+                conversation_id: approval.conversation_id.clone(),
             }),
             "always_approve" => {
                 // 只白名单化"已知的" danger code，拒绝未知 code 注入持久化。
@@ -245,6 +261,7 @@ impl ApprovalGate {
                     action: "always_approve".to_string(),
                     text: Some(approval.text),
                     reason_codes,
+                    conversation_id: approval.conversation_id,
                 })
             }
             // 与 macOS 一致：未知 action 也会消费掉这条 pending，并返回 None。
@@ -261,12 +278,18 @@ impl Default for ApprovalGate {
 
 // ─── Internals ───────────────────────────────────────────────────────────────
 
-fn make_pending(inner: &mut Inner, text: &str, reasons: Vec<DangerHit>) -> PendingApproval {
+fn make_pending(
+    inner: &mut Inner,
+    text: &str,
+    reasons: Vec<DangerHit>,
+    conversation_id: Option<&str>,
+) -> PendingApproval {
     let approval = PendingApproval {
         id: format!("apv_{}", Uuid::new_v4().simple()),
         text: text.to_string(),
         reasons,
         created_at: Utc::now(),
+        conversation_id: conversation_id.map(|c| c.to_string()),
     };
     inner.pending.insert(approval.id.clone(), approval.clone());
     approval
@@ -576,12 +599,12 @@ mod tests {
         let (g, path) = gate("checkwith");
         // 网关全局是 safe（默认），但对话 A 固化了 auto → 危险命令放行
         assert!(matches!(
-            g.check_with("rm -rf /", ApprovalMode::Auto),
+            g.check_with("rm -rf /", ApprovalMode::Auto, Some("conv_a")),
             Decision::Allow
         ));
         // 对话 B 固化了 askAll → 连普通命令也挂起
         assert!(matches!(
-            g.check_with("ls -la", ApprovalMode::AskAll),
+            g.check_with("ls -la", ApprovalMode::AskAll, Some("conv_b")),
             Decision::Pending(_)
         ));
         // 显式传档位不得改动网关自身的全局档位
@@ -589,11 +612,42 @@ mod tests {
         // 全局档位被改后，显式入参依然是唯一依据
         g.set_mode(ApprovalMode::Auto);
         assert!(matches!(
-            g.check_with("rm -rf /", ApprovalMode::Safe),
+            g.check_with("rm -rf /", ApprovalMode::Safe, Some("conv_b")),
             Decision::Pending(_)
         ));
         // 无参 check 仍走全局档位（旧行为不变）
         assert!(matches!(g.check("rm -rf /"), Decision::Allow));
+        let _ = std::fs::remove_file(path);
+    }
+
+    // TC-AG-16  pending 记住提交时所属对话：批准 / 拒绝后回同一条对话执行，
+    //           不会落进「当时恰好 active」的别的对话（对齐 macOS 行为）
+    #[test]
+    fn pending_remembers_conversation_id() {
+        let (g, path) = gate("convscope");
+        let id = match g.check_with("rm -rf /tmp/x", ApprovalMode::Safe, Some("conv_42")) {
+            Decision::Pending(a) => a.id,
+            Decision::Allow => panic!("应挂起"),
+        };
+        // approve → Resolution 带上提交时的对话，执行回 conv_42
+        let resolution = g.decide(&id, "approve").expect("approve 应有决议");
+        assert_eq!(resolution.action, "approve");
+        assert_eq!(resolution.conversation_id.as_deref(), Some("conv_42"));
+        // deny 同样带回归属（转录留痕要写进同一条对话）
+        let id2 = match g.check_with("DROP TABLE users;", ApprovalMode::Safe, Some("conv_43")) {
+            Decision::Pending(a) => a.id,
+            Decision::Allow => panic!("应挂起"),
+        };
+        let resolution2 = g.decide(&id2, "deny").expect("deny 应有决议");
+        assert_eq!(resolution2.action, "deny");
+        assert_eq!(resolution2.conversation_id.as_deref(), Some("conv_43"));
+        // 缺省（桌面 Tauri 路径 / 旧调用方）→ None，HTTP 层回落 active 对话
+        let id3 = match g.check_with("rm -rf /tmp/y", ApprovalMode::Safe, None) {
+            Decision::Pending(a) => a.id,
+            Decision::Allow => panic!("应挂起"),
+        };
+        let resolution3 = g.decide(&id3, "approve").expect("approve 应有决议");
+        assert!(resolution3.conversation_id.is_none());
         let _ = std::fs::remove_file(path);
     }
 }

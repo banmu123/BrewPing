@@ -4,6 +4,7 @@ import android.util.Log
 import com.brewping.android.model.AgentModelsResult
 import com.brewping.android.model.AgentEntry
 import com.brewping.android.model.AgentsResponse
+import com.brewping.android.model.ApprovalDecisionResponse
 import com.brewping.android.model.CommandStatusResponse
 import com.brewping.android.model.ConversationResult
 import com.brewping.android.model.ConversationSummary
@@ -193,6 +194,8 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
                         success = json.optBoolean("success", false),
                         commandId = json.optString("commandId", ""),
                         sessionId = json.optString("sessionId", ""),
+                        status = json.optString("status", ""),
+                        approval = parsePendingApproval(json.optJSONObject("approval")),
                         error = json.optString("error", ""),
                     )
                 } else null
@@ -204,11 +207,31 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
 
     // ─── GET /api/message/{commandId} ─────────────────────────────────────────
 
+    /**
+     * 轮询命令状态。404（桌面端重启清空内存队列 / id 不存在）是**终态**：
+     * 返回 status="failed" 而不是 null，客户端立即收敛，不做无谓重试
+     * （对齐桌面端「未知 commandId → 404 终态」契约；网络抖动仍返回 null）。
+     */
     suspend fun pollCommandStatus(device: DesktopDevice, commandId: String): CommandStatusResponse? =
         withContext(Dispatchers.IO) {
-            try {
-                val json = get(client, baseUrl(device) + "/api/message/$commandId", device)
-                if (json != null) {
+            val url = baseUrl(device) + "/api/message/$commandId"
+            val raw = executeRaw(client, signed(Request.Builder().url(url).get(), device, "GET").build())
+            when {
+                raw.code == 404 -> {
+                    Log.w(TAG, "[API] GET /api/message/$commandId -> 404 (unknown commandId, terminal)")
+                    CommandStatusResponse(
+                        commandId = commandId,
+                        status = "failed",
+                        error = "unknown commandId",
+                    )
+                }
+                raw.code != 200 -> {
+                    Log.w(TAG, "[API] GET /api/message/$commandId non-200: ${raw.code}")
+                    null
+                }
+                raw.body == null -> null
+                else -> try {
+                    val json = JSONObject(raw.body)
                     CommandStatusResponse(
                         commandId = json.optString("commandId", ""),
                         status = json.optString("status", ""),
@@ -220,9 +243,48 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
                         duration = if (json.has("duration") && !json.isNull("duration"))
                             json.optDouble("duration") else null,
                     )
-                } else null
+                } catch (e: Exception) {
+                    Log.w(TAG, "[API] pollCommandStatus parse error: ${e.message}")
+                    null
+                }
+            }
+        }
+
+    // ─── POST /api/approvals/{id}（授权决定，对齐 iOS postDecision）────────────
+
+    /**
+     * 对挂起的命令做出决定：`approve`（批准一次）/ `always_approve`（白名单化该类）/
+     * `deny`（拒绝）。批准后响应带 `commandId`，客户端据此进入轮询。
+     */
+    suspend fun decideApproval(device: DesktopDevice, approvalId: String, action: String): ApprovalDecisionResponse? =
+        withContext(Dispatchers.IO) {
+            try {
+                val body = JSONObject().put("action", action).toString()
+                val request = signed(
+                    Request.Builder()
+                        .url(baseUrl(device) + "/api/approvals/$approvalId")
+                        .post(body.toRequestBody("application/json".toMediaType())),
+                    device, "POST",
+                ).build()
+                val raw = executeRaw(messageClient, request)
+                val json = raw.body?.let { runCatching { JSONObject(it) }.getOrNull() }
+                if (raw.code == 200 && json != null) {
+                    Log.i(TAG, "[API] POST /api/approvals/$approvalId -> $json")
+                    ApprovalDecisionResponse(
+                        success = json.optBoolean("success", false),
+                        status = json.optString("status", ""),
+                        commandId = json.optString("commandId", ""),
+                        error = json.optString("error", ""),
+                    )
+                } else {
+                    Log.w(TAG, "[API] POST /api/approvals/$approvalId -> ${raw.code} ${raw.body?.take(200)}")
+                    ApprovalDecisionResponse(
+                        success = false,
+                        error = json?.optString("error", "").orEmpty().ifEmpty { "HTTP ${raw.code}" },
+                    )
+                }
             } catch (e: Exception) {
-                Log.w(TAG, "[API] pollCommandStatus error: ${e.message}")
+                Log.w(TAG, "[API] decideApproval error: ${e.message}")
                 null
             }
         }
@@ -308,6 +370,30 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
         status = obj.optString("status", ""),
     )
 
+    /** 解析授权门卫挂起对象（桌面端 `approval` 字段；缺省/畸形返回 null，对齐 iOS）。 */
+    private fun parsePendingApproval(obj: JSONObject?): com.brewping.android.model.PendingApprovalInfo? {
+        if (obj == null) return null
+        val id = obj.optString("id", "")
+        if (id.isEmpty()) return null
+        val reasons = mutableListOf<com.brewping.android.model.ApprovalReasonInfo>()
+        obj.optJSONArray("reasons")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val r = arr.optJSONObject(i) ?: continue
+                reasons.add(
+                    com.brewping.android.model.ApprovalReasonInfo(
+                        code = r.optString("code", ""),
+                        detail = r.optString("detail", ""),
+                    )
+                )
+            }
+        }
+        return com.brewping.android.model.PendingApprovalInfo(
+            id = id,
+            text = obj.optString("text", ""),
+            reasons = reasons,
+        )
+    }
+
     /** Parse executable field: can be bool (iOS/Mac) or string path (Win). */
     private fun parseExecutable(obj: JSONObject): Boolean {
         val value = obj.opt("executable") ?: return false
@@ -344,6 +430,9 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
             val url = baseUrl(device) + "/api/conversations?includeArchived=1"
             val raw = executeRaw(client, signed(Request.Builder().url(url).get(), device, "GET").build())
             when {
+                // 401 单独归类：不是网络问题，是未配对 / 桌面端重新签发过 token，
+                // 提示要重新配对而不是检查网络（对齐 iOS ConversationStore 语义）。
+                raw.code == 401 -> ConversationsResult(conversations = null, unauthorized = true)
                 raw.code == 404 || raw.code == 501 -> ConversationsResult(conversations = null, unsupported = true)
                 raw.code != 200 -> ConversationsResult(
                     conversations = null,
@@ -373,6 +462,7 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
             val url = baseUrl(device) + "/api/conversations/$id"
             val raw = executeRaw(client, signed(Request.Builder().url(url).get(), device, "GET").build())
             when {
+                raw.code == 401 -> ConversationResult(detail = null, unauthorized = true)
                 raw.code == 404 || raw.code == 501 -> ConversationResult(detail = null, unsupported = true)
                 raw.code != 200 -> ConversationResult(detail = null, error = "Server error ${raw.code}")
                 raw.body == null -> ConversationResult(detail = null, error = "Empty response")
@@ -534,6 +624,7 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
 
     private fun parseConversationMutation(raw: RawResponse): ConversationResult {
         return when {
+            raw.code == 401 -> ConversationResult(detail = null, unauthorized = true)
             raw.code == 404 || raw.code == 501 -> ConversationResult(detail = null, unsupported = true)
             raw.code != 200 -> {
                 val serverError = raw.body?.let { runCatching { JSONObject(it) }.getOrNull() }?.optString("error", "").orEmpty()
@@ -667,7 +758,9 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
                         source = optStringOrNull(m, "source"),
                         commandId = optStringOrNull(m, "commandId"),
                         createdAtMs = m.optDouble("createdAtMs", 0.0),
-                        uid = "$convId-$i",
+                        // 复用键优先用服务端条目 id（Windows / macOS 已统一输出），
+                        // 转录中间插入条目时索引键会整体错位；旧桌面端缺省回退索引。
+                        uid = optStringOrNull(m, "id") ?: "$convId-$i",
                     )
                 )
             }

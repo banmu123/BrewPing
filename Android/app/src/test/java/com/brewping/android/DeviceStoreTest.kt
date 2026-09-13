@@ -234,6 +234,64 @@ class DeviceStoreTest {
         assertEquals(1, store.devices.value.size)
         assertEquals("Existing", store.devices.value[0].name)
     }
+
+    // TC-DS-14  回归：renameDevice 必须按旧 id 定位替换，并同步迁移活动设备
+    // （配对后设备 id 改为桌面端身份；此前误用 updateDevice 按新 id 查找永远
+    //   匹配不到 → 改名/激活静默失败 → token 键与设备 id 错位 → 401 循环）
+    @Test
+    fun `renameDevice replaces by old id and migrates active id`() {
+        val store = DeviceStore(FakeContext())
+        val a = ManagedDevice.new(name = "Win", host = "192.168.3.93", port = "8787")
+        store.addDevice(a)
+        store.setActive(a.id)
+
+        val renamed = a.copy(id = "bp_win_8e0c3402")
+        store.renameDevice(a.id, renamed)
+
+        assertEquals(1, store.devices.value.size)
+        assertEquals("bp_win_8e0c3402", store.devices.value[0].id)
+        assertEquals("bp_win_8e0c3402", store.activeDeviceID.value)
+        assertEquals("bp_win_8e0c3402", store.activeDevice?.id)
+    }
+
+    // TC-DS-15  边界：renameDevice 对未知旧 id 不得产生副作用
+    @Test
+    fun `renameDevice ignores unknown old id`() {
+        val store = DeviceStore(FakeContext())
+        val a = ManagedDevice.new(name = "A", host = "10.0.0.1")
+        store.addDevice(a)
+
+        store.renameDevice("does-not-exist", a.copy(id = "new-id"))
+
+        assertEquals(1, store.devices.value.size)
+        assertEquals(a.id, store.devices.value[0].id)
+        assertEquals(a.id, store.activeDeviceID.value)
+    }
+
+    // TC-DS-16  回归：迁移完成后必须清掉旧配置键 —— 否则用户删光设备后
+    // 每次冷启动都会把旧配置重新注册成一台 Mac（幽灵设备复活）
+    @Test
+    fun `legacy keys are cleared after migration so deleted devices stay deleted`() {
+        val context = FakeContext()
+        context.getSharedPreferences("brewping_prefs", 0)
+            .edit()
+            .putString("brewping.macAddress", "Chenzk-Mac.local")
+            .putString("brewping.port", "9000")
+            .apply()
+
+        // 第一次启动：迁移发生
+        val first = DeviceStore(context)
+        assertEquals(1, first.devices.value.size)
+
+        // 用户删光设备
+        first.removeDevice(first.devices.value[0].id)
+        assertTrue(first.devices.value.isEmpty())
+
+        // 第二次冷启动：不得再把旧配置注册回来
+        val second = DeviceStore(context)
+        assertTrue("旧配置迁移必须只发生一次", second.devices.value.isEmpty())
+        assertEquals("", second.activeDeviceID.value)
+    }
 }
 
 // ─── 测试替身 ─────────────────────────────────────────────────────────────────

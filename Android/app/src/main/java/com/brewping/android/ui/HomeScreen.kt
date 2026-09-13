@@ -195,7 +195,11 @@ fun HomeScreen(viewModel: HomeViewModel) {
                                 if (!viewModel.isPaired(managed.id)) showPairFor = managed
                             },
                         )
-                        EmptyStateCard(modifier = Modifier.padding(16.dp))
+                        // 附近已发现可添加的设备 → 只显示"附近的设备"卡；
+                        // 查不到附近设备（或桌面端已关闭）→ 才提示去获取桌面端
+                        if (discovered.isEmpty()) {
+                            EmptyStateCard(modifier = Modifier.padding(16.dp))
+                        }
                     }
                     device == null -> EmptyStateCard(modifier = Modifier.padding(16.dp))
                     showDetail -> ConversationDetailScreen(
@@ -220,6 +224,8 @@ fun HomeScreen(viewModel: HomeViewModel) {
                         onBindWorkdir = { path, onDone ->
                             detailId?.let { viewModel.setConversationWorkdir(it, path) { onDone() } }
                         },
+                        onDecideApproval = viewModel::decideApproval,
+                        onDismissApproval = viewModel::clearPendingApproval,
                     )
                     else -> Column(modifier = Modifier.fillMaxSize()) {
                         DiscoveredDevicesSection(
@@ -240,6 +246,11 @@ fun HomeScreen(viewModel: HomeViewModel) {
                             onNewConversation = { viewModel.openDraftConversation() },
                             onPinConversation = { id, pinned -> viewModel.pinConversation(id, pinned) { viewModel.refreshConversations() } },
                             onArchiveConversation = { id -> viewModel.archiveConversation(id) { viewModel.refreshConversations() } },
+                            onRePair = {
+                                // 401 → 弹出当前设备的配对窗（输入 6 位码换新 token）
+                                val active = desktopDevice ?: return@ConversationListScreen
+                                devices.firstOrNull { it.id == active.id }?.let { showPairFor = it }
+                            },
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -314,13 +325,29 @@ fun HomeScreen(viewModel: HomeViewModel) {
             onResult = { payload ->
                 showQrScan = false
                 if (qrTarget == "pair") {
-                    // 扫到的码可能属于别的机器：以码为准换目标设备
+                    // 扫到的码可能属于别的机器：以码为准换目标设备。
+                    // host:port 与已有设备一致时**复用该条目**（并同步名称/系统类型），
+                    // 否则会为同一台机器建出两条设备（一条扫码一条手动/发现），token 跟着分裂。
                     val target = if (payload.host.isNotEmpty() && payload.host != showPairFor?.host) {
-                        ManagedDevice.new(
-                            name = payload.name.ifEmpty { "Desktop" },
-                            host = payload.host,
-                            port = payload.port,
-                        ).also { viewModel.addDevice(it); viewModel.setActiveDevice(it.id) }
+                        val existing = devices.firstOrNull {
+                            it.host.equals(payload.host, ignoreCase = true) &&
+                                it.port.trim() == payload.port.trim()
+                        }
+                        if (existing != null) {
+                            if (existing.name != payload.name || existing.osType != payload.osType) {
+                                viewModel.updateDevice(
+                                    existing.copy(name = payload.name.ifEmpty { existing.name }, osType = payload.osType),
+                                )
+                            }
+                            existing
+                        } else {
+                            ManagedDevice.new(
+                                name = payload.name.ifEmpty { "Desktop" },
+                                host = payload.host,
+                                port = payload.port,
+                                osType = payload.osType,
+                            ).also { viewModel.addDevice(it); viewModel.setActiveDevice(it.id) }
+                        }
                     } else {
                         showPairFor
                     }
@@ -723,13 +750,15 @@ private fun DeviceFormDialog(
 
     val discoveryRunning by viewModel.discoveryRunning.collectAsState()
 
-    // 扫码预填：host / port / 名称 / 配对码（对齐 iOS PairingURLHandler）
+    // 扫码预填：host / port / 名称 / 系统类型 / 配对码（对齐 iOS PairingURLHandler）
+    // osType 必须预填，否则 Windows 机器会以默认 Mac 建档
     LaunchedEffect(scannedPayload) {
         scannedPayload?.let { payload ->
             if (payload.host.isNotEmpty()) host = payload.host
             if (payload.port.isNotEmpty()) port = payload.port
             if (payload.name.isNotEmpty() && name.isEmpty()) name = payload.name
             if (payload.code.isNotEmpty()) pairingCode = payload.code
+            osType = payload.osType
         }
     }
 

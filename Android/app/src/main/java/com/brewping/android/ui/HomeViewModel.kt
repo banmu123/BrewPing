@@ -148,17 +148,32 @@ class HomeViewModel(
                 return@launch
             }
             if (!result.success || result.token.isEmpty()) {
-                onResult(false, result.error ?: msg(com.brewping.android.R.string.invalid_or_expired_pairing_code, "Invalid or expired pairing code"))
+                // 配对码一次一用：iOS 扫过一次后，同一张二维码里的码就作废了，
+                // 手机端删除设备不会让桌面端的码复活 —— 必须在桌面端重新生成。
+                val raw = result.error.orEmpty()
+                val friendly = if (raw.contains("invalid or expired", ignoreCase = true)) {
+                    msg(
+                        com.brewping.android.R.string.pairing_code_exhausted,
+                        "Pairing code is single-use. Generate a new code on the desktop, then re-pair.",
+                    )
+                } else {
+                    raw.ifEmpty {
+                        msg(com.brewping.android.R.string.invalid_or_expired_pairing_code, "Invalid or expired pairing code")
+                    }
+                }
+                onResult(false, friendly)
                 return@launch
             }
             // token 的归属键：优先用服务端返回的 deviceId（桌面端身份），
             // 回退到本地设备的 id（老桌面端可能不回 deviceId）。
             appPairingStore.saveToken(result.deviceId.ifEmpty { device.id }, result.token)
             if (result.deviceId.isNotEmpty() && result.deviceId != device.id) {
-                // 设备身份以桌面端为准：更新本地 id，保证 token 键与设备一一对应
-                val renamed = device.copy(id = result.deviceId)
-                deviceStore.updateDevice(renamed)
-                deviceStore.setActive(renamed.id)
+                // 设备身份以桌面端为准：更新本地 id，保证 token 键与设备一一对应。
+                // 必须用 renameDevice（按旧 id 定位）：updateDevice 按条目自身 id 查找，
+                // renamed 的 id 已变永远匹配不到 → 改名/激活静默失败 →
+                // 请求按旧 id 取不到 token → 不带 Bearer → 401 → 循环提示重新配对。
+                deviceStore.renameDevice(device.id, device.copy(id = result.deviceId))
+                deviceStore.setActive(result.deviceId)
             }
             _pairingVersion.value += 1
             // 配对成功 = 拿到 token：立即重连并拉对话列表（修「收不到对话目录」）
@@ -319,6 +334,18 @@ class HomeViewModel(
         viewModelScope.launch {
             repository.submitMessage(device, text)
         }
+    }
+
+    /** 对挂起命令做出决定（approve / always_approve / deny，对齐 iOS CommandSubmitter.decide）。 */
+    fun decideApproval(action: String) {
+        viewModelScope.launch {
+            repository.decideApproval(action)
+        }
+    }
+
+    /** 关闭确认窗（不做决定）：命令继续在桌面端挂起至 TTL 过期。 */
+    fun clearPendingApproval() {
+        repository.clearPendingApproval()
     }
 
     /** Force server-side agent re-scan */

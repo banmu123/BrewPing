@@ -106,33 +106,65 @@ pub async fn handle_create_conversation(
     );
 
     // 首条消息 → 立即提交执行（唯一写路径：submit 里 append user 条目）。
+    // 与 macOS `conversationCreateResponse` 同款契约：submitStatus（HTTP 状态码
+    // 语义）必给；命令真的进入执行时再补 commandId / status，pending_approval
+    // 时补 status="pending_approval" + approval 对象（客户端据此弹授权确认）。
     let first_message = body.first_message.unwrap_or_default();
-    let submission = if first_message.trim().is_empty() {
-        None
-    } else {
-        match submit_command(&state, &first_message, Some(&conv.id), None, Some("ios")).await {
-            Ok(response) => Some(response),
-            Err(status) => {
-                // 创建本身已成功；提交失败（如授权挂起之外的 4xx）不算创建失败。
-                log::warn!("first message submit failed (HTTP {})", status.as_u16());
-                None
+    let mut submission: Option<(u16, Option<String>, Option<String>)> = None;
+    let mut pending_approval: Option<super::approval_gate::PendingApproval> = None;
+    if !first_message.trim().is_empty() {
+        // 授权门卫必须在 submit 之前（与 POST /api/message 同一判定点）：
+        // 没有它，safe/askAll 档位下首条消息会绕过确认直接执行。
+        let effective_mode = conv
+            .approval_mode
+            .as_deref()
+            .and_then(super::approval_gate::ApprovalMode::parse)
+            .unwrap_or_else(|| state.approval.mode());
+        match state
+            .approval
+            .check_with(&first_message, effective_mode, Some(&conv.id))
+        {
+            super::approval_gate::Decision::Pending(approval) => {
+                pending_approval = Some(approval);
+                submission = Some((200, None, Some("pending_approval".to_string())));
+            }
+            super::approval_gate::Decision::Allow => {
+                match submit_command(&state, &first_message, Some(&conv.id), None, Some("ios")).await {
+                    Ok(response) => {
+                        submission = Some((
+                            200,
+                            response.command_id.clone(),
+                            response.status.clone(),
+                        ));
+                    }
+                    Err(status) => {
+                        // 创建本身已成功；提交失败（如授权挂起之外的 4xx）不算创建失败。
+                        log::warn!("first message submit failed (HTTP {})", status.as_u16());
+                        submission = Some((status.as_u16(), None, None));
+                    }
+                }
             }
         }
-    };
+    }
 
     let mut payload = serde_json::json!({
         "success": true,
         "conversation": state.conversations.get(&conv.id),
     });
-    if let Some(response) = submission {
-        payload["commandId"] = response
-            .command_id
-            .map(serde_json::Value::String)
-            .unwrap_or(serde_json::Value::Null);
-        payload["status"] = response
-            .status
-            .map(serde_json::Value::String)
-            .unwrap_or(serde_json::Value::Null);
+    if let Some((submit_status, command_id, status)) = submission {
+        payload["submitStatus"] = serde_json::json!(submit_status);
+        if let Some(id) = command_id {
+            payload["commandId"] = serde_json::Value::String(id);
+        }
+        if let Some(s) = status {
+            payload["status"] = serde_json::Value::String(s);
+        }
+        // 与 macOS HTTPAPI 一致：pending 时把 approval 对象随响应带回，
+        // 客户端不用再查 GET /api/approvals 就能直接弹确认窗。
+        if let Some(approval) = pending_approval {
+            payload["approval"] = serde_json::to_value(&approval)
+                .unwrap_or(serde_json::Value::Null);
+        }
     }
     json_response(200, payload)
 }

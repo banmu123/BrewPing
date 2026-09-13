@@ -117,6 +117,7 @@
 "(empty response)" = "（响应为空）";
 "(empty raw output)" = "（原始输出为空）";
 "Unknown error." = "未知错误。";
+"Unknown command. The desktop may have restarted." = "命令不存在，桌面端可能已重启。";
 
 /* MARK: - Help / About */
 "Keep the Mac and this iPhone on the same Wi-Fi network." = "让 Mac 与这台 iPhone 处于同一 Wi-Fi 网络。";

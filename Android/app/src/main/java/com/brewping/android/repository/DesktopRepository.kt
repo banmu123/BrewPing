@@ -247,6 +247,10 @@ class DesktopRepository(
 
     // ─── Message sending (matches iOS send/submit/poll) ───────────────────────
 
+    /** 当前等待确认的挂起命令（对齐 iOS CommandSubmitter.pendingApproval / pendingFromWatch）。 */
+    private var pendingApprovalId: String? = null
+    private var pendingApprovalDevice: DesktopDevice? = null
+
     /** 发送消息（`conversationId` 非空时显式指定目标对话，对齐 iOS 提交链路）。 */
     suspend fun submitMessage(device: DesktopDevice, text: String, conversationId: String? = null) {
         // Confirm session is alive
@@ -256,13 +260,64 @@ class DesktopRepository(
         _commandPhase.value = CommandPhase.Sending
 
         val response = apiClient.submitMessage(device, text, conversationId)
-        if (response != null && response.commandId.isNotEmpty()) {
-            _commandPhase.value = CommandPhase.Delivered
-            startCommandPolling(device, response.commandId)
-        } else {
-            _commandPhase.value = CommandPhase.Failed(
-                error = response?.error ?: "Send failed",
+        when {
+            // 授权门卫挂起：消息已抵达桌面端但等待确认 —— 不是失败，
+            // 也不进入轮询（对齐 iOS：pendingApproval → phase = .idle）。
+            response != null && response.approval != null && response.status == "pending_approval" -> {
+                pendingApprovalId = response.approval.id
+                pendingApprovalDevice = device
+                _commandPhase.value = CommandPhase.PendingApproval(response.approval)
+            }
+            response != null && response.commandId.isNotEmpty() -> {
+                pendingApprovalId = null
+                pendingApprovalDevice = null
+                _commandPhase.value = CommandPhase.Delivered
+                startCommandPolling(device, response.commandId)
+            }
+            else -> {
+                pendingApprovalId = null
+                pendingApprovalDevice = null
+                _commandPhase.value = CommandPhase.Failed(
+                    error = response?.error?.ifEmpty { "Send failed" } ?: "Send failed",
+                )
+            }
+        }
+    }
+
+    /**
+     * 用户对挂起命令做出决定（`approve` / `always_approve` / `deny`，对齐 iOS decide）。
+     * 批准后桌面端立即执行 → 按 commandId 进入轮询；拒绝 → 回 Idle。
+     */
+    suspend fun decideApproval(action: String) {
+        val id = pendingApprovalId ?: return
+        val device = pendingApprovalDevice ?: return
+        pendingApprovalId = null
+        pendingApprovalDevice = null
+
+        val response = apiClient.decideApproval(device, id, action)
+        if (response == null) {
+            _commandPhase.value = CommandPhase.Failed(error = "Decision failed — no response")
+            return
+        }
+        when {
+            // 拒绝：桌面端已落转录（"Command denied by user."），本地回 Idle
+            response.status == "denied" -> _commandPhase.value = CommandPhase.Idle
+            response.success && response.commandId.isNotEmpty() -> {
+                _commandPhase.value = CommandPhase.Delivered
+                startCommandPolling(device, response.commandId)
+            }
+            else -> _commandPhase.value = CommandPhase.Failed(
+                error = response.error.ifEmpty { "Decision failed" },
             )
+        }
+    }
+
+    /** 用户关闭确认窗（不做任何决定）：命令继续在桌面端挂起至 TTL 过期（对齐 iOS clearPendingApproval）。 */
+    fun clearPendingApproval() {
+        pendingApprovalId = null
+        pendingApprovalDevice = null
+        if (_commandPhase.value is CommandPhase.PendingApproval) {
+            _commandPhase.value = CommandPhase.Idle
         }
     }
 
@@ -337,6 +392,8 @@ class DesktopRepository(
         _lifecycleBusy.value = false
         _commandPhase.value = CommandPhase.Idle
         _connectionState.value = ConnectionState.Idle
+        pendingApprovalId = null
+        pendingApprovalDevice = null
         pollJob?.cancel()
         statusPollJob?.cancel()
         commandPollJob?.cancel()

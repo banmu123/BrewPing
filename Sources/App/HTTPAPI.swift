@@ -343,27 +343,6 @@ enum HTTPAPI {
         }
     }
 
-    /// `POST /api/conversations` 首条消息的 `submitStatus` 字段（HTTP 状态码语义，
-    /// 与改造前保持一致）。
-    private static func submitStatus(text: String, conversationID: String, router: CommandRouter) -> Int {
-        do {
-            switch try ConversationCommandService.submit(
-                text: text,
-                conversationID: conversationID,
-                router: router,
-                policy: .reuseActive,
-                source: .http
-            ) {
-            case .ok: return 200
-            case .pending: return 200
-            }
-        } catch let error as ConversationCommandService.SubmitError {
-            return submitErrorStatus(error)
-        } catch {
-            return 500
-        }
-    }
-
     // MARK: - Approval (授权确认) endpoints
 
     private static func approvalDict(_ approval: PendingApproval) -> [String: Any] {
@@ -526,18 +505,38 @@ enum HTTPAPI {
             store.setActiveConversation(conv.id)
         }
 
-        // 首条消息 → 立即提交执行（转录由执行链路唯一写入）
         var payload: [String: Any] = [
             "success": true,
             "conversation": store.get(conv.id)?.apiObject ?? conv.apiObject
         ]
+        // 首条消息 → 立即提交执行（转录由执行链路唯一写入）。
+        // 响应契约（与 Windows `handle_create_conversation` 对齐）：submitStatus
+        // 必给；命令进入执行时补 commandId / status；命中授权门卫时补
+        // status="pending_approval"（客户端据此弹确认，而不是把消息吞掉）。
         let firstMessage = (body["firstMessage"] as? String) ?? ""
         if !firstMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            payload["submitStatus"] = submitStatus(
-                text: firstMessage,
-                conversationID: conv.id,
-                router: router
-            )
+            do {
+                switch try ConversationCommandService.submit(
+                    text: firstMessage,
+                    conversationID: conv.id,
+                    router: router,
+                    policy: .reuseActive,
+                    source: .http
+                ) {
+                case .pending(let approval):
+                    payload["submitStatus"] = 200
+                    payload["status"] = "pending_approval"
+                    payload["approval"] = approvalDict(approval)
+                case .ok(let success):
+                    payload["submitStatus"] = 200
+                    payload["commandId"] = success.commandID
+                    payload["status"] = success.status ?? CommandStatus.queued.rawValue
+                }
+            } catch let error as ConversationCommandService.SubmitError {
+                payload["submitStatus"] = submitErrorStatus(error)
+            } catch {
+                payload["submitStatus"] = 500
+            }
         }
         return .json(200, "OK", payload)
     }

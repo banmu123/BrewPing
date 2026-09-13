@@ -917,6 +917,7 @@ pub fn run() {
                 model_prefs: model_prefs.clone(),
                 workdir_prefs: workdir_prefs.clone(),
                 app_events: Some(event_sink),
+                exec_lock: Arc::new(tokio::sync::Mutex::new(())),
             };
 
             let core = DesktopCore {

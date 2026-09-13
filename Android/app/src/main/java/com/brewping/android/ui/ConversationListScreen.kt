@@ -76,11 +76,14 @@ fun ConversationListScreen(
     /** 置顶 / 归档（对齐桌面端侧栏的同名操作，PATCH /api/conversations/{id}）。 */
     onPinConversation: (id: String, pinned: Boolean) -> Unit = { _, _ -> },
     onArchiveConversation: (id: String) -> Unit = {},
+    /** 401（未配对 / token 失效）时的"重新配对"入口；null 表示不显示入口按钮。 */
+    onRePair: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val conversations by store.conversations.collectAsState()
     val loadError by store.loadError.collectAsState()
     val unsupported by store.unsupported.collectAsState()
+    val unauthorized by store.unauthorized.collectAsState()
     val dirGroups = store.dirGroups
     // 折叠的目录组（仅视觉折叠，不改变过滤——与 iOS / 桌面端一致）
     var collapsedGroups by remember { mutableStateOf(setOf<String>()) }
@@ -132,6 +135,15 @@ fun ConversationListScreen(
             }
 
             when {
+                // ─── 401：未配对 / 桌面端重新签发过 token → 引导重新配对 ─────
+                unauthorized -> {
+                    item(key = "__unauthorized__") {
+                        RePairNotice(
+                            onRePair = onRePair,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                }
                 // ─── 老版本桌面端：静默降级提示（不是错误）───────────────────
                 unsupported -> {
                     item(key = "__unsupported__") {
@@ -372,5 +384,52 @@ private fun PlainNotice(text: String) {
             color = LatteOnSurfaceVariant,
             modifier = Modifier.padding(12.dp),
         )
+    }
+}
+
+/**
+ * 401（未配对 / 桌面端重新签发过 token）提示卡：说明 + "重新配对"按钮。
+ * 对齐 iOS：把 401 翻译成"不是网络问题，是配对失效"，而不是笼统的 Server error。
+ */
+@Composable
+private fun RePairNotice(onRePair: (() -> Unit)?, modifier: Modifier = Modifier) {
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = LatteCard,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(
+                    imageVector = Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = LatteWarning,
+                    modifier = Modifier.size(14.dp),
+                )
+                Text(
+                    text = stringResource(R.string.pairing_required),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = LatteOnSurface,
+                )
+            }
+            Text(
+                text = stringResource(R.string.pairing_required_hint),
+                fontSize = 12.sp,
+                color = LatteOnSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp, start = 22.dp),
+            )
+            if (onRePair != null) {
+                Text(
+                    text = stringResource(R.string.re_pair),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = LattePrimary,
+                    modifier = Modifier
+                        .padding(top = 8.dp, start = 22.dp)
+                        .clickable { onRePair() },
+                )
+            }
+        }
     }
 }

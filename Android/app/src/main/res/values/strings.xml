@@ -54,6 +54,7 @@
     <string name="paired_with">Paired with %1$s</string>
     <string name="invalid_host_port">Invalid host or port</string>
     <string name="invalid_or_expired_pairing_code">Invalid or expired pairing code</string>
+    <string name="pairing_code_exhausted">Pairing code is single-use and was already used by another phone. Generate a new code on the desktop (Settings → Pairing → Regenerate), then re-pair.</string>
     <string name="cant_reach">Can\'t reach %1$s</string>
     <string name="no_agent_found">No BrewPing agent found</string>
     <string name="found_device">Found: %1$s</string>
@@ -62,6 +63,9 @@
     <string name="new_conversation">New Conversation</string>
     <string name="unsupported_desktop">This desktop version has no conversation list. Update the desktop app.</string>
     <string name="no_conversations_yet">No conversations yet. Send a message to create one.</string>
+    <string name="pairing_required">Pairing required</string>
+    <string name="pairing_required_hint">This desktop has not paired with this phone yet, or its token was regenerated. Re-pair to sync conversations.</string>
+    <string name="re_pair">Re-pair</string>
     <string name="offline_last_synced">Device is offline — showing the last synced list.</string>
     <string name="unbound_folder">Unbound Folder</string>
     <string name="msgs_count">%1$s msgs</string>
@@ -110,4 +114,10 @@
     <string name="approval_ask_all_summary">Confirm every command</string>
     <string name="approval_auto_summary">Run without confirmations</string>
     <string name="tap_to_bind">Tap to bind — file operations use the CLI default until then.</string>
+    <string name="approval_required">Approval Required</string>
+    <string name="approval_command">Command</string>
+    <string name="approval_reason">Reason</string>
+    <string name="approval_approve_once">Approve Once</string>
+    <string name="approval_always_allow">Always Allow This Type</string>
+    <string name="approval_deny">Deny</string>
 </resources>

@@ -104,6 +104,7 @@
 "(empty response)" = "(empty response)";
 "(empty raw output)" = "(empty raw output)";
 "Unknown error." = "Unknown error.";
+"Unknown command. The desktop may have restarted." = "Unknown command. The desktop may have restarted.";
 
 /* ── Help / About ─────────────────────────────── */
 "Help and About" = "Help and About";

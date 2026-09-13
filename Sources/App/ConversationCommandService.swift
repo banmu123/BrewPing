@@ -156,6 +156,18 @@ enum ConversationCommandService {
         }
         switch resolution.action {
         case "deny":
+            // 拒绝也要留痕：否则手机端那条消息在转录里彻底消失，
+            // 用户以为没发出去（与 Windows 端 decide 補丁一致）。
+            if let convID = resolution.conversationID {
+                store.append(
+                    conversationID: convID,
+                    role: "system",
+                    text: "Command denied by user.",
+                    source: nil,
+                    commandID: nil
+                )
+                DesktopEventBus.shared.post(.conversationsChanged, payload: ["id": convID])
+            }
             return DecisionOutcome(status: "denied", commandID: nil)
         case "approve", "always_approve":
             guard let text = resolution.text else { throw SubmitError.conversationHasNoText }

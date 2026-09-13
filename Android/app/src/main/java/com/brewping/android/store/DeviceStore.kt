@@ -51,6 +51,25 @@ class DeviceStore(private val context: Context) {
         save()
     }
 
+    /**
+     * 改名/换 id（配对后设备 id 以桌面端身份为准）。
+     *
+     * 必须按**旧 id** 定位条目：[updateDevice] 按条目自身 id 查找，而改名后 id 已变，
+     * 永远匹配不到（静默失败）——曾导致 token 存在新键、请求却按旧 id 取，
+     * 配对成功后依然 401、循环提示"需要重新配对"。
+     */
+    fun renameDevice(oldId: String, renamed: ManagedDevice) {
+        val idx = _devices.value.indexOfFirst { it.id == oldId }
+        if (idx < 0) return
+        val list = _devices.value.toMutableList()
+        list[idx] = renamed
+        _devices.value = list
+        if (_activeDeviceID.value == oldId) {
+            _activeDeviceID.value = renamed.id
+        }
+        save()
+    }
+
     fun removeDevice(id: String) {
         _devices.value = _devices.value.filter { it.id != id }
         if (_activeDeviceID.value == id) {
@@ -120,9 +139,17 @@ class DeviceStore(private val context: Context) {
         }
     }
 
-    /// 首次启动：把旧的单设备配置迁移过来（从 brewping_prefs 文件读取）
+    /// 首次启动：把旧的单设备配置迁移过来（从 brewping_prefs 文件读取）。
+    ///
+    /// 迁移是**一次性动作**：完成后立即清掉旧配置键。否则用户删光设备后，
+    /// 每次冷启动（设备列表为空）都会把旧配置重新注册成一台 Mac 设备 ——
+    /// 看起来就像"删了的设备被自动复活"，且永远无法通过删除摆脱。
     private fun migrateIfNeeded() {
-        if (_devices.value.isNotEmpty()) return
+        if (_devices.value.isNotEmpty()) {
+            // 已有设备（新版数据在用）：顺手清掉可能残留的旧配置，防日后复活
+            clearLegacySingleDeviceConfig()
+            return
+        }
         val oldPrefs = context.getSharedPreferences("brewping_prefs", Context.MODE_PRIVATE)
         val host = oldPrefs.getString(KEY_OLD_MAC, null)
             ?: return
@@ -131,6 +158,15 @@ class DeviceStore(private val context: Context) {
             val name = if (host.endsWith(".local")) host.dropLast(6) else "Mac"
             addDevice(ManagedDevice.new(name = name, host = host, port = port, osType = DeviceOSType.Mac))
         }
+        clearLegacySingleDeviceConfig()
+    }
+
+    private fun clearLegacySingleDeviceConfig() {
+        context.getSharedPreferences("brewping_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_OLD_MAC)
+            .remove(KEY_OLD_PORT)
+            .apply()
     }
 
     companion object {

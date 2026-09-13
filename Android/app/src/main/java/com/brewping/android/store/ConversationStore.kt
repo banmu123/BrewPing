@@ -45,6 +45,13 @@ class ConversationStore(
     private val _unsupported = MutableStateFlow(false)
     val unsupported: StateFlow<Boolean> = _unsupported.asStateFlow()
 
+    /**
+     * 401（未配对 / 桌面端重新签发过 token）：UI 据此显示"重新配对"入口，
+     * 而不是笼统的网络错误 —— 对齐 iOS `ConversationStore` 的 401 语义。
+     */
+    private val _unauthorized = MutableStateFlow(false)
+    val unauthorized: StateFlow<Boolean> = _unauthorized.asStateFlow()
+
     private val _detail = MutableStateFlow<ConversationDetail?>(null)
     val detail: StateFlow<ConversationDetail?> = _detail.asStateFlow()
 
@@ -63,6 +70,7 @@ class ConversationStore(
         _conversations.value = emptyList()
         _loadError.value = null
         _unsupported.value = false
+        _unauthorized.value = false
         _detail.value = null
         _detailError.value = null
     }
@@ -101,20 +109,33 @@ class ConversationStore(
                 return
             }
             when {
+                result.unauthorized -> {
+                    // 401：清空列表并交给界面既有的"未配对/重新配对"提示，不报网络错误
+                    //（对齐 iOS：`conversations = []; loadError = nil; loadedKey = nil`）
+                    _conversations.value = emptyList()
+                    _loadError.value = null
+                    _unsupported.value = false
+                    _unauthorized.value = true
+                    loadedKey = null
+                    Log.i(TAG, "[Conv] conversations unauthorized (token missing/expired)")
+                }
                 result.unsupported -> {
                     _conversations.value = emptyList()
                     _loadError.value = null
                     _unsupported.value = true
+                    _unauthorized.value = false
                     loadedKey = device.id
                 }
                 result.error != null -> {
                     // 失败保留旧列表（网络抖动不该让列表消失）；换过设备则必须清空
                     if (loadedKey != device.id) _conversations.value = emptyList()
                     _loadError.value = result.error
+                    _unauthorized.value = false
                 }
                 else -> {
                     _conversations.value = result.conversations.orEmpty()
                     _unsupported.value = false
+                    _unauthorized.value = false
                     _loadError.value = null
                     loadedKey = device.id
                 }
@@ -134,6 +155,12 @@ class ConversationStore(
                 return
             }
             when {
+                result.unauthorized -> {
+                    _detail.value = null
+                    _detailError.value = null
+                    _unauthorized.value = true
+                    loadedKey = null
+                }
                 result.unsupported -> {
                     _detail.value = null
                     _detailError.value = null
@@ -173,7 +200,13 @@ class ConversationStore(
         }
         val detail = result.detail
         if (detail == null) {
-            _detailError.value = result.error ?: msg(com.brewping.android.R.string.create_failed, "Create failed")
+            if (result.unauthorized) {
+                _detailError.value = null
+                _unauthorized.value = true
+                loadedKey = null
+            } else {
+                _detailError.value = result.error ?: msg(com.brewping.android.R.string.create_failed, "Create failed")
+            }
             return null
         }
         _detail.value = detail

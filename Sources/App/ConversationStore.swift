@@ -35,12 +35,31 @@ private func normalizeWorkdir(_ raw: String?) -> String? {
 }
 
 public struct ConversationTranscriptEntry: Codable, Equatable {
+    /// 条目 id（`msg_` 前缀；旧文件可能缺省，解码容错）。
+    /// 与 Windows 端 `TranscriptEntry.id` / Android 端 uid 去重口径一致。
+    public var id: String?
     /// "user" | "assistant" | "error" | "system"
     public var role: String
     public var text: String
     public var source: String?
     public var commandId: String?
     public var createdAtMs: Double
+
+    public init(
+        id: String? = "msg_" + UUID().uuidString.prefix(8).lowercased(),
+        role: String,
+        text: String,
+        source: String?,
+        commandId: String?,
+        createdAtMs: Double
+    ) {
+        self.id = id
+        self.role = role
+        self.text = text
+        self.source = source
+        self.commandId = commandId
+        self.createdAtMs = createdAtMs
+    }
 }
 
 public struct ConversationSummary: Codable, Equatable, Identifiable {
@@ -419,6 +438,7 @@ public final class ConversationStore {
 extension ConversationTranscriptEntry {
     var apiObject: [String: Any] {
         [
+            "id": id ?? NSNull(),
             "role": role,
             "text": text,
             "source": source ?? NSNull(),

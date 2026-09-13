@@ -53,6 +53,9 @@ pub struct AppState {
     pub workdir_prefs: Arc<WorkdirPrefs>,
     /// 事件广播（测试环境为 None）。
     pub app_events: Option<EventSink>,
+    /// 命令执行串行锁（对齐 macOS `CommandRunner.headlessQueue` 串行队列）：
+    /// 同一时刻只跑一条命令，回复按**提交顺序**落转录，不因完成先后乱序。
+    pub exec_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -631,18 +634,20 @@ async fn handle_send_message(
 
     // 授权档位是**对话级**设置：取该对话固化的档位，未设置才回落全局默认
     //（旧对话 / iOS 创建的对话没有显式档位）。
-    let effective_mode = body
+    let target_conv = body
         .conversation_id
         .as_deref()
-        .and_then(|id| state.conversations.get(id))
-        .and_then(|conv| {
-            conv.approval_mode
-                .as_deref()
-                .and_then(ApprovalMode::parse)
-        })
+        .and_then(|id| state.conversations.get(id));
+    let effective_mode = target_conv
+        .as_ref()
+        .and_then(|conv| conv.approval_mode.as_deref().and_then(ApprovalMode::parse))
         .unwrap_or_else(|| state.approval.mode());
 
-    match state.approval.check_with(&body.text, effective_mode) {
+    match state.approval.check_with(
+        &body.text,
+        effective_mode,
+        target_conv.as_ref().map(|c| c.id.as_str()),
+    ) {
         Decision::Pending(approval) => pending_approval_response(approval),
         Decision::Allow => match submit_command(
             &state,
@@ -668,11 +673,12 @@ async fn handle_send_message(
                     "error": "conversation is archived — restore it first"
                 }),
             ),
+            // 兜底（当前 resolve 已不返回 Err；留作防御，真实原因打进 error）
             Err(_) => json_response(
                 400,
                 serde_json::json!({
                     "success": false,
-                    "error": "no active session — start a session first"
+                    "error": "failed to resolve command target"
                 }),
             ),
         },
@@ -691,8 +697,9 @@ fn pending_approval_response(approval: PendingApproval) -> Response {
     )
 }
 
-/// 三层回落（方案 §6.2）：显式 conversationId → 该对话；显式 agentId →
-/// active 对话；都没有 → active 对话。无 active → 400（原 "no active session" 文案）。
+/// 三层回落（方案 §6.2，对齐 macOS `ConversationCommandService.resolveConversation`）：
+/// 显式 conversationId → 该对话；都没有 → active 对话；无 active（或 active 已归档）
+/// → 用当前默认 Agent 新建一条对话。显式对话不存在 / 已归档仍按 404 / 409 拒绝。
 async fn resolve_command_target(
     state: &AppState,
     conversation_id: Option<&str>,
@@ -714,9 +721,22 @@ async fn resolve_command_target(
                 return Ok((conv.id, conv.agent_id));
             }
         }
-        return Err(StatusCode::BAD_REQUEST);
     }
-    Err(StatusCode::BAD_REQUEST)
+    // 无 active（或已归档）：自动新建（macOS 同款「直接发」语义），
+    // 不再要求手机端先调 /api/session/start。
+    let agent_id = state.default_agent.read().await.clone();
+    let conv = state.conversations.create(&agent_id);
+    {
+        let mut active = state.active_conversation_id.write().await;
+        *active = Some(conv.id.clone());
+    }
+    command_runner::emit(
+        state,
+        "conversations-changed",
+        serde_json::json!({ "id": conv.id }),
+    );
+    command_runner::emit(state, "active-conversation-changed", serde_json::json!(conv.id));
+    Ok((conv.id, agent_id))
 }
 
 /// 公共执行入口：授权放行后的命令提交（`handle_send_message`、批准后的
@@ -813,7 +833,7 @@ struct CommandStatusResponse {
 async fn handle_get_message(
     Path(id): Path<String>,
     axum::extract::State(state): axum::extract::State<AppState>,
-) -> Json<CommandStatusResponse> {
+) -> Response {
     let entry = state.command_store.get(&id).await;
 
     match entry {
@@ -828,18 +848,18 @@ async fn handle_get_message(
             failure_reason: e.failure_reason,
             model_id: e.model_id,
             duration: e.duration,
-        }),
-        None => Json(CommandStatusResponse {
-            command_id: id,
-            session_id: "unknown".to_string(),
-            status: "failed".to_string(),
-            response: None,
-            raw_output: None,
-            error: Some("Command not found".to_string()),
-            failure_reason: None,
-            model_id: None,
-            duration: None,
-        }),
+        })
+        .into_response(),
+        // 未知 commandId（桌面端重启清空内存队列 / id 打错）→ 404 终态，
+        // 与 macOS HTTPAPI.commandResponse 一致。客户端把 404 视为
+        // "这条命令查不到了" 而不是网络抖动，避免无限轮询。
+        None => json_response(
+            404,
+            serde_json::json!({
+                "success": false,
+                "error": "unknown commandId"
+            }),
+        ),
     }
 }
 
@@ -974,10 +994,25 @@ async fn handle_decide_approval(
     };
 
     match resolution.action.as_str() {
-        "deny" => json_response(
-            200,
-            serde_json::json!({ "success": true, "status": "denied" }),
-        ),
+        "deny" => {
+            // 拒绝也要留痕（与 macOS ConversationCommandService.decide 一致）：
+            // 否则手机端那条消息在转录里彻底消失，用户以为没发出去。
+            if let Some(conv_id) = &resolution.conversation_id {
+                command_runner::append_to_conversation(
+                    &state,
+                    conv_id,
+                    "system",
+                    "Command denied by user.",
+                    None,
+                    None,
+                )
+                .await;
+            }
+            json_response(
+                200,
+                serde_json::json!({ "success": true, "status": "denied" }),
+            )
+        }
         "approve" | "always_approve" => {
             let Some(text) = resolution.text else {
                 return json_response(
@@ -989,14 +1024,18 @@ async fn handle_decide_approval(
                 );
             };
             // 复用与 message 相同的执行路径，保证回显与响应一致。
-            // 授权与对话解耦（方案 §8.3）：批准后重新 resolve（落进当前 active 对话）。
-            match submit_command(&state, &text, None, None, None).await {
+            // 批准后回**提交时所属的对话**执行（pending 记住了归属，
+            // 与 macOS ConversationCommandService.decide 一致）；
+            // 缺省（旧 pending / 桌面路径）回落 active 对话。
+            match submit_command(&state, &text, resolution.conversation_id.as_deref(), None, None)
+                .await
+            {
                 Ok(response) => Json(response).into_response(),
                 Err(status) => json_response(
                     status.as_u16(),
                     serde_json::json!({
                         "success": false,
-                        "error": "no active session — start a session first"
+                        "error": format!("submit failed (HTTP {})", status.as_u16())
                     }),
                 ),
             }
@@ -1108,6 +1147,7 @@ mod tests {
             model_prefs: Arc::new(ModelPrefs::with_path(model_prefs_test_path())),
             workdir_prefs: Arc::new(WorkdirPrefs::with_path(workdir_prefs_test_path())),
             app_events: None,
+            exec_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -1311,19 +1351,20 @@ mod tests {
         assert_eq!(active_count, 1, "同一时刻只能有一个活动代理");
     }
 
-    // TC-HT-03  边界：未启动会话时投递消息必须被拒绝（400）
+    // TC-HT-03  边界：未启动会话时投递消息自动物化新对话（对齐 macOS
+    //           三层回落：无 active → 以默认 Agent 新建并激活），不再 400。
     // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
     // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn message_before_session_is_rejected() {
         let srv = spawn_server().await;
-        let (code, _) = request(
-            srv.port,
-            "POST",
-            "/api/message",
-            Some(r#"{"text":"hello"}"#),
+        let (code, v) = post(srv.port, "/api/message", r#"{"text":"hello"}"#);
+        assert_eq!(code, 200, "无会话时 POST /api/message 应自动新建对话");
+        assert_eq!(v["success"], true);
+        assert!(
+            v["sessionId"].as_str().unwrap_or("").starts_with("conv_"),
+            "自动物化的会话 id 应为 conv_ 前缀"
         );
-        assert_eq!(code, 400, "无会话时 POST /api/message 应返回 400");
     }
 
     // TC-HT-04  会话生命周期：start → running → stop → 无会话
@@ -1465,17 +1506,18 @@ mod tests {
         let _ = std::fs::remove_file(&bat);
     }
 
-    // TC-HT-09  边界：查询不存在的 commandId → failed + Command not found
+    // TC-HT-09  边界：查询不存在的 commandId → 404 终态（对齐 macOS
+    //           HTTPAPI.commandResponse）。客户端把 404 视为「这条命令查不到了」
+    //           而不是网络抖动，立即停止轮询，避免无限重试。
     // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
     // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn unknown_command_reports_failure() {
         let srv = spawn_server().await;
         let (code, v) = get(srv.port, "/api/message/cmd_not_exist");
-        assert_eq!(code, 200);
-        assert_eq!(v["status"], "failed");
-        assert_eq!(v["error"], "Command not found");
-        assert_eq!(v["commandId"], "cmd_not_exist");
+        assert_eq!(code, 404, "未知 commandId 应返回 404 终态而非伪 200");
+        assert_eq!(v["success"], false);
+        assert_eq!(v["error"], "unknown commandId");
     }
 
     // TC-HT-10  POST /api/discovery/refresh 重新扫描并回写代理表
@@ -1867,7 +1909,8 @@ mod tests {
         assert_eq!(v["success"], false);
     }
 
-    // TC-HT-22  交互：授权模式与 /api/message 的联动在会话未启动时也不得 panic
+    // TC-HT-22  交互：授权模式与 /api/message 的联动（对齐 macOS「直接发」语义：
+    //           无会话不再拒绝，批准后自动物化对话执行，全程不得 panic）
     // NOTE: 必须使用多线程运行时 —— 测试体使用同步 TcpStream 收发，
     // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1879,18 +1922,21 @@ mod tests {
         assert_eq!(code, 200);
         assert_eq!(v["status"], "pending_approval");
 
-        // 批准时仍无会话 → 409/400 且不得 panic
+        // 批准 → 回归属对话（缺省回落 active；无 active 则自动新建）执行，
+        // 200 且给出 commandId（旧契约的 4xx 已随「无会话自动建对话」移除）
         let id = v["approval"]["id"].as_str().unwrap().to_string();
-        let (code, _) = post(
+        let (code, v) = post(
             srv.port,
             &format!("/api/approvals/{id}"),
             r#"{"action":"approve"}"#,
         );
-        assert!((400..500).contains(&code), "无会话时批准应返回 4xx，实际 {code}");
+        assert_eq!(code, 200, "批准后自动建对话执行，实际 {code}");
+        assert!(v["commandId"].is_string(), "批准后应立即执行: {v}");
 
-        // 普通命令在无会话时仍按原契约返回 400
-        let (code, _) = post(srv.port, "/api/message", r#"{"text":"hello"}"#);
-        assert_eq!(code, 400);
+        // 后续普通消息落进刚才自动物化的 active 对话 → 200
+        let (code, v) = post(srv.port, "/api/message", r#"{"text":"hello"}"#);
+        assert_eq!(code, 200);
+        assert_eq!(v["status"], "queued", "普通消息应直接进入执行队列");
     }
 
     // TC-HT-23  模型列表：响应结构与 iOS `ModelsResponse` 逐字段对齐

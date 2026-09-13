@@ -339,6 +339,13 @@ final class CommandSubmitter: ObservableObject {
             do {
                 let (data, response) = try await BrewPingHTTP.session.data(for: request)
                 guard !Task.isCancelled else { return }
+                // 404 = 桌面端已不认识这条 commandId（重启清空内存队列 / id 打错）。
+                // 这是终态，不是网络抖动：立即失败收敛，不做无谓重试
+                //（与 Windows / Android 端「未知 commandId → 404 终态」契约一致）。
+                if (response as? HTTPURLResponse)?.statusCode == 404 {
+                    fail(with: L("Unknown command. The desktop may have restarted."), fromWatch: fromWatch)
+                    return
+                }
                 guard (response as? HTTPURLResponse)?.statusCode == 200 else {
                     consecutiveErrors += 1
                     if consecutiveErrors >= 10 {

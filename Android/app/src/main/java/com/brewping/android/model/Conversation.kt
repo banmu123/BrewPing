@@ -60,10 +60,14 @@ data class ConversationDirGroup(
     val key: String get() = dir ?: "__unbound__"
 }
 
-/** `GET /api/conversations` 的解析结果：unsupported = 老版本桌面端没有该路由。 */
+/**
+ * `GET /api/conversations` 的解析结果：
+ * unsupported = 老版本桌面端没有该路由；unauthorized = 401（未配对 / token 失效）。
+ */
 data class ConversationsResult(
     val conversations: List<ConversationSummary>?,
     val unsupported: Boolean = false,
+    val unauthorized: Boolean = false,
     val error: String? = null,
 )
 
@@ -71,6 +75,7 @@ data class ConversationsResult(
 data class ConversationResult(
     val detail: ConversationDetail?,
     val unsupported: Boolean = false,
+    val unauthorized: Boolean = false,
     val error: String? = null,
 )
 
@@ -134,13 +139,19 @@ data class FolderBrowse(
     val entries: List<FolderEntry> = emptyList(),
 )
 
-/** 解析 `brewping://pair?host=&port=&deviceId=&name=&code=` 配对码内容。 */
+/**
+ * 解析 `brewping://pair?host=&port=&deviceId=&name=&osType=&code=` 配对码内容。
+ * `osType` 由桌面端固定声明（windows/macos/linux），扫码新建设备时必须带上，
+ * 否则会回落成默认的 Mac（对齐 iOS `PairingURLHandler` 的处理）。
+ */
 data class PairPayload(
     val host: String,
     val port: String,
     val deviceId: String,
     val name: String,
     val code: String,
+    val osType: com.brewping.android.model.DeviceOSType =
+        com.brewping.android.model.DeviceOSType.Mac,
 ) {
     companion object {
         fun parse(raw: String): PairPayload? {
@@ -164,6 +175,9 @@ data class PairPayload(
                 deviceId = params["deviceId"] ?: "",
                 name = params["name"]?.let { java.net.URLDecoder.decode(it, "UTF-8") } ?: "",
                 code = params["code"] ?: "",
+                osType = params["osType"]?.let {
+                    com.brewping.android.model.DeviceOSType.fromRaw(it)
+                } ?: com.brewping.android.model.DeviceOSType.Mac,
             )
         }
     }

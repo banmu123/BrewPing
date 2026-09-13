@@ -1,6 +1,7 @@
 package com.brewping.android.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,7 +28,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -71,6 +74,7 @@ import com.brewping.android.ui.theme.LattePrimary
 import com.brewping.android.ui.theme.LattePrimaryForeground
 import com.brewping.android.ui.theme.LatteSecondary
 import com.brewping.android.ui.theme.LatteSuccess
+import com.brewping.android.ui.theme.LatteWarning
 
 // ─── 对话详情（转录 + 工作目录条 + 输入框，对齐 iOS ConversationDetailView）──────
 //
@@ -107,6 +111,8 @@ fun ConversationDetailScreen(
     onFetchFolderRoots: (onResult: (com.brewping.android.model.FolderRoots?) -> Unit) -> Unit,
     onFetchFolder: (path: String?, onResult: (com.brewping.android.model.FolderBrowse?) -> Unit) -> Unit,
     onBindWorkdir: (path: String?, onDone: () -> Unit) -> Unit,
+    onDecideApproval: (action: String) -> Unit,
+    onDismissApproval: () -> Unit,
 ) {
     val detail by store.detail.collectAsState()
     val detailError by store.detailError.collectAsState()
@@ -497,6 +503,16 @@ fun ConversationDetailScreen(
             },
         )
     }
+
+    // ─── 授权确认窗（桌面端门卫挂起时弹出，对齐 iOS ApprovalRequestView）────────
+    val currentPhase = commandPhase
+    if (currentPhase is CommandPhase.PendingApproval) {
+        ApprovalDialog(
+            approval = currentPhase.approval,
+            onDecide = onDecideApproval,
+            onDismiss = onDismissApproval,
+        )
+    }
 }
 
 // ─── 渲染项 ──────────────────────────────────────────────────────────────────
@@ -592,6 +608,122 @@ private fun ChatRow(item: ChatItem) {
                 modifier = Modifier.fillMaxWidth(),
             )
             else -> MarkdownText(text = item.text, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+// ─── 授权确认窗（对齐 iOS ApprovalRequestView：命令卡片 + 原因 + 三档决定）─────
+
+@Composable
+private fun ApprovalDialog(
+    approval: com.brewping.android.model.PendingApprovalInfo,
+    onDecide: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = LatteCard,
+            border = androidx.compose.foundation.BorderStroke(1.dp, LatteBorder),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.Warning,
+                        contentDescription = null,
+                        tint = LatteWarning,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.approval_required),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = LatteOnSurface,
+                    )
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = stringResource(R.string.approval_command),
+                    fontSize = 11.sp,
+                    color = LatteOnSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = approval.text,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = LatteOnSurface,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(LatteBackground, RoundedCornerShape(8.dp))
+                        .border(1.dp, LatteBorder, RoundedCornerShape(8.dp))
+                        .padding(10.dp),
+                )
+                if (approval.reasons.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = stringResource(R.string.approval_reason),
+                        fontSize = 11.sp,
+                        color = LatteOnSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    approval.reasons.forEach { reason ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.ErrorOutline,
+                                contentDescription = null,
+                                tint = LatteDestructive,
+                                modifier = Modifier.size(12.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                // 展示人可读的命中片段；缺省回落机器 code（对齐 iOS 兜底）
+                                text = reason.detail.ifEmpty { reason.code },
+                                fontSize = 12.sp,
+                                color = LatteDestructive,
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                    }
+                }
+                Spacer(modifier = Modifier.height(18.dp))
+                // 三档决定（对齐 iOS：批准一次 / 总是允许此类型 / 拒绝）
+                androidx.compose.material3.Button(
+                    onClick = { onDecide("approve") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = LattePrimary,
+                        contentColor = LattePrimaryForeground,
+                    ),
+                ) {
+                    Text(text = stringResource(R.string.approval_approve_once), fontSize = 14.sp)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                androidx.compose.material3.OutlinedButton(
+                    onClick = { onDecide("always_approve") },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = stringResource(R.string.approval_always_allow),
+                        fontSize = 14.sp,
+                        color = LatteOnSurface,
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                androidx.compose.material3.OutlinedButton(
+                    onClick = { onDecide("deny") },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = stringResource(R.string.approval_deny),
+                        fontSize = 14.sp,
+                        color = LatteDestructive,
+                    )
+                }
+            }
         }
     }
 }
