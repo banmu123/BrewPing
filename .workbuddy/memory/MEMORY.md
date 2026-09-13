@@ -20,7 +20,8 @@
 - **🚨 新增 Swift 文件必须登记 `ios/BrewPing.xcodeproj/project.pbxproj`**（显式 PBXFileReference，非文件夹同步）。**四处缺一不可**：`PBXBuildFile` / `PBXFileReference` / 所属 `PBXGroup.children` / target `Sources`。ID 24 位十六进制，风格 `AA00000100000000NNNNNNNN`。**验**：`grep -c "<文件名>" project.pbxproj` ≥ 4。
 - **配对**：Mac 菜单栏 Show Pairing Code 出 6 位码 + 二维码（`brewping://pair?host=&port=&deviceId=&name=&osType=&code=`）。iOS 两条路径共用该格式：① 系统相机/微信扫 → 唤起 App → `PairingURLHandler.handle` → `consumePairAction`（自动配对）；② App 内 `QRScannerView`（AVCaptureSession）→ 填表单由用户确认。`NSCameraUsageDescription` 已加，模拟器无相机走降级分支。
 - **鉴权**：Bearer token + `X-BrewPing-Timestamp`(±120s) + `X-BrewPing-Nonce`。token iOS 存 Keychain（`DeviceAuth`，键 `deviceToken.<device.id>`），Mac 存 `~/.brewping/pairing.json`(0600)。
-- **Demo 模式**：`DemoURLProtocol` 拦截 `demo.brewping.local`；`ManagedDevice.isDemo` 靠 host 判定（故意不加 Codable 字段）。
+- **Demo 模式**：`DemoURLProtocol` 拦截 `demo.brewping.local`；`ManagedDevice.isDemo` 靠 host 判定（故意不加 Codable 字段）。入口：HelpView 与「添加设备」表单（空状态卡片里**没有**，对齐 Android）。
+- **空状态（未连接设备）= Android `EmptyStateCard` 同构**（2026-09-13）：一张居中卡片 ☕ / 标题 / 一句说明 / 一个主按钮（下载桌面端）/ 一行脚注，**不用 Form**。局域网发现的「附近」主机单独一张卡，**只在真的扫到时出现**。改动时两端要同步。
 - **日志**：iOS `BrewPingLog`、Watch `WatchLog`，禁止裸 `print`；可能含用户内容的值标 `privacy: .private`。
 - **隐私清单**：主 App `UserDefaults / CA92.1`；Watch `FileTimestamp / C617.1`。用新 Required Reason API 必须同步更新。
 
