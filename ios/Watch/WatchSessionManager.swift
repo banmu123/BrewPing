@@ -168,8 +168,25 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     private var pendingAgentSwitchAt: Date?
 
     func activate() {
-        guard let session, session.activationState != .activated else { return }
+        guard let session else { return }
+        // 🚨 无论如何都要先挂 delegate：如果 WCSession 在 delegate 挂上之前
+        //    就被系统提前激活（重装/恢复场景会出现），原实现的 guard 会直接
+        //    return —— delegate 永远挂不上，activationDidCompleteWith 等
+        //    回调全部丢失，UI 卡死在"正在连接"。
         session.delegate = self
+
+        if session.activationState == .activated {
+            // 会话早已激活、回调不会再来了：手动补齐状态（自愈）。
+            DispatchQueue.main.async {
+                self.activationState = .activated
+                self.reachable = session.isReachable
+                self.applyContext(session.receivedApplicationContext)
+                self.requestStatusSync()
+            }
+            startStateTimer()
+            return
+        }
+
         session.activate()
         startStateTimer()
         applyContext(session.receivedApplicationContext)

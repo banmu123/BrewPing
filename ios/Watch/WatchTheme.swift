@@ -17,8 +17,14 @@ import SwiftUI
 // 所有 `Text` 都不要依赖系统 primary 色，一律用 `bpForeground` / `bpMutedForeground`。
 
 extension Color {
-    /// 奶白画布（页面底色）
-    static let bpBackground = Color(red: 251 / 255, green: 248 / 255, blue: 244 / 255)
+    /// 咖啡棕画布（页面底色，用户指定）—— hsl(24 38% 26%)
+    static let bpBackground = Color(red: 91 / 255, green: 61 / 255, blue: 41 / 255)
+    /// 棕底上的正文（奶白）——标题等直接铺在底色上的文字用这个
+    static let bpOnBackground = Color.bpPrimaryForeground
+    /// 棕底上的弱化文字（半透明奶白）
+    static let bpOnBackgroundMuted = Color.bpPrimaryForeground.opacity(0.72)
+    /// 棕底上的错误红（提亮版；bpDestructive 在棕底上对比不足）
+    static let bpDestructiveBright = Color(red: 236 / 255, green: 122 / 255, blue: 96 / 255)
     /// 奶泡卡片
     static let bpCard = Color(red: 254 / 255, green: 253 / 255, blue: 251 / 255)
     /// 深咖主文本

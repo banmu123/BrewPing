@@ -69,9 +69,9 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
                 LanguageManager.syncKey: UserDefaults.standard
                     .string(forKey: LanguageManager.storageKey) ?? AppLanguage.system.rawValue
             ]
-            // 状态推送会整体覆盖 context —— 把最近命令结果合并回去，
+            // 状态推送会整体覆盖 context —— 把最近命令结果（截断版）合并回去，
             // 否则手表端靠 applicationContext 恢复结果的兜底就失效了。
-            if let result = lastCommandResult {
+            if let result = truncatedResult() {
                 context["lastCommandResult"] = result
             }
             try session.updateApplicationContext(context)
@@ -130,9 +130,20 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         pushResultContext(session)
     }
 
+    /// 🚨 applicationContext 的结果副本**必须截断正文**：
+    ///    context 上限约 65KB，长回复会让 updateApplicationContext 抛错，
+    ///    连带 pushStatus 整体失败 → 手表拿不到 devices。
+    private func truncatedResult() -> [String: Any]? {
+        guard var result = lastCommandResult else { return nil }
+        if let text = result["text"] as? String, text.count > 200 {
+            result["text"] = String(text.prefix(200))
+        }
+        return result
+    }
+
     /// 把最近结果合并进 applicationContext（保留状态推送的其它键）。
     private func pushResultContext(_ session: WCSession) {
-        guard session.activationState == .activated, session.isPaired, let result = lastCommandResult else { return }
+        guard session.activationState == .activated, session.isPaired, let result = truncatedResult() else { return }
         var context = session.applicationContext
         context["lastCommandResult"] = result
         try? session.updateApplicationContext(context)
@@ -329,9 +340,9 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
 
     // MARK: - Watch 对话浏览（手表只发意图，抓取由 iPhone 代劳）
 
-    /// Watch 端载荷上限约 65 KB，转发的目录/转录都要先做裁剪：
-    /// 目录最多 30 条（只留展示要用的字段），转录最多取最近 20 条、每条 800 字。
-    private static let watchConversationLimit = 30
+    /// Watch 端载荷上限约 65 KB，转发的目录/转录都要先做裁剪。
+    /// 目录**只取最近一次对话**（用户指定）；转录最多取最近 20 条、每条 800 字。
+    private static let watchConversationLimit = 1
     private static let watchMessageLimit = 20
     private static let watchMessageTextLimit = 800
 
@@ -363,7 +374,9 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
 
                     // 只保留手表要显示的字段：payload 越小越不容易撞 65 KB 上限。
                     // 归档对话不在手表目录里展示（小屏保持列表干净，与桌面端主列表一致）。
-                    let active = list.filter { ($0["archived"] as? Bool) != true }
+                    let active = list
+                        .filter { ($0["archived"] as? Bool) != true }
+                        .sorted { ($0["updatedAtMs"] as? Double ?? 0) > ($1["updatedAtMs"] as? Double ?? 0) }
                     let compact = active.prefix(Self.watchConversationLimit).map { item -> [String: Any] in
                         [
                             "id": item["id"] as? String ?? "",

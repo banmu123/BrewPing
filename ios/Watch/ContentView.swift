@@ -43,7 +43,7 @@ struct ContentView: View {
                         // error 是动态内容（设备返回 / WCSession 错误），不做本地化
                         Text(error)
                             .font(.system(size: 11))
-                            .foregroundStyle(Color.bpDestructive)
+                            .foregroundStyle(Color.bpDestructiveBright)
                     }
                 }
                 .padding(.horizontal, 4)
@@ -51,7 +51,7 @@ struct ContentView: View {
             }
             // 🚨 导航标题是系统代渲染，preferredColorScheme 只能保证不是白色；
             //    要拿铁的深咖棕必须显式 foregroundStyle。
-            .navigationTitle(Text("BrewPing").foregroundStyle(Color.bpForeground))
+            .navigationTitle(Text("BrewPing").foregroundStyle(Color.bpOnBackground))
             .bpScreenBackground()
         }
         .onAppear {
@@ -165,7 +165,7 @@ struct ContentView: View {
     private func sectionLabel(_ text: Text) -> some View {
         text
             .font(.system(size: 8))
-            .foregroundStyle(Color.bpMutedForeground.opacity(0.8))
+            .foregroundStyle(Color.bpOnBackgroundMuted)
             .frame(maxWidth: .infinity, alignment: .center)
     }
 

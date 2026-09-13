@@ -51,7 +51,7 @@ struct WatchConversationListView: View {
                 .scrollContentBackground(.hidden)
             }
         }
-        .navigationTitle(Text("Conversations").foregroundStyle(Color.bpForeground))
+        .navigationTitle(Text("Conversations").foregroundStyle(Color.bpOnBackground))
         .bpScreenBackground()
         .refreshable { sessionManager.requestConversations() }
         .onChange(of: sessionManager.commandState) { _, newState in
@@ -71,7 +71,7 @@ struct WatchConversationListView: View {
             ProgressView()
             Text("Loading…")
                 .font(.system(size: 12))
-                .foregroundStyle(Color.bpMutedForeground)
+                .foregroundStyle(Color.bpOnBackgroundMuted)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 24)
@@ -145,7 +145,7 @@ struct WatchConversationDetailView: View {
                 loadingView
             }
         }
-        .navigationTitle(Text(verbatim: displayTitle).foregroundStyle(Color.bpForeground))
+        .navigationTitle(Text(verbatim: displayTitle).foregroundStyle(Color.bpOnBackground))
         .bpScreenBackground()
         // 输入栏钉在底部（safeAreaInset watchOS 8+ 可用）：与 iOS / macOS 同构，
         // 消息发送发生在**对话里面**。滚动内容自动为它让位。
@@ -171,7 +171,7 @@ struct WatchConversationDetailView: View {
                 .controlSize(.mini)
             Text("Loading…")
                 .font(.system(size: 12))
-                .foregroundStyle(Color.bpMutedForeground)
+                .foregroundStyle(Color.bpOnBackgroundMuted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -218,7 +218,7 @@ struct WatchConversationDetailView: View {
                 if detail.truncated {
                     Text("Earlier messages not shown")
                         .font(.system(size: 9))
-                        .foregroundStyle(Color.bpMutedForeground)
+                        .foregroundStyle(Color.bpOnBackgroundMuted)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 2)
                 }
@@ -231,7 +231,7 @@ struct WatchConversationDetailView: View {
                 if detail.messages.isEmpty {
                     Text("No messages yet")
                         .font(.system(size: 12))
-                        .foregroundStyle(Color.bpMutedForeground)
+                        .foregroundStyle(Color.bpOnBackgroundMuted)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 20)
                 }
@@ -261,7 +261,7 @@ struct WatchConversationDetailView: View {
                 if message.createdAtMs > 0 {
                     Text(verbatim: bpWatchTimeLabel(ms: message.createdAtMs))
                         .font(.system(size: 8))
-                        .foregroundStyle(Color.bpMutedForeground)
+                        .foregroundStyle(Color.bpOnBackgroundMuted)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
@@ -289,7 +289,7 @@ struct WatchConversationDetailView: View {
                 if message.createdAtMs > 0 {
                     Text(verbatim: bpWatchTimeLabel(ms: message.createdAtMs))
                         .font(.system(size: 8))
-                        .foregroundStyle(Color.bpMutedForeground)
+                        .foregroundStyle(Color.bpOnBackgroundMuted)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
