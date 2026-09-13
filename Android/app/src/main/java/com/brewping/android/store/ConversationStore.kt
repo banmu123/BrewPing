@@ -19,11 +19,18 @@ import org.json.JSONObject
  *  2. 404/501 → `unsupported = true` 静默降级（老版本桌面端没有该路由）；
  *  3. 切设备必须 [invalidate]（否则会话数据会串到另一台机器上）。
  */
-class ConversationStore(private val apiClient: DesktopApiClient) {
+class ConversationStore(
+    private val apiClient: DesktopApiClient,
+    /** App 上下文：用于取本地化错误文案；单测省略（null → 英文原文）。 */
+    private val appContext: android.content.Context? = null,
+) {
 
     companion object {
         private const val TAG = "BrewPingConvStore"
     }
+
+    private fun msg(resId: Int, fallback: String, vararg args: Any?): String =
+        appContext?.getString(resId, *args) ?: fallback
 
     private val _conversations = MutableStateFlow<List<ConversationSummary>>(emptyList())
     val conversations: StateFlow<List<ConversationSummary>> = _conversations.asStateFlow()
@@ -90,7 +97,7 @@ class ConversationStore(private val apiClient: DesktopApiClient) {
         _loading.value = true
         try {
             val result = apiClient.fetchConversations(device) ?: run {
-                _loadError.value = "Can't reach ${device.name}"
+                _loadError.value = msg(com.brewping.android.R.string.cant_reach, "Can't reach %1\$s", device.name)
                 return
             }
             when {
@@ -123,7 +130,7 @@ class ConversationStore(private val apiClient: DesktopApiClient) {
         _detailLoading.value = true
         try {
             val result = apiClient.fetchConversation(device, id) ?: run {
-                _detailError.value = "Can't reach ${device.name}"
+                _detailError.value = msg(com.brewping.android.R.string.cant_reach, "Can't reach %1\$s", device.name)
                 return
             }
             when {
@@ -161,12 +168,12 @@ class ConversationStore(private val apiClient: DesktopApiClient) {
         _detailError.value = null
         val result = apiClient.createConversation(device, agentId, approvalMode)
         if (result == null) {
-            _detailError.value = "Can't reach ${device.name}"
+            _detailError.value = msg(com.brewping.android.R.string.cant_reach, "Can't reach %1\$s", device.name)
             return null
         }
         val detail = result.detail
         if (detail == null) {
-            _detailError.value = result.error ?: "Create failed"
+            _detailError.value = result.error ?: msg(com.brewping.android.R.string.create_failed, "Create failed")
             return null
         }
         _detail.value = detail
@@ -181,11 +188,11 @@ class ConversationStore(private val apiClient: DesktopApiClient) {
         if (device == null) return false
         val result = apiClient.patchConversation(device, id, body)
         if (result == null) {
-            _detailError.value = "Can't reach ${device.name}"
+            _detailError.value = msg(com.brewping.android.R.string.cant_reach, "Can't reach %1\$s", device.name)
             return false
         }
         if (result.detail == null) {
-            _detailError.value = result.error ?: "Update failed"
+            _detailError.value = result.error ?: msg(com.brewping.android.R.string.update_failed, "Update failed")
             return false
         }
         return true

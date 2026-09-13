@@ -36,7 +36,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
+import com.brewping.android.R
 import com.brewping.android.model.FolderBrowse
 import com.brewping.android.model.FolderRoots
 import com.brewping.android.model.pathLabel
@@ -64,6 +66,8 @@ fun FolderBrowserSheet(
     var browse by remember { mutableStateOf<FolderBrowse?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // 非组合上下文的 load() 里也要用本地化文案：捕获 Activity context
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     fun load(path: String?) {
         loading = true
@@ -72,13 +76,13 @@ fun FolderBrowserSheet(
             onFetchRoots { result ->
                 roots = result
                 loading = false
-                if (result == null) error = "Can't browse folders on the desktop."
+                if (result == null) error = context.getString(R.string.cant_browse_folders)
             }
         } else {
             onFetchFolder(path) { result ->
                 browse = result
                 loading = false
-                if (result == null) error = "Can't open this folder."
+                if (result == null) error = context.getString(R.string.cant_open_folder)
             }
         }
     }
@@ -94,7 +98,7 @@ fun FolderBrowserSheet(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "Choose Working Folder",
+                    text = stringResource(R.string.working_folder),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = LatteOnSurface,
@@ -102,7 +106,7 @@ fun FolderBrowserSheet(
                 )
                 if (currentDir != null) {
                     Text(
-                        text = "Unbind",
+                        text = stringResource(R.string.unbind),
                         fontSize = 12.sp,
                         color = LatteDestructive,
                         modifier = Modifier
@@ -120,14 +124,14 @@ fun FolderBrowserSheet(
                     IconButton(onClick = { load(browse?.parentPath) }) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Up",
+                            contentDescription = stringResource(R.string.up),
                             tint = LatteOnSurfaceVariant,
                             modifier = Modifier.size(16.dp),
                         )
                     }
                 }
                 Text(
-                    text = browse?.path?.let { pathLabel(it) } ?: "Folders on the desktop",
+                    text = browse?.path?.let { pathLabel(it) } ?: stringResource(R.string.folders_on_desktop),
                     fontSize = 12.sp,
                     color = LatteOnSurfaceVariant,
                     maxLines = 1,
@@ -136,7 +140,7 @@ fun FolderBrowserSheet(
                 )
                 if (browse != null) {
                     Text(
-                        text = "Bind this folder",
+                        text = stringResource(R.string.bind_this_folder),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = LattePrimary,
@@ -161,7 +165,7 @@ fun FolderBrowserSheet(
                             ) {
                                 CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Loading…", fontSize = 12.sp, color = LatteOnSurfaceVariant)
+                                Text(stringResource(R.string.loading), fontSize = 12.sp, color = LatteOnSurfaceVariant)
                             }
                         }
                     }
@@ -201,7 +205,7 @@ fun FolderBrowserSheet(
                         if (dirs.isEmpty() && !loading) {
                             item {
                                 Text(
-                                    text = "No subfolders here. Use \"Bind this folder\" above.",
+                                    text = stringResource(R.string.no_subfolders),
                                     fontSize = 12.sp,
                                     color = LatteOnSurfaceVariant,
                                     modifier = Modifier.padding(16.dp),

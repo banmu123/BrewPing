@@ -26,7 +26,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
+import com.brewping.android.R
 import com.brewping.android.model.AgentEntry
 import com.brewping.android.model.DesktopDevice
 import com.brewping.android.model.ModelOption
@@ -50,10 +52,10 @@ import com.brewping.android.ui.theme.LattePrimary
 //   · 授权 —— 对话级档位；草稿态只记本地，随首条消息随对话固化。
 
 /** 授权三档（对齐 iOS ApprovalModeStore.Mode）。 */
-enum class ApprovalModeUi(val raw: String, val displayName: String, val summary: String) {
-    Safe("safe", "Safe", "Only intercept dangerous commands (default)"),
-    AskAll("askAll", "Ask All", "Confirm every command"),
-    Auto("auto", "Auto", "Run without confirmations");
+enum class ApprovalModeUi(val raw: String) {
+    Safe("safe"),
+    AskAll("askAll"),
+    Auto("auto");
 
     companion object {
         fun fromRaw(raw: String?): ApprovalModeUi =
@@ -125,7 +127,7 @@ fun ConversationSettingsSheet(
                 .padding(bottom = 24.dp),
         ) {
             Text(
-                text = "Chat Settings",
+                text = stringResource(R.string.chat_settings),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = LatteOnSurface,
@@ -133,15 +135,15 @@ fun ConversationSettingsSheet(
             )
 
             // ─── Agent ───────────────────────────────────────────────────
-            SectionHeader("Agent")
+            SectionHeader(stringResource(R.string.agent_section))
             Surface(shape = MaterialTheme.shapes.medium, color = LatteCard) {
                 Column {
                     if (installedAgents.isEmpty()) {
                         Text(
                             text = if (online) {
-                                "Detecting agents..."
+                                stringResource(R.string.detecting_agents)
                             } else {
-                                "No agents detected. Connect a paired computer to list the coding agents installed on it."
+                                stringResource(R.string.no_agents_detected)
                             },
                             fontSize = 12.sp,
                             color = LatteOnSurfaceVariant,
@@ -169,14 +171,14 @@ fun ConversationSettingsSheet(
             }
             if (!isDraft) {
                 Text(
-                    text = "Switching the agent clears this chat's model choice. Other chats are unaffected.",
+                    text = stringResource(R.string.switching_agent_clears),
                     fontSize = 10.sp,
                     color = LatteOnSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
             Text(
-                text = "These settings apply to this conversation only.",
+                text = stringResource(R.string.conversation_only),
                 fontSize = 10.sp,
                 color = LatteOnSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
@@ -184,12 +186,12 @@ fun ConversationSettingsSheet(
 
             // ─── Model ───────────────────────────────────────────────────
             if (canSwitch) {
-                SectionHeader("Model")
+                SectionHeader(stringResource(R.string.model))
                 Surface(shape = MaterialTheme.shapes.medium, color = LatteCard) {
                     Column {
                         if (!isDraft) {
                             OptionRow(
-                                label = "Follow Agent Config",
+                                label = stringResource(R.string.follow_agent_config),
                                 selected = currentModelComposite.isEmpty(),
                                 onClick = {
                                     if (detail != null && currentModelComposite.isNotEmpty()) {
@@ -220,7 +222,7 @@ fun ConversationSettingsSheet(
                 }
                 if (!isDraft && detail?.modelOverride != null) {
                     Text(
-                        text = "This chat uses its own model. Other chats are unaffected.",
+                        text = stringResource(R.string.chat_own_model),
                         fontSize = 10.sp,
                         color = LatteOnSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp),
@@ -238,12 +240,12 @@ fun ConversationSettingsSheet(
             }
 
             // ─── Approval ────────────────────────────────────────────────
-            SectionHeader("Approval Mode")
+            SectionHeader(stringResource(R.string.approval_mode))
             Surface(shape = MaterialTheme.shapes.medium, color = LatteCard) {
                 Column {
                     ApprovalModeUi.entries.forEachIndexed { index, mode ->
                         OptionRow(
-                            label = mode.displayName,
+                            label = approvalLabel(mode),
                             selected = mode == currentApproval,
                             onClick = {
                                 if (isDraft) {
@@ -259,14 +261,14 @@ fun ConversationSettingsSheet(
                 }
             }
             Text(
-                text = currentApproval.summary,
+                text = approvalSummary(currentApproval),
                 fontSize = 10.sp,
                 color = LatteOnSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
             )
 
             // ─── Workdir（对话绑定的工作目录；与桌面端 WorkdirPicker 同语义）────
-            SectionHeader("Working Folder")
+            SectionHeader(stringResource(R.string.working_folder))
             Surface(shape = MaterialTheme.shapes.medium, color = LatteCard) {
                 Column {
                     val boundDir = detail?.workdirOverride?.takeIf { it.isNotEmpty() }
@@ -279,7 +281,7 @@ fun ConversationSettingsSheet(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = boundDir?.let { pathLabel(it) } ?: "Unbound Folder",
+                                text = boundDir?.let { pathLabel(it) } ?: stringResource(R.string.unbound_folder),
                                 fontSize = 15.sp,
                                 color = LatteOnSurface,
                             )
@@ -292,14 +294,14 @@ fun ConversationSettingsSheet(
                                 )
                             } else {
                                 Text(
-                                    text = "Tap to bind — file operations use the CLI default until then.",
+                                    text = stringResource(R.string.tap_to_bind),
                                     fontSize = 11.sp,
                                     color = LatteOnSurfaceVariant,
                                 )
                             }
                         }
                         Text(
-                            text = "Browse",
+                            text = stringResource(R.string.browse),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = LattePrimary,
@@ -308,7 +310,7 @@ fun ConversationSettingsSheet(
                 }
             }
             Text(
-                text = "This chat's folder. File operations on the desktop run inside it.",
+                text = stringResource(R.string.chat_folder_hint),
                 fontSize = 10.sp,
                 color = LatteOnSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
@@ -325,6 +327,20 @@ fun ConversationSettingsSheet(
             }
         }
     }
+}
+
+@Composable
+private fun approvalLabel(mode: ApprovalModeUi): String = when (mode) {
+    ApprovalModeUi.Safe -> stringResource(R.string.approval_safe)
+    ApprovalModeUi.AskAll -> stringResource(R.string.approval_ask_all)
+    ApprovalModeUi.Auto -> stringResource(R.string.approval_auto)
+}
+
+@Composable
+private fun approvalSummary(mode: ApprovalModeUi): String = when (mode) {
+    ApprovalModeUi.Safe -> stringResource(R.string.approval_safe_summary)
+    ApprovalModeUi.AskAll -> stringResource(R.string.approval_ask_all_summary)
+    ApprovalModeUi.Auto -> stringResource(R.string.approval_auto_summary)
 }
 
 @Composable

@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- BrewPing Android — 简体中文。
+         译文与 ios/BrewPing/zh-Hans.lproj/Localizable.strings 逐条对齐
+         （iOS 无此句的条目按同一语气补译）。
+         🚨 占位符（%1$s 等）个数与英文逐条一致，顺序用位置参数显式标定。 -->
+
+    <string name="app_name">BrewPing</string>
+
+    <!-- Common -->
+    <string name="cancel">取消</string>
+    <string name="save">保存</string>
+    <string name="add">添加</string>
+    <string name="edit">编辑</string>
+    <string name="delete">删除</string>
+    <string name="loading">正在加载…</string>
+    <string name="send">发送</string>
+    <string name="back">返回</string>
+    <string name="close">关闭</string>
+    <string name="up">上一级</string>
+    <string name="pair">配对</string>
+    <string name="pairing_in_progress">正在配对…</string>
+    <string name="unbind">解绑</string>
+    <string name="bind_this_folder">绑定此目录</string>
+    <string name="browse">浏览</string>
+    <string name="pin">置顶</string>
+    <string name="unpin">取消置顶</string>
+    <string name="archive">归档</string>
+
+    <!-- Language -->
+    <string name="language">语言</string>
+    <string name="follow_system">跟随系统</string>
+
+    <!-- Home / Empty state -->
+    <string name="add_first_computer">添加你的第一台电脑</string>
+    <string name="empty_state_hint">在你的电脑上运行 BrewPing，然后点“+”添加设备，即可用手机发送指令。</string>
+    <string name="download_desktop">下载桌面端</string>
+    <string name="download_hint">还没有桌面端？前往下载 Mac / Windows / Linux 版。</string>
+    <string name="nearby">附近的设备：</string>
+
+    <!-- Device form -->
+    <string name="name_label">名称（例如 Chenzk）</string>
+    <string name="host_label">主机（IP 或主机名）</string>
+    <string name="port_label">端口</string>
+    <string name="system_label">系统</string>
+    <string name="searching">正在搜索…</string>
+    <string name="auto_discover">自动发现</string>
+    <string name="scan_qr">扫二维码</string>
+    <string name="scan_qr_code">扫描二维码</string>
+    <string name="pairing_code_optional">配对码（选填）</string>
+    <string name="pairing_device_title">配对「%1$s」</string>
+    <string name="pairing_instructions">1. 在桌面端打开 BrewPing，点「显示配对码」。\n2. 输入 6 位配对码，或扫描旁边的二维码。</string>
+    <string name="six_digit_pairing_code">6 位配对码</string>
+    <string name="paired_with">已与 %1$s 配对。</string>
+    <string name="invalid_host_port">主机名或端口无效。</string>
+    <string name="invalid_or_expired_pairing_code">配对码无效或已过期。</string>
+    <string name="cant_reach">无法连接 %1$s</string>
+    <string name="no_agent_found">未找到 BrewPing Agent</string>
+    <string name="found_device">已发现：%1$s</string>
+
+    <!-- Conversation list -->
+    <string name="new_conversation">新对话</string>
+    <string name="unsupported_desktop">当前桌面端版本不支持对话列表，请更新桌面端。</string>
+    <string name="no_conversations_yet">还没有对话。发一条消息即自动创建。</string>
+    <string name="offline_last_synced">设备离线——显示的是上次同步的列表。</string>
+    <string name="unbound_folder">未绑定目录</string>
+    <string name="msgs_count">%1$s 条</string>
+
+    <!-- Conversation detail -->
+    <string name="untitled">（尚未命名）</string>
+    <string name="online">在线</string>
+    <string name="offline">离线</string>
+    <string name="no_messages_yet">暂无消息</string>
+    <string name="thinking">%1$s 正在思考…</string>
+    <string name="you">我</string>
+    <string name="chat_settings">对话设置</string>
+    <string name="message_placeholder">给 %1$s 发送消息…</string>
+    <string name="not_bound_hint">未绑定目录，将使用 CLI 默认位置。</string>
+    <string name="chat_folder_hint">本对话绑定的工作目录，文件操作将作用于它。</string>
+    <string name="create_failed">创建失败</string>
+    <string name="update_failed">更新失败</string>
+
+    <!-- QR scan -->
+    <string name="camera_denied">相机权限被拒绝。请在「设置」中开启后再扫码。</string>
+    <string name="requesting_camera">正在请求相机…</string>
+    <string name="qr_hint">对准桌面端 BrewPing 显示的二维码。</string>
+
+    <!-- Folder browser (working dir) -->
+    <string name="working_folder">工作目录</string>
+    <string name="folders_on_desktop">桌面端上的文件夹</string>
+    <string name="no_subfolders">这里没有子文件夹。用上方的「绑定此目录」。</string>
+    <string name="cant_browse_folders">无法浏览桌面端的文件夹。</string>
+    <string name="cant_open_folder">无法打开该文件夹。</string>
+    <string name="cant_load_models">无法加载模型列表</string>
+
+    <!-- Conversation settings sheet -->
+    <string name="agent_section">Agent</string>
+    <string name="detecting_agents">正在检测 Agent…</string>
+    <string name="no_agents_detected">未检测到 Agent。连接已配对的电脑后，即可列出其上安装的编码 Agent。</string>
+    <string name="switching_agent_clears">切换 Agent 会清除本对话的模型选择，其它对话不受影响。</string>
+    <string name="conversation_only">这些设置只作用于当前对话。</string>
+    <string name="model">模型</string>
+    <string name="follow_agent_config">跟随 Agent 配置</string>
+    <string name="chat_own_model">本对话使用自己的模型，其它对话不受影响。</string>
+    <string name="approval_mode">授权模式</string>
+    <string name="approval_safe">安全（默认）</string>
+    <string name="approval_ask_all">每次确认</string>
+    <string name="approval_auto">自动（免确认）</string>
+    <string name="approval_safe_summary">只拦截危险命令，其余自动执行。</string>
+    <string name="approval_ask_all_summary">每条命令都先确认。</string>
+    <string name="approval_auto_summary">全部免确认执行（不建议）。</string>
+    <string name="tap_to_bind">点按绑定——绑定前文件操作使用 CLI 默认位置。</string>
+</resources>

@@ -32,11 +32,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.brewping.android.R
 import com.brewping.android.model.PairPayload
 import com.brewping.android.ui.theme.LatteOnSurface
 import com.google.zxing.BarcodeFormat
@@ -143,7 +145,7 @@ fun QrScanScreen(
                 .align(Alignment.TopStart)
                 .padding(8.dp),
         ) {
-            Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.close), tint = Color.White)
         }
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -154,9 +156,9 @@ fun QrScanScreen(
         ) {
             Text(
                 text = when {
-                    permissionDenied -> "Camera permission denied. Grant it in system settings to scan the pairing code."
-                    !granted -> "Requesting camera…"
-                    else -> "Point at the pairing QR code shown by the BrewPing desktop app."
+                    permissionDenied -> stringResource(R.string.camera_denied)
+                    !granted -> stringResource(R.string.requesting_camera)
+                    else -> stringResource(R.string.qr_hint)
                 },
                 color = Color.White,
                 fontSize = 13.sp,

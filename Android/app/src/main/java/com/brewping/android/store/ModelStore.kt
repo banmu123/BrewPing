@@ -23,6 +23,8 @@ class ModelStore(
     context: Context,
 ) {
 
+    private val appContext: Context = context.applicationContext
+
     private val prefs: SharedPreferences =
         context.getSharedPreferences("brewping_models", Context.MODE_PRIVATE)
 
@@ -79,7 +81,7 @@ class ModelStore(
             // 同一主机上失败不清空已有列表（一次网络抖动不该让选项消失）
             if (loadedKey != key) clearModels()
             _unsupported.value = false
-            _loadError.value = "Can't load models"
+            _loadError.value = appContext.getString(com.brewping.android.R.string.cant_load_models)
             return
         }
         when {

@@ -27,7 +27,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -35,6 +40,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -53,12 +59,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.brewping.android.LocalePrefs
+import com.brewping.android.R
 import com.brewping.android.model.DesktopDevice
 import com.brewping.android.model.DeviceOSType
 import com.brewping.android.model.ManagedDevice
@@ -72,6 +82,7 @@ import com.brewping.android.ui.theme.LatteMuted
 import com.brewping.android.ui.theme.LatteOnSurface
 import com.brewping.android.ui.theme.LatteOnSurfaceVariant
 import com.brewping.android.ui.theme.LattePrimary
+import com.brewping.android.ui.theme.LattePrimaryForeground
 import com.brewping.android.ui.theme.LatteSuccess
 import com.brewping.android.ui.theme.LatteWarning
 
@@ -121,6 +132,9 @@ fun HomeScreen(viewModel: HomeViewModel) {
                         color = LatteOnSurface,
                     )
                 },
+                actions = {
+                    LanguageMenuButton()
+                },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = LatteBackground,
                 ),
@@ -153,11 +167,12 @@ fun HomeScreen(viewModel: HomeViewModel) {
                 targetState = routeKey,
                 modifier = Modifier.weight(1f),
                 transitionSpec = {
-                    val slide = tween<IntOffset>(BrewMotion.Normal, easing = BrewMotion.StandardEasing)                    val fade = tween<Float>(BrewMotion.Fast, easing = BrewMotion.FastEasing)
+                    val slide = tween<IntOffset>(BrewMotion.Normal, easing = BrewMotion.StandardEasing)
+                    val fade = tween<Float>(BrewMotion.Fast, easing = BrewMotion.FastEasing)
                     if (targetState == "list") {
-                        // 返回（pop）：详情滑出右侧，列表自左浅移淡入
-                        (slideOutHorizontally(slide) { it } + fadeOut(fade)) togetherWith
-                            (slideInHorizontally(slide) { -it / 3 } + fadeIn(fade))
+                        // 返回（pop）：进入=列表自左浅移淡入，离开=详情滑出右侧
+                        (slideInHorizontally(slide) { -it / 3 } + fadeIn(fade)) togetherWith
+                            (slideOutHorizontally(slide) { it } + fadeOut(fade))
                     } else {
                         // 前进（push）：详情自右滑入，列表向左浅移淡出
                         (slideInHorizontally(slide) { it } + fadeIn(fade)) togetherWith
@@ -202,8 +217,8 @@ fun HomeScreen(viewModel: HomeViewModel) {
                         onSetModel = viewModel::setConversationModel,
                         onFetchFolderRoots = viewModel::fetchFolderRoots,
                         onFetchFolder = viewModel::fetchFolder,
-                        onBindWorkdir = { path ->
-                            detailId?.let { viewModel.setConversationWorkdir(it, path) {} }
+                        onBindWorkdir = { path, onDone ->
+                            detailId?.let { viewModel.setConversationWorkdir(it, path) { onDone() } }
                         },
                     )
                     else -> Column(modifier = Modifier.fillMaxSize()) {
@@ -248,7 +263,7 @@ fun HomeScreen(viewModel: HomeViewModel) {
                     osType = osType,
                 )
                 viewModel.addDevice(managed)
-                viewModel.setActive(managed.id)
+                viewModel.setActiveDevice(managed.id)
                 showAddDevice = false
                 qrFormPayload = null
                 if (code.length == 6) {
@@ -305,7 +320,7 @@ fun HomeScreen(viewModel: HomeViewModel) {
                             name = payload.name.ifEmpty { "Desktop" },
                             host = payload.host,
                             port = payload.port,
-                        ).also { viewModel.addDevice(it); viewModel.setActive(it.id) }
+                        ).also { viewModel.addDevice(it); viewModel.setActiveDevice(it.id) }
                     } else {
                         showPairFor
                     }
@@ -322,9 +337,9 @@ fun HomeScreen(viewModel: HomeViewModel) {
 }
 
 // ─── Empty state（对齐 iOS emptyStateCard）────────────────────────────────────
-
 @Composable
 private fun EmptyStateCard(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = LatteCard,
@@ -338,16 +353,57 @@ private fun EmptyStateCard(modifier: Modifier = Modifier) {
             Text(text = "☕", fontSize = 32.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Add your first computer",
+                text = stringResource(R.string.add_first_computer),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
                 color = LatteOnSurface,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Run BrewPing on your computer, then add it with \"+\" to send commands from your phone.",
+                text = stringResource(R.string.empty_state_hint),
                 fontSize = 12.sp,
                 color = LatteOnSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+            // 没有桌面端？引导去官网下载（Mac / Windows / Linux）
+            Button(
+                onClick = {
+                    try {
+                        context.startActivity(
+                            android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse("https://www.commitbrew.com/#download"),
+                            )
+                        )
+                    } catch (_: android.content.ActivityNotFoundException) {
+                        // 无浏览器：静默忽略（极罕见）
+                    }
+                },
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = LattePrimary,
+                    contentColor = LattePrimaryForeground,
+                ),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Download,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = stringResource(R.string.download_desktop),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = stringResource(R.string.download_hint),
+                fontSize = 10.sp,
+                color = LatteOnSurfaceVariant.copy(alpha = 0.7f),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
         }
@@ -475,11 +531,11 @@ private fun DeviceTab(
                     containerColor = LatteCard,
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Edit", color = LatteOnSurface) },
+                        text = { Text(stringResource(R.string.edit), color = LatteOnSurface) },
                         onClick = { showMenu = false; onEdit() },
                     )
                     DropdownMenuItem(
-                        text = { Text("Delete", color = LatteDestructive) },
+                        text = { Text(stringResource(R.string.delete), color = LatteDestructive) },
                         onClick = { showMenu = false; onDelete() },
                     )
                 }
@@ -501,6 +557,7 @@ private fun PairDialog(
     var code by remember { mutableStateOf(initialCode) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    var messageOk by remember { mutableStateOf(false) }
 
     // 扫码预填 6 位码 → 自动发起配对
     LaunchedEffect(initialCode) {
@@ -510,6 +567,7 @@ private fun PairDialog(
             onPair(device, initialCode) { ok, msg ->
                 busy = false
                 message = msg
+                messageOk = ok
                 if (ok) onDismiss()
             }
         }
@@ -518,32 +576,37 @@ private fun PairDialog(
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         containerColor = LatteCard,
-        title = { Text("Pair \"${device.name.ifEmpty { device.host }}\"", color = LatteOnSurface) },
+        title = {
+            Text(
+                stringResource(R.string.pairing_device_title, device.name.ifEmpty { device.host }),
+                color = LatteOnSurface,
+            )
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "1. Open the BrewPing app on the desktop and click \"Show Pairing Code\".\n2. Enter the 6-digit code, or scan the QR code next to it.",
+                    text = stringResource(R.string.pairing_instructions),
                     fontSize = 12.sp,
                     color = LatteOnSurfaceVariant,
                 )
                 OutlinedTextField(
                     value = code,
                     onValueChange = { code = it.filter { c -> c.isDigit() }.take(6) },
-                    label = { Text("6-digit pairing code") },
+                    label = { Text(stringResource(R.string.six_digit_pairing_code)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onScan, enabled = !busy) {
-                        Text("Scan QR Code", color = LattePrimary)
+                        Text(stringResource(R.string.scan_qr_code), color = LattePrimary)
                     }
                 }
                 message?.let {
                     Text(
                         text = it,
                         fontSize = 12.sp,
-                        color = if (it.startsWith("Paired")) LatteSuccess else LatteDestructive,
+                        color = if (messageOk) LatteSuccess else LatteDestructive,
                     )
                 }
             }
@@ -557,16 +620,20 @@ private fun PairDialog(
                     onPair(device, code) { ok, msg ->
                         busy = false
                         message = msg
+                        messageOk = ok
                         if (ok) onDismiss()
                     }
                 },
             ) {
-                Text(if (busy) "Pairing…" else "Pair", color = LattePrimary)
+                Text(
+                    if (busy) stringResource(R.string.pairing_in_progress) else stringResource(R.string.pair),
+                    color = LattePrimary,
+                )
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !busy) {
-                Text("Cancel", color = LatteOnSurfaceVariant)
+                Text(stringResource(R.string.cancel), color = LatteOnSurfaceVariant)
             }
         },
     )
@@ -592,7 +659,7 @@ private fun DiscoveredDevicesSection(
         ) {
             item(key = "__label__") {
                 Text(
-                    text = "Nearby:",
+                    text = stringResource(R.string.nearby),
                     fontSize = 12.sp,
                     color = LatteOnSurfaceVariant,
                     modifier = Modifier.padding(vertical = 10.dp),
@@ -623,7 +690,7 @@ private fun DiscoveredDevicesSection(
                             )
                         }
                         TextButton(onClick = { onAdd(found) }) {
-                            Text("Add", color = LattePrimary)
+                            Text(stringResource(R.string.add), color = LattePrimary)
                         }
                     }
                 }
@@ -675,28 +742,28 @@ private fun DeviceFormDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name (e.g. Chenzk)") },
+                    label = { Text(stringResource(R.string.name_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = host,
                     onValueChange = { host = it },
-                    label = { Text("Host (IP or hostname)") },
+                    label = { Text(stringResource(R.string.host_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = port,
                     onValueChange = { port = it },
-                    label = { Text("Port") },
+                    label = { Text(stringResource(R.string.port_label)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
 
                 // OS Type picker
-                Text("System", style = MaterialTheme.typography.labelMedium, color = LatteOnSurfaceVariant)
+                Text(stringResource(R.string.system_label), style = MaterialTheme.typography.labelMedium, color = LatteOnSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DeviceOSType.entries.forEach { os ->
                         FilterChip(
@@ -729,13 +796,13 @@ private fun DeviceFormDialog(
                         if (discoveryRunning) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Searching...")
+                            Text(stringResource(R.string.searching))
                         } else {
-                            Text("Auto Discover", color = LattePrimary)
+                            Text(stringResource(R.string.auto_discover), color = LattePrimary)
                         }
                     }
                     TextButton(onClick = onScan, enabled = !discoveryRunning) {
-                        Text("Scan QR", color = LattePrimary)
+                        Text(stringResource(R.string.scan_qr), color = LattePrimary)
                     }
                 }
 
@@ -743,7 +810,7 @@ private fun DeviceFormDialog(
                 OutlinedTextField(
                     value = pairingCode,
                     onValueChange = { pairingCode = it.filter { c -> c.isDigit() }.take(6) },
-                    label = { Text("Pairing code (optional)") },
+                    label = { Text(stringResource(R.string.pairing_code_optional)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
@@ -763,13 +830,71 @@ private fun DeviceFormDialog(
                 onClick = { onConfirm(name, host, port, osType, pairingCode.trim()) },
                 enabled = host.trim().isNotEmpty(),
             ) {
-                Text(if (initialHost.isEmpty()) "Add" else "Save", color = LattePrimary)
+                Text(if (initialHost.isEmpty()) stringResource(R.string.add) else stringResource(R.string.save), color = LattePrimary)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = LatteOnSurfaceVariant)
+                Text(stringResource(R.string.cancel), color = LatteOnSurfaceVariant)
             }
         },
     )
+}
+
+// ─── Language menu（App 内切换，对齐 iOS LangMode system/zh/en）───────────────
+
+@Composable
+private fun LanguageMenuButton() {
+    var showMenu by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val currentMode = remember(context) { LocalePrefs.mode(context) }
+
+    Box {
+        TextButton(onClick = { showMenu = true }) {
+            Text(
+                text = stringResource(R.string.language),
+                fontSize = 12.sp,
+                color = LatteOnSurfaceVariant,
+            )
+        }
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false },
+            containerColor = LatteCard,
+        ) {
+            // 语言名按惯例用各自语言显示，不随界面语言翻译
+            fun pick(mode: LocalePrefs.LangMode) {
+                LocalePrefs.setMode(context, mode)
+                showMenu = false
+                (context as? android.app.Activity)?.recreate()
+            }
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.follow_system), color = LatteOnSurface) },
+                onClick = { pick(LocalePrefs.LangMode.System) },
+                trailingIcon = {
+                    if (currentMode == LocalePrefs.LangMode.System) {
+                        Icon(Icons.Filled.Check, contentDescription = null, tint = LattePrimary, modifier = Modifier.size(16.dp))
+                    }
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("中文", color = LatteOnSurface) },
+                onClick = { pick(LocalePrefs.LangMode.Zh) },
+                trailingIcon = {
+                    if (currentMode == LocalePrefs.LangMode.Zh) {
+                        Icon(Icons.Filled.Check, contentDescription = null, tint = LattePrimary, modifier = Modifier.size(16.dp))
+                    }
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("English", color = LatteOnSurface) },
+                onClick = { pick(LocalePrefs.LangMode.En) },
+                trailingIcon = {
+                    if (currentMode == LocalePrefs.LangMode.En) {
+                        Icon(Icons.Filled.Check, contentDescription = null, tint = LattePrimary, modifier = Modifier.size(16.dp))
+                    }
+                },
+            )
+        }
+    }
 }

@@ -1,6 +1,7 @@
 package com.brewping.android
 
 import android.app.Application
+import android.content.Context
 import com.brewping.android.api.DesktopApiClient
 import com.brewping.android.discovery.DesktopDiscoveryManager
 import com.brewping.android.repository.DesktopRepository
@@ -16,6 +17,12 @@ import kotlinx.coroutines.SupervisorJob
  * Application class — provides singleton instances of Discovery, API, Repository, and DeviceStore.
  */
 class BrewPingApp : Application() {
+
+    // 应用内语言（system/zh/en）：Application 层也 wrap，Store 层的
+    // getString 才能拿到目标语言的资源（与 Activity 同一语言）。
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(LocalePrefs.wrap(base))
+    }
 
     lateinit var discoveryManager: DesktopDiscoveryManager
         private set

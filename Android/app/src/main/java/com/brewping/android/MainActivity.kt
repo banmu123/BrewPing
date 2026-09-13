@@ -11,6 +11,11 @@ import com.brewping.android.ui.theme.BrewPingTheme
 
 class MainActivity : ComponentActivity() {
 
+    // App 内语言切换：与 Application 同步 wrap， recreate() 后立即生效
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(LocalePrefs.wrap(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -26,6 +31,7 @@ class MainActivity : ComponentActivity() {
                         CommandReceiver(),
                         app.conversationStore,
                         app.modelStore,
+                        app.applicationContext,
                     )
                 )
                 HomeScreen(viewModel = viewModel)

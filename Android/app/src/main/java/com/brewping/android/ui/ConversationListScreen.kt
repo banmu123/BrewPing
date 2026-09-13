@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -42,6 +43,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.brewping.android.R
 import com.brewping.android.model.ConversationDirGroup
 import com.brewping.android.model.ConversationSummary
 import com.brewping.android.model.pathLabel
@@ -49,6 +52,7 @@ import com.brewping.android.model.timeLabel
 import com.brewping.android.store.ConversationStore
 import com.brewping.android.ui.theme.BrewMotion
 import com.brewping.android.ui.theme.LatteCard
+import com.brewping.android.ui.theme.LatteDestructive
 import com.brewping.android.ui.theme.LatteOnSurface
 import com.brewping.android.ui.theme.LatteOnSurfaceVariant
 import com.brewping.android.ui.theme.LattePrimary
@@ -111,7 +115,7 @@ fun ConversationListScreen(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "New Conversation",
+                            text = stringResource(R.string.new_conversation),
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Medium,
                             color = LatteOnSurface,
@@ -131,13 +135,13 @@ fun ConversationListScreen(
                 // ─── 老版本桌面端：静默降级提示（不是错误）───────────────────
                 unsupported -> {
                     item(key = "__unsupported__") {
-                        PlainNotice(text = "This desktop version has no conversation list. Update the desktop app.")
+                        PlainNotice(text = stringResource(R.string.unsupported_desktop))
                     }
                 }
                 // ─── 空态 ──────────────────────────────────────────────────
                 conversations.isEmpty() -> {
                     item(key = "__empty__") {
-                        PlainNotice(text = "No conversations yet. Send a message to create one.")
+                        PlainNotice(text = stringResource(R.string.no_conversations_yet))
                     }
                 }
                 // ─── 按工作目录分组 ─────────────────────────────────────────
@@ -166,7 +170,7 @@ fun ConversationListScreen(
                 item(key = "__offline__") {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Device is offline — showing the last synced list.",
+                        text = stringResource(R.string.offline_last_synced),
                         fontSize = 11.sp,
                         color = LatteOnSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 4.dp),
@@ -218,7 +222,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.groupSection(
             )
             Spacer(modifier = Modifier.width(5.dp))
             Text(
-                text = group.dir?.let { pathLabel(it) } ?: "Unbound Folder",
+                text = group.dir?.let { pathLabel(it) } ?: stringResource(R.string.unbound_folder),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = LatteOnSurface.copy(alpha = 0.85f),
@@ -277,7 +281,7 @@ private fun ConversationRow(
                     Spacer(modifier = Modifier.width(4.dp))
                 }
                 Text(
-                    text = conv.title ?: "(untitled)",
+                    text = conv.title ?: stringResource(R.string.untitled),
                     fontSize = 15.sp,
                     color = LatteOnSurface,
                     maxLines = 1,
@@ -300,11 +304,11 @@ private fun ConversationRow(
                         containerColor = LatteCard,
                     ) {
                         androidx.compose.material3.DropdownMenuItem(
-                            text = { Text(if (conv.isPinned) "Unpin" else "Pin", color = LatteOnSurface) },
+                            text = { Text(if (conv.isPinned) stringResource(R.string.unpin) else stringResource(R.string.pin), color = LatteOnSurface) },
                             onClick = { showMenu = false; onPin() },
                         )
                         androidx.compose.material3.DropdownMenuItem(
-                            text = { Text("Archive", color = LatteDestructive) },
+                            text = { Text(stringResource(R.string.archive), color = LatteDestructive) },
                             onClick = { showMenu = false; onArchive() },
                         )
                     }

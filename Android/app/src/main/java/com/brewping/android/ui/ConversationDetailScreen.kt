@@ -46,8 +46,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.brewping.android.R
 import com.brewping.android.model.AgentEntry
 import com.brewping.android.model.CommandPhase
 import com.brewping.android.model.DesktopDevice
@@ -104,7 +106,7 @@ fun ConversationDetailScreen(
     onSetModel: (conversationId: String?, modelId: String?, providerId: String?, onDone: () -> Unit) -> Unit,
     onFetchFolderRoots: (onResult: (com.brewping.android.model.FolderRoots?) -> Unit) -> Unit,
     onFetchFolder: (path: String?, onResult: (com.brewping.android.model.FolderBrowse?) -> Unit) -> Unit,
-    onBindWorkdir: (path: String?) -> Unit,
+    onBindWorkdir: (path: String?, onDone: () -> Unit) -> Unit,
 ) {
     val detail by store.detail.collectAsState()
     val detailError by store.detailError.collectAsState()
@@ -129,7 +131,7 @@ fun ConversationDetailScreen(
     val resolvedAgentId: String = detail?.agentId
         ?: if (isDraft) (draftAgentId ?: fallbackAgentId) else fallbackAgentId
     val agentName = agentNames[resolvedAgentId] ?: resolvedAgentId
-    val conversationTitle = if (isDraft) "New Conversation" else (detail?.title ?: "(untitled)")
+    val conversationTitle = if (isDraft) stringResource(R.string.new_conversation) else (detail?.title ?: stringResource(R.string.untitled))
 
     // 进入 / 物化后拉取权威转录；模型列表跟随当前对话的 Agent
     LaunchedEffect(activeConversationId, resolvedAgentId) {
@@ -180,7 +182,7 @@ fun ConversationDetailScreen(
             IconButton(onClick = onBack) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
+                    contentDescription = stringResource(R.string.back),
                     tint = LatteOnSurface,
                 )
             }
@@ -205,7 +207,7 @@ fun ConversationDetailScreen(
             Spacer(modifier = Modifier.weight(1f))
             Icon(
                 imageVector = Icons.Filled.Tune,
-                contentDescription = "Chat Settings",
+                contentDescription = stringResource(R.string.chat_settings),
                 tint = LatteOnSurfaceVariant,
                 modifier = Modifier.size(14.dp),
             )
@@ -225,7 +227,7 @@ fun ConversationDetailScreen(
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = if (online) "Online" else "Offline",
+                text = if (online) stringResource(R.string.online) else stringResource(R.string.offline),
                 fontSize = 11.sp,
                 color = LatteOnSurfaceVariant,
             )
@@ -246,7 +248,7 @@ fun ConversationDetailScreen(
             if (items.isEmpty() && !commandPhase.isInFlight) {
                 item(key = "__empty__") {
                     Text(
-                        text = "No messages yet.",
+                        text = stringResource(R.string.no_messages_yet),
                         fontSize = 13.sp,
                         color = LatteOnSurfaceVariant,
                         modifier = Modifier
@@ -265,7 +267,7 @@ fun ConversationDetailScreen(
                         CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "$agentName is thinking…",
+                            text = stringResource(R.string.thinking, agentName),
                             fontSize = 12.sp,
                             color = LatteOnSurfaceVariant,
                         )
@@ -287,7 +289,7 @@ fun ConversationDetailScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Loading…", fontSize = 12.sp, color = LatteOnSurfaceVariant)
+                        Text(stringResource(R.string.loading), fontSize = 12.sp, color = LatteOnSurfaceVariant)
                     }
                 }
             }
@@ -333,7 +335,7 @@ fun ConversationDetailScreen(
                     )
                 } else {
                     Text(
-                        text = "Unbound Folder",
+                        text = stringResource(R.string.unbound_folder),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = LatteOnSurface,
@@ -342,9 +344,9 @@ fun ConversationDetailScreen(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = if (boundDir == null) {
-                        "Not bound — the CLI default folder is used."
+                        stringResource(R.string.not_bound_hint)
                     } else {
-                        "This chat's folder. File operations use it."
+                        stringResource(R.string.chat_folder_hint)
                     },
                     fontSize = 10.sp,
                     color = LatteOnSurfaceVariant.copy(alpha = 0.8f),
@@ -401,7 +403,7 @@ fun ConversationDetailScreen(
                         Box {
                             if (draft.isEmpty()) {
                                 Text(
-                                    text = "Message $agentName",
+                                    text = stringResource(R.string.message_placeholder, agentName),
                                     fontSize = 15.sp,
                                     color = LatteOnSurfaceVariant.copy(alpha = 0.75f),
                                 )
@@ -438,7 +440,7 @@ fun ConversationDetailScreen(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send",
+                        contentDescription = stringResource(R.string.send),
                         tint = sendTint,
                         modifier = Modifier.size(15.dp),
                     )
@@ -547,7 +549,7 @@ private fun ChatRow(item: ChatItem) {
                         Spacer(modifier = Modifier.width(6.dp))
                     }
                     Text(
-                        text = "You",
+                        text = stringResource(R.string.you),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Medium,
                         color = LattePrimary,

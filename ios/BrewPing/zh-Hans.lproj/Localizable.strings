@@ -17,6 +17,8 @@
 "Try Demo Mode" = "试用演示模式";
 "No Mac at hand? Demo Mode walks through the whole flow locally, without any hardware." = "手头没有 Mac？演示模式可在本地完整走一遍流程，不需要任何硬件。";
 "Add a device first" = "请先添加设备";
+"Download Desktop App" = "下载桌面端";
+"No desktop yet? Get BrewPing for Mac, Windows or Linux." = "还没有桌面端？前往下载 Mac / Windows / Linux 版。";
 
 /* MARK: - Pairing */
 "Pairing required" = "需要配对";

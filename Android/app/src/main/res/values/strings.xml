@@ -1,4 +1,113 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- BrewPing Android — English (default).
+         Keys and wording mirror ios/BrewPing/en.lproj/Localizable.strings;
+         "Mac" is generalized to "desktop/computer" where the sentence refers to
+         the paired machine rather than macOS specifically. -->
+
     <string name="app_name">BrewPing</string>
+
+    <!-- Common -->
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="add">Add</string>
+    <string name="edit">Edit</string>
+    <string name="delete">Delete</string>
+    <string name="loading">Loading…</string>
+    <string name="send">Send</string>
+    <string name="back">Back</string>
+    <string name="close">Close</string>
+    <string name="up">Up</string>
+    <string name="pair">Pair</string>
+    <string name="pairing_in_progress">Pairing…</string>
+    <string name="unbind">Unbind</string>
+    <string name="bind_this_folder">Bind this folder</string>
+    <string name="browse">Browse</string>
+    <string name="pin">Pin</string>
+    <string name="unpin">Unpin</string>
+    <string name="archive">Archive</string>
+
+    <!-- Language (App-internal switch, mirrors iOS LangMode system/zh/en) -->
+    <string name="language">Language</string>
+    <string name="follow_system">Follow System</string>
+
+    <!-- Home / Empty state -->
+    <string name="add_first_computer">Add your first computer</string>
+    <string name="empty_state_hint">Run BrewPing on your computer, then add it with \"+\" to send commands from your phone.</string>
+    <string name="download_desktop">Download Desktop App</string>
+    <string name="download_hint">No desktop yet? Get BrewPing for Mac, Windows or Linux.</string>
+    <string name="nearby">Nearby:</string>
+
+    <!-- Device form -->
+    <string name="name_label">Name (e.g. Chenzk)</string>
+    <string name="host_label">Host (IP or hostname)</string>
+    <string name="port_label">Port</string>
+    <string name="system_label">System</string>
+    <string name="searching">Searching…</string>
+    <string name="auto_discover">Auto Discover</string>
+    <string name="scan_qr">Scan QR</string>
+    <string name="scan_qr_code">Scan QR Code</string>
+    <string name="pairing_code_optional">Pairing code (optional)</string>
+    <string name="pairing_device_title">Pair \"%1$s\"</string>
+    <string name="pairing_instructions">1. Open the BrewPing app on the desktop and click \"Show Pairing Code\".\n2. Enter the 6-digit code, or scan the QR code next to it.</string>
+    <string name="six_digit_pairing_code">6-digit pairing code</string>
+    <string name="paired_with">Paired with %1$s</string>
+    <string name="invalid_host_port">Invalid host or port</string>
+    <string name="invalid_or_expired_pairing_code">Invalid or expired pairing code</string>
+    <string name="cant_reach">Can\'t reach %1$s</string>
+    <string name="no_agent_found">No BrewPing agent found</string>
+    <string name="found_device">Found: %1$s</string>
+
+    <!-- Conversation list -->
+    <string name="new_conversation">New Conversation</string>
+    <string name="unsupported_desktop">This desktop version has no conversation list. Update the desktop app.</string>
+    <string name="no_conversations_yet">No conversations yet. Send a message to create one.</string>
+    <string name="offline_last_synced">Device is offline — showing the last synced list.</string>
+    <string name="unbound_folder">Unbound Folder</string>
+    <string name="msgs_count">%1$s msgs</string>
+
+    <!-- Conversation detail -->
+    <string name="untitled">(untitled)</string>
+    <string name="online">Online</string>
+    <string name="offline">Offline</string>
+    <string name="no_messages_yet">No messages yet.</string>
+    <string name="thinking">%1$s is thinking…</string>
+    <string name="you">You</string>
+    <string name="chat_settings">Chat Settings</string>
+    <string name="message_placeholder">Message %1$s</string>
+    <string name="not_bound_hint">Not bound — the CLI default folder is used.</string>
+    <string name="chat_folder_hint">This chat\'s folder. File operations use it.</string>
+    <string name="create_failed">Create failed</string>
+    <string name="update_failed">Update failed</string>
+
+    <!-- QR scan -->
+    <string name="camera_denied">Camera access was denied. Enable it in Settings to scan.</string>
+    <string name="requesting_camera">Requesting camera…</string>
+    <string name="qr_hint">Point at the QR code shown in BrewPing on your desktop.</string>
+
+    <!-- Folder browser (working dir) -->
+    <string name="working_folder">Working Folder</string>
+    <string name="folders_on_desktop">Folders on the desktop</string>
+    <string name="no_subfolders">No subfolders here. Use \"Bind this folder\" above.</string>
+    <string name="cant_browse_folders">Can\'t browse folders on the desktop.</string>
+    <string name="cant_open_folder">Can\'t open this folder.</string>
+    <string name="cant_load_models">Can\'t load models</string>
+
+    <!-- Conversation settings sheet -->
+    <string name="agent_section">Agent</string>
+    <string name="detecting_agents">Detecting agents…</string>
+    <string name="no_agents_detected">No agents detected. Connect a paired computer to list the coding agents installed on it.</string>
+    <string name="switching_agent_clears">Switching the agent clears this chat\'s model choice. Other chats are unaffected.</string>
+    <string name="conversation_only">These settings apply to this conversation only.</string>
+    <string name="model">Model</string>
+    <string name="follow_agent_config">Follow Agent Config</string>
+    <string name="chat_own_model">This chat uses its own model. Other chats are unaffected.</string>
+    <string name="approval_mode">Approval Mode</string>
+    <string name="approval_safe">Safe</string>
+    <string name="approval_ask_all">Ask All</string>
+    <string name="approval_auto">Auto</string>
+    <string name="approval_safe_summary">Only intercept dangerous commands (default)</string>
+    <string name="approval_ask_all_summary">Confirm every command</string>
+    <string name="approval_auto_summary">Run without confirmations</string>
+    <string name="tap_to_bind">Tap to bind — file operations use the CLI default until then.</string>
 </resources>

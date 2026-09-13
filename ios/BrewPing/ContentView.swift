@@ -55,6 +55,7 @@ enum SessionState: Equatable {
 
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @StateObject private var deviceStore = DeviceStore.shared
     @StateObject private var watchBridge = WatchConnectivityManager.shared
     @StateObject private var submitter = CommandSubmitter.shared
@@ -338,6 +339,24 @@ struct ContentView: View {
                     guideStep(3, "In \(BrewPingConfig.macAppName), click the menu bar icon and tap “Show Pairing Code”. A QR code will appear.")
                     guideStep(4, "Scan the QR with your iPhone, or enter the 6-digit code in the device sheet.")
                 }
+
+                // 还没有桌面端？引导去官网下载（与 Android 空状态的下载入口同语义）
+                Button {
+                    if let url = URL(string: "https://www.commitbrew.com/#download") {
+                        openURL(url)
+                    }
+                } label: {
+                    Label("Download Desktop App", systemImage: "arrow.down.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .padding(.top, 4)
+
+                Text("No desktop yet? Get BrewPing for Mac, Windows or Linux.")
+                    .font(.caption2)
+                    .foregroundStyle(Color.bpMutedForeground)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
             .padding(.vertical, 4)
         }

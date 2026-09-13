@@ -33,7 +33,13 @@ class HomeViewModel(
     private val commandReceiver: CommandReceiver,
     val conversationStore: ConversationStore,
     val modelStore: ModelStore,
+    /** App 上下文：用于取本地化字符串（测试中可为 null → 回退英文原文）。 */
+    private val appContext: android.content.Context? = null,
 ) : ViewModel() {
+
+    /** 取本地化消息；无 context（单测）时回退英文原文。 */
+    private fun msg(resId: Int, fallback: String, vararg args: Any?): String =
+        appContext?.getString(resId, *args) ?: fallback
 
     // ─── Device store ─────────────────────────────────────────────────────────
 
@@ -132,17 +138,17 @@ class HomeViewModel(
         onResult: (success: Boolean, message: String) -> Unit,
     ) {
         val desktop = device.toDesktopDevice() ?: run {
-            onResult(false, "Invalid host or port")
+            onResult(false, msg(com.brewping.android.R.string.invalid_host_port, "Invalid host or port"))
             return
         }
         viewModelScope.launch {
             val result = appPairingApi.pairWithCode(desktop, code)
             if (result == null) {
-                onResult(false, "Can't reach ${device.name}")
+                onResult(false, msg(com.brewping.android.R.string.cant_reach, "Can't reach %1\$s", device.name))
                 return@launch
             }
             if (!result.success || result.token.isEmpty()) {
-                onResult(false, result.error ?: "Invalid or expired pairing code")
+                onResult(false, result.error ?: msg(com.brewping.android.R.string.invalid_or_expired_pairing_code, "Invalid or expired pairing code"))
                 return@launch
             }
             // token 的归属键：优先用服务端返回的 deviceId（桌面端身份），
@@ -160,7 +166,7 @@ class HomeViewModel(
             if (active != null && active.host == device.host) {
                 connectToDevice(active)
             }
-            onResult(true, "Paired with ${result.deviceName.ifEmpty { device.name }}")
+            onResult(true, msg(com.brewping.android.R.string.paired_with, "Paired with %1\$s", result.deviceName.ifEmpty { device.name }))
         }
     }
 
@@ -261,7 +267,7 @@ class HomeViewModel(
                         if (resolved.endsWith(".local")) resolved else "$resolved.local",
                         device.port.toString(),
                         resolved,
-                        "Found: ${device.name}",
+                        msg(com.brewping.android.R.string.found_device, "Found: %1\$s", device.name),
                     )
                     return@launch
                 }
@@ -269,7 +275,7 @@ class HomeViewModel(
             }
 
             _discoveryRunning.value = false
-            onResult("", "", "", "No BrewPing agent found")
+            onResult("", "", "", msg(com.brewping.android.R.string.no_agent_found, "No BrewPing agent found"))
         }
     }
 
@@ -538,10 +544,11 @@ class HomeViewModel(
         private val commandReceiver: CommandReceiver,
         private val conversationStore: ConversationStore,
         private val modelStore: ModelStore,
+        private val appContext: android.content.Context? = null,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return HomeViewModel(repository, deviceStore, commandReceiver, conversationStore, modelStore) as T
+            return HomeViewModel(repository, deviceStore, commandReceiver, conversationStore, modelStore, appContext) as T
         }
     }
 }
