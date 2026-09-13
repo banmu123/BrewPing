@@ -20,23 +20,6 @@ struct WatchComposer: View {
     @State private var draft = ""
     @FocusState private var inputFocused: Bool
 
-    private var inFlight: Bool {
-        switch sessionManager.commandState {
-        case .sending, .sent: return true
-        default: return false
-        }
-    }
-
-    private var hasDraft: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    /// 🚨 `.completed` 带 String 关联值，不能用 `==` 比较，只能模式匹配。
-    private var isCompletedState: Bool {
-        if case .completed = sessionManager.commandState { return true }
-        return false
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             // 失败提示：只有失败时出现（点一下收回）
