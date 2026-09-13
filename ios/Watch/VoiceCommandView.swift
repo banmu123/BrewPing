@@ -18,10 +18,6 @@ struct WatchComposer: View {
     let conversationId: String
 
     @State private var draft = ""
-    /// 输入框是否展开。🚨 不能用 `inputFocused` 兼任：聚焦只能作用于
-    /// **已渲染**的视图，而输入框的渲染条件又是 focused —— 互相等死，
-    /// 点麦克风永远弹不出键盘。用独立状态先渲染、再聚焦。
-    @State private var showInput = false
     @FocusState private var inputFocused: Bool
 
     private var inFlight: Bool {
@@ -76,9 +72,16 @@ struct WatchComposer: View {
         }
     }
 
-    // MARK: - 输入区：失败提示 / 输入框（仅输入时出现）+ 居中麦克风
-    // 🚨 用户指定：**不要奶白卡片底**，只留居中麦克风按钮悬浮在棕底上。
-    //    失败提示与输入框直接铺底，配色用棕底专用 token。
+    // MARK: - 麦克风 = 透明输入框的"皮肤"
+    //
+    // 🚨 点麦克风弹不出键盘的根因：程序化聚焦（`@FocusState.wrappedValue = true`）
+    //    在 watchOS 上不可靠；而旧版"点输入框弹键盘"走的是**系统原生点击聚焦**。
+    //    所以这里反过来：把透明 TextField 铺满按钮区域，麦克风图标只是
+    //    `allowsHitTesting(false)` 的视觉层 —— 用户点的是麦克风的样子，
+    //    命中的是输入框，走和旧版完全相同的原生路径。
+    //
+    // 聚焦后（键盘弹出）：麦克风淡出、输入框显形（奶白文字、居中、最多 3 行），
+    // 说完/打完键盘收起即失焦 → 自动发送（手表键盘没有回车键）。
 
     private var composerCard: some View {
         VStack(spacing: 6) {
@@ -95,55 +98,79 @@ struct WatchComposer: View {
                     .onTapGesture { sessionManager.commandState = .idle }
             }
 
-            // 输入框只在唤起键盘 / 有草稿时出现；棕底上文字用奶白
-            if showInput || hasDraft {
-                TextField("Type...", text: $draft)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.bpOnBackground)
-                    .focused($inputFocused)
-                    .onSubmit { sendDraft() }
-                    .onAppear { inputFocused = true }  // 渲染出来后立刻聚焦 → 弹键盘
-                    .padding(.horizontal, 6)
-            }
-
-            commandButton
+            inputArea
         }
         .padding(.horizontal, 4)
     }
 
-    /// 居中单按钮，三态：🎤 麦克风 → ⏳ loading（锁定）→ ✓ 完成（短暂）→ 🎤。
-    private var commandButton: some View {
-        Button {
-            showInput = true
-        } label: {
-            Group {
-                switch sessionManager.commandState {
-                case .sending, .sent:
-                    // 执行中：按钮本身就是 loading，取代原来那行小字"正在发送"
-                    ProgressView()
-                        .controlSize(.regular)
-                        .tint(Color.bpOnBackground)
-                case .completed:
-                    // 回复到达后的短暂确认态（0.8s 后自动回到麦克风）
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(Color.bpOnBackground)
-                default:
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 22))
-                        .foregroundStyle(sessionManager.activationState == .activated
-                                         ? Color.bpOnBackground : Color.bpOnBackgroundMuted)
-                }
-            }
-            .frame(width: 52, height: 52)
-            .background(Circle().fill(
-                isCompletedState ? Color.bpSuccess.opacity(0.35) : Color.bpOnBackgroundMuted.opacity(0.35)
-            ))
+    private var inputArea: some View {
+        ZStack {
+            // 视觉层：麦克风 / 转圈 / ✓（输入时淡出，且不拦截点击）
+            statusVisual
+                .allowsHitTesting(false)
+
+            // 交互层：透明输入框 —— 空闲时几乎全透明但保留点击命中
+            TextField("Type...", text: $draft)
+                .font(.system(size: 13))
+                .foregroundStyle(Color.bpOnBackground)
+                .multilineTextAlignment(.center)
+                .lineLimit(1...3)
+                .focused($inputFocused)
+                .onSubmit { sendDraft() }
+                .opacity(isEditing ? 1 : 0.02)
+                .disabled(inFlight)   // 执行中锁定：等回复到了才能进行下一次
+                .frame(minHeight: 52)
         }
-        .buttonStyle(.plain)
-        // 执行中锁定：等回复到了（震动 + ✓）才允许下一次
-        .disabled(inFlight || sessionManager.activationState != .activated)
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var isEditing: Bool {
+        inputFocused || hasDraft
+    }
+
+    /// 视觉层三态：🎤 麦克风（空闲）→ ⏳ loading（锁定）→ ✓ 完成（短暂）→ 🎤。
+    private var statusVisual: some View {
+        Group {
+            switch sessionManager.commandState {
+            case .sending, .sent:
+                // 执行中：按钮本身就是 loading
+                ProgressView()
+                    .controlSize(.regular)
+                    .tint(Color.bpOnBackground)
+            case .completed:
+                // 回复到达后的短暂确认态（0.8s 后自动回到麦克风）
+                Image(systemName: "checkmark")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(Color.bpOnBackground)
+            default:
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(sessionManager.activationState == .activated
+                                     ? Color.bpOnBackground : Color.bpOnBackgroundMuted)
+            }
+        }
+        .frame(width: 52, height: 52)
+        .background(Circle().fill(
+            isCompletedState ? Color.bpSuccess.opacity(0.35) : Color.bpOnBackgroundMuted.opacity(0.30)
+        ))
+        .frame(maxWidth: .infinity)
+    }
+
+    private var hasDraft: Bool {
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 🚨 `.completed` 带 String 关联值，不能用 `==` 比较，只能模式匹配。
+    private var isCompletedState: Bool {
+        if case .completed = sessionManager.commandState { return true }
+        return false
+    }
+
+    private var inFlight: Bool {
+        switch sessionManager.commandState {
+        case .sending, .sent: return true
+        default: return false
+        }
     }
 
     // MARK: - 发送 / 收尾
@@ -153,7 +180,6 @@ struct WatchComposer: View {
         sessionManager.sendCommand(draft, conversationId: conversationId)
         draft = ""
         inputFocused = false
-        showInput = false
     }
 
     private func finishAndRefresh() {
