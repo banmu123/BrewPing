@@ -27,6 +27,11 @@ class HeadlessCLIAgent: CodingAgent {
 
     /// 带**对话级工作目录**的执行入口（目录由调用方校验过存在性）。
     func execute(_ command: String, workdir: String?) -> AgentResult {
+        execute(command, workdir: workdir, onLaunch: nil)
+    }
+
+    /// `onLaunch` 在子进程真正启动后被调用一次（供外部登记句柄以支持手动停止）。
+    func execute(_ command: String, workdir: String?, onLaunch: ((Process) -> Void)?) -> AgentResult {
         let started = Date()
         func result(_ status: AgentExecutionStatus, _ output: String, _ summary: String? = nil) -> AgentResult {
             AgentResult(
@@ -54,7 +59,8 @@ class HeadlessCLIAgent: CodingAgent {
             arguments: arguments,
             timeoutSeconds: executionTimeoutSeconds,
             additionalPATHEntries: [executableDir],
-            workingDirectory: workdir
+            workingDirectory: workdir,
+            onLaunch: onLaunch
         ) else {
             return result(.failed, "Failed to launch \(name) (\(path)).")
         }

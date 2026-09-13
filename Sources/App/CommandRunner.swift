@@ -12,9 +12,46 @@ final class CommandRunner {
     private let queue = DispatchQueue(label: "BrewPing command runner", qos: .userInitiated)
     private let headlessQueue = DispatchQueue(label: "BrewPing headless agent runner", qos: .userInitiated)
 
+    /// 运行中的 headless 子进程（commandId → Process），供用户手动停止。
+    private let stateLock = NSLock()
+    private var runningProcesses: [String: Process] = [:]
+    /// 用户明确要求停止的命令 —— 终态时据此改写错误文案，而不是暴露 kill 的退出码。
+    private var stopRequested: Set<String> = []
+
     init(sessionManager: SessionManager, store: CommandStore = .shared) {
         self.sessionManager = sessionManager
         self.store = store
+    }
+
+    /// 用户手动停止一条命令。找到运行中的子进程就先 SIGTERM（给 CLI 清理机会），
+    /// 3 秒后仍活着再 SIGKILL。命令随后走 `failed` 终态 → 转录落一条说明 +
+    /// 清空调度指针（「思考中」随之结束）。
+    @discardableResult
+    func requestStop(commandId: String) -> Bool {
+        stateLock.lock()
+        stopRequested.insert(commandId)
+        let process = runningProcesses[commandId]
+        stateLock.unlock()
+
+        guard let process, process.isRunning else { return false }
+        process.terminate()
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 3) { [weak process] in
+            guard let process, process.isRunning else { return }
+            kill(process.processIdentifier, SIGKILL)
+        }
+        return true
+    }
+
+    private func registerProcess(_ commandId: String, _ process: Process) {
+        stateLock.lock()
+        runningProcesses[commandId] = process
+        stateLock.unlock()
+    }
+
+    private func unregisterProcess(_ commandId: String) {
+        stateLock.lock()
+        runningProcesses[commandId] = nil
+        stateLock.unlock()
     }
 
     /// 提交一条命令。`agentID` 缺省用当前默认 Agent；`context` 携带对话上下文
@@ -76,28 +113,39 @@ final class CommandRunner {
         // 对话级工作目录：仅 headless 型 Agent 支持（会话型进程的 cwd 在启动时固定）。
         let result: AgentResult
         if let headless = provider as? HeadlessCLIAgent {
-            result = headless.execute(info.text, workdir: workdir)
+            // 把子进程登记进来，用户点「停止生成」时能真的杀掉它。
+            result = headless.execute(info.text, workdir: workdir) { [weak self] process in
+                self?.registerProcess(info.commandId, process)
+            }
         } else {
             result = provider.execute(info.text)
         }
+        unregisterProcess(info.commandId)
+        let wasStopped: Bool = {
+            stateLock.lock(); defer { stateLock.unlock() }
+            return stopRequested.remove(info.commandId) != nil
+        }()
+
+        // 🚨 必须走 `finish(...)`，不能只 `store.update`。
+        //    `finish` 是唯一把命令终态回写**对话转录**并清空
+        //    `ConversationStore.latestCommandId` 的地方。之前这里只写
+        //    CommandStore，结果：① 助手回复永远不进转录 → iOS 端看不到回复；
+        //    ② latestCommandId 悬着不放 → 桌面端 `isBusy` 永真 → 卡在「思考中」。
+        //    （opencode 走 `run` → `watch` → `finish`，所以这条 bug 一直没暴露。）
         switch result.status {
         case .completed:
-            store.update(info.commandId) { update in
-                update.status = .completed
-                update.response = result.output
-                update.duration = result.durationSeconds
-                update.completedAt = Date()
-            }
+            finish(info.commandId, status: .completed, response: result.output, duration: result.durationSeconds)
         default:
             let failureReason = ErrorClassifier.classify(output: result.output, exitCode: nil) ?? .unknown
-            let errorMessage = ErrorClassifier.summarize(output: result.output, reason: failureReason)
-            store.update(info.commandId) { update in
-                update.status = .failed
-                update.error = errorMessage
-                update.failureReason = failureReason.rawValue
-                update.duration = result.durationSeconds
-                update.completedAt = Date()
-            }
+            var errorMessage = ErrorClassifier.summarize(output: result.output, reason: failureReason)
+            if wasStopped { errorMessage = "Stopped by user." }
+            finish(
+                info.commandId,
+                status: .failed,
+                error: errorMessage,
+                failureReason: wasStopped ? nil : failureReason.rawValue,
+                duration: result.durationSeconds
+            )
         }
     }
 
@@ -180,13 +228,14 @@ final class CommandRunner {
         finish(commandId, status: .failed, error: "No readable OpenCode response was captured for this command.", duration: duration)
     }
 
-    private func finish(_ commandId: String, status: CommandStatus, response: String? = nil, rawOutput: String? = nil, error: String? = nil, duration: TimeInterval? = nil) {
+    private func finish(_ commandId: String, status: CommandStatus, response: String? = nil, rawOutput: String? = nil, error: String? = nil, failureReason: String? = nil, duration: TimeInterval? = nil) {
         var finalInfo: CommandInfo?
         store.update(commandId) { info in
             info.status = status
             info.response = response
             info.rawOutput = rawOutput
             info.error = error
+            info.failureReason = failureReason ?? info.failureReason
             if let duration { info.duration = duration }
             info.completedAt = (status == .completed || status == .completedWithRaw || status == .failed) ? Date() : nil
             finalInfo = info

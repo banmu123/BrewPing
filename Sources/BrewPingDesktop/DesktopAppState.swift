@@ -516,6 +516,17 @@ public final class DesktopAppState: ObservableObject {
         await runQuietly { DesktopCommands.clearTerminal(effectiveAgentId) }
     }
 
+    /// 手动停止生成（composer 的停止按钮）。
+    /// 命令被杀后 `CommandRunner` 会走 failed 终态并回写转录，
+    /// 这里只做即时反馈（立刻重取转录 + 复位终端指示灯）。
+    public func stopGeneration() async {
+        DesktopCommands.stopActiveCommand()
+        if let id = activeConvId {
+            await fetchConversation(id)
+        }
+        await refreshTerminal()
+    }
+
     // 配对
     public func revealPairing() async {
         await runQuietly { pairing = DesktopCommands.revealPairingCode() }

@@ -46,4 +46,11 @@ final class CommandRouter {
             return sessionManager.startSession()
         }
     }
+
+    /// 终止一条正在执行的命令（桌面端「停止生成」）。
+    /// 命令随后走 `failed` 终态：转录落一条说明、调度指针清空。
+    @discardableResult
+    func stop(commandId: String) -> Bool {
+        runner.requestStop(commandId: commandId)
+    }
 }

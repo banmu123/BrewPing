@@ -25,7 +25,8 @@ public enum SystemCommand {
         arguments: [String],
         timeoutSeconds: TimeInterval,
         additionalPATHEntries: [String] = [],
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        onLaunch: ((Process) -> Void)? = nil
     ) -> (exitCode: Int32, output: String)? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
@@ -53,6 +54,8 @@ public enum SystemCommand {
         } catch {
             return nil
         }
+        // 交给调用方登记（用户手动停止时据此 terminate / kill）。
+        onLaunch?(process)
         let completed = DispatchSemaphore(value: 0)
         let queue = DispatchQueue.global(qos: .userInitiated)
         queue.async {

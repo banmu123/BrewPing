@@ -51,6 +51,7 @@ public enum LKey: String, CaseIterable {
     case barFollowAgent = "bar.followAgent"
     case barApproval = "bar.approval"
     case barApprovalItem = "bar.approvalItem"
+    case barStop = "bar.stop"
     case barTerminal = "bar.terminal"
     case barTerminalOf = "bar.terminalOf"
     case approvalSafe = "approval.safe"
@@ -205,6 +206,7 @@ public enum DesktopStrings {
         .barFollowAgent: "跟随 Agent 配置",
         .barApproval: "授权模式",
         .barApprovalItem: "授权 {label}",
+        .barStop: "停止生成",
         .barTerminal: "终端输出",
         .barTerminalOf: "终端输出 · {agent}",
         .approvalSafe: "只拦截危险命令（默认）",
@@ -357,6 +359,7 @@ public enum DesktopStrings {
         .barFollowAgent: "Follow agent config",
         .barApproval: "Approval mode",
         .barApprovalItem: "Approve {label}",
+        .barStop: "Stop generating",
         .barTerminal: "Terminal output",
         .barTerminalOf: "Terminal · {agent}",
         .approvalSafe: "Only block dangerous commands (default)",

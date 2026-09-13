@@ -54,6 +54,7 @@ export const zh = {
   "bar.approval": "授权模式",
   "bar.approvalItem": "授权 {label}",
   "bar.terminal": "终端输出",
+  "bar.stop": "停止生成",
   "bar.terminalOf": "终端输出 · {agent}",
 
   // 授权模式说明
@@ -233,6 +234,7 @@ export const en: Dict = {
   "bar.approval": "Approval mode",
   "bar.approvalItem": "Approve {label}",
   "bar.terminal": "Terminal output",
+  "bar.stop": "Stop generating",
   "bar.terminalOf": "Terminal · {agent}",
 
   // Approval mode summaries

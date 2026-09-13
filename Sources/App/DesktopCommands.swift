@@ -328,6 +328,23 @@ public enum DesktopCommands {
         }
     }
 
+    /// `stop_generation` —— 手动停止当前对话正在生成的命令。
+    /// 命令被终止后走 `failed` 终态：转录落一条说明、调度指针清空。
+    @discardableResult
+    public static func stopActiveCommand() -> Bool {
+        guard let conversationId = ConversationStore.shared.activeConversation(),
+              let conversation = ConversationStore.shared.get(conversationId),
+              let commandId = conversation.latestCommandId, !commandId.isEmpty else {
+            return false
+        }
+        let stopped = CommandRouter.shared.stop(commandId: commandId)
+        // 终端指示灯即时复位（真正的终态由 CommandRunner 的 failed 分支回写）。
+        if let state = AgentManager.shared.terminalState(for: conversation.agentId) {
+            DispatchQueue.main.async { state.setStatus(.idle) }
+        }
+        return stopped
+    }
+
     /// `clear_terminal`
     public static func clearTerminal(_ agentId: String) {
         AgentManager.shared.terminalState(for: agentId)?.clearOutput()
