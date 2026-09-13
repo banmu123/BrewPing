@@ -14,25 +14,24 @@
 "○ idle" = "○ idle";
 "● ready" = "● ready";
 
-/* ── Swipe hints ──────────────────────────────── */
-"← swipe device →" = "← swipe device →";
-"← swipe to switch →" = "← swipe to switch →";
+/* ── Navigation / conversations ───────────────── */
+"Conversations" = "Conversations";
+"BrewPing" = "BrewPing";
+"No device" = "No device";
+"← device →" = "← device →";
+"Loading…" = "Loading…";
+"Can't load conversations" = "Can't load conversations";
+"Can't open conversation" = "Can't open conversation";
+"No conversations yet" = "No conversations yet";
+"(untitled)" = "(untitled)";
+"No messages yet" = "No messages yet";
+"Earlier messages not shown" = "Earlier messages not shown";
+"Refresh" = "Refresh";
 
 /* ── Voice command ────────────────────────────── */
-"Speak" = "Speak";
-"Start Listening" = "Start Listening";
-"Continuous" = "Continuous";
-"Type..." = "Type...";
-"Listening..." = "Listening...";
-"Speak now" = "Speak now";
-"Recognizing..." = "Recognizing...";
 "Done" = "Done";
+"Type..." = "Type...";
 "Sending..." = "Sending...";
-"Sent" = "Sent";
-"Waiting..." = "Waiting...";
-"Failed" = "Failed";
-"New Command" = "New Command";
-"Continue" = "Continue";
 "Retry" = "Retry";
 "iPhone not connected" = "iPhone not connected";
 "Recording failed" = "Recording failed";
@@ -54,4 +53,3 @@
 
 
 /* MARK: - Model switching */
-"← swipe model →" = "← swipe model →";

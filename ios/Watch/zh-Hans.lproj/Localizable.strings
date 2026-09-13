@@ -14,25 +14,24 @@
 "○ idle" = "○ 空闲";
 "● ready" = "● 就绪";
 
-/* ── Swipe hints ──────────────────────────────── */
-"← swipe device →" = "← 左右滑动切换设备 →";
-"← swipe to switch →" = "← 左右滑动切换 →";
+/* ── 导航 / 对话 ───────────────────────────────── */
+"Conversations" = "对话";
+"BrewPing" = "BrewPing";
+"No device" = "未添加设备";
+"← device →" = "← 切换设备 →";
+"Loading…" = "加载中…";
+"Can't load conversations" = "无法加载对话列表";
+"Can't open conversation" = "无法打开对话";
+"No conversations yet" = "还没有对话";
+"(untitled)" = "（尚未命名）";
+"No messages yet" = "还没有消息";
+"Earlier messages not shown" = "更早的消息未显示";
+"Refresh" = "刷新";
 
 /* ── Voice command ────────────────────────────── */
-"Speak" = "说话";
-"Start Listening" = "开始聆听";
-"Continuous" = "连续模式";
-"Type..." = "输入指令…";
-"Listening..." = "正在聆听…";
-"Speak now" = "请说话";
-"Recognizing..." = "正在识别…";
 "Done" = "完成";
+"Type..." = "输入…";
 "Sending..." = "正在发送…";
-"Sent" = "已发送";
-"Waiting..." = "等待中…";
-"Failed" = "失败";
-"New Command" = "新指令";
-"Continue" = "继续";
 "Retry" = "重试";
 "iPhone not connected" = "iPhone 未连接";
 "Recording failed" = "录音失败";
@@ -54,4 +53,3 @@
 
 
 /* MARK: - Model switching */
-"← swipe model →" = "← 左右滑动切换模型 →";

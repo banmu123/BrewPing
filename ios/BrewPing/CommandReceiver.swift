@@ -43,11 +43,12 @@ final class CommandReceiver: ObservableObject {
     /// WCSession 可以在 App 处于后台、界面尚未创建时唤醒进程投递音频，
     /// 那种情况下视图不会刷新，`.onChange` 永远不触发，
     /// 表现为"语音收到了、文字也识别出来了，但命令永远发不出去"。
-    var onCommand: ((String) -> Void)?
+    /// `conversationId` 为 `nil` = 不指定对话（沿桌面端三层回落），旧行为不变。
+    var onCommand: ((String, String?) -> Void)?
 
     private init() {}
 
-    func receive(type: MessageType, text: String) {
+    func receive(type: MessageType, text: String, conversationId: String? = nil) {
         // 命令正文属于用户内容，一律标记 .private（Release 下由系统抹除）。
         BrewPingLog.command.debug("Received \(String(describing: type), privacy: .public) text=\(text, privacy: .private)")
         guard type == .command, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -57,7 +58,7 @@ final class CommandReceiver: ObservableObject {
             self.lastCommandStatus = "received"
             self.lastCommandID = UUID()
             BrewPingLog.command.debug("Command stored at \(self.lastCommandReceivedAt ?? Date(), privacy: .public)")
-            self.onCommand?(text)
+            self.onCommand?(text, conversationId)
         }
     }
 }
@@ -145,6 +146,8 @@ final class CommandSubmitter: ObservableObject {
     private var pollTask: Task<Void, Never>?
     /// 挂起的命令是否来自 Watch：决定批准执行后的结果要不要回传手表。
     private var pendingFromWatch = false
+    /// 当前提交的目标对话（Watch 端用它判断"这条结果是不是我这个对话的"）。
+    private var activeConversationId: String?
 
     private init() {}
 
@@ -157,9 +160,9 @@ final class CommandSubmitter: ObservableObject {
         // 触发单例构造 → 立即为 WCSession 装上 delegate 并 activate()。
         _ = WatchConnectivityManager.shared
         // 把非 UI 通道收到的命令直接接到提交引擎上。
-        CommandReceiver.shared.onCommand = { text in
+        CommandReceiver.shared.onCommand = { text, conversationId in
             Task { @MainActor in
-                CommandSubmitter.shared.submit(text: text, fromWatch: true)
+                CommandSubmitter.shared.submit(text: text, fromWatch: true, conversationId: conversationId)
             }
         }
         BrewPingLog.command.info("CommandSubmitter bootstrapped")
@@ -205,6 +208,7 @@ final class CommandSubmitter: ObservableObject {
         lastModelId = nil
         pendingApproval = nil
         pendingFromWatch = fromWatch
+        activeConversationId = conversationId
 
         pollTask = Task { [weak self] in
             guard let self else { return }
@@ -394,7 +398,8 @@ final class CommandSubmitter: ObservableObject {
         WatchConnectivityManager.shared.sendCommandResult(
             status: raw ? "completed_with_raw" : "completed",
             text: text,
-            duration: decoded.duration
+            duration: decoded.duration,
+            conversationId: activeConversationId
         )
     }
 
@@ -409,7 +414,8 @@ final class CommandSubmitter: ObservableObject {
         WatchConnectivityManager.shared.sendCommandResult(
             status: "failed",
             text: message,
-            duration: decoded?.duration
+            duration: decoded?.duration,
+            conversationId: activeConversationId
         )
     }
 }

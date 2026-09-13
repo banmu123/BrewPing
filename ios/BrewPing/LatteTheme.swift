@@ -10,7 +10,9 @@ import SwiftUI
 //   --warning    hsl(33 75% 42%)  焦糖琥珀      --destructive hsl(10 55% 44%) 暖红陶土
 //
 // 用法：视图里一律使用 `Color.bp*`，不要再写 `.blue` / `.green` 等系统色，
-// 否则会与桌面端配色割裂。Watch 端有自己的配色（见 Watch/ContentView.swift），不要混用。
+// 否则会与桌面端配色割裂。
+// Watch 端用同名同值的另一份定义（`Watch/WatchTheme.swift`）—— watchOS 是独立
+// target，两份文件不能互相引用；**改配色必须两端同批**。
 
 extension Color {
     /// 奶白画布（页面底色）

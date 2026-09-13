@@ -1,287 +1,153 @@
 import SwiftUI
 import WatchKit
 
-struct VoiceCommandView: View {
+// MARK: - 对话页底部输入栏
+//
+// 交互形态（用户指定）：**只有一个居中的麦克风大按钮**。
+//   点麦克风 → 弹出系统键盘（底部自带听写键，语音 / 打字都行）
+//   → 说完 / 打完（键盘收起即失焦）**自动发送**
+//   → 发送期间按钮变 loading（🔒 锁定，不能再次发送）
+//   → 回复到达（震动 .success）→ 按钮短暂变 ✓ → 恢复麦克风，可进行下一次。
+//
+// ⚠️ 为什么不是 presentTextInputController：那是 WKInterfaceController 的 API，
+//    SwiftUI App 生命周期里没有 WKInterfaceController，编译期就不存在。
+//    `@FocusState` 聚焦唤起的系统键盘同样覆盖"语音 + 打字"。
+
+struct WatchComposer: View {
     @ObservedObject var sessionManager: WatchSessionManager
-    @StateObject private var audioRecorder = WatchAudioRecorder()
-    @State private var commandText = ""
-    @State private var continuousMode = false
-    @State private var showTranscribing = false
+    let conversationId: String
+
+    @State private var draft = ""
+    @FocusState private var inputFocused: Bool
+
+    private var inFlight: Bool {
+        switch sessionManager.commandState {
+        case .sending, .sent: return true
+        default: return false
+        }
+    }
+
+    private var hasDraft: Bool {
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 🚨 `.completed` 带 String 关联值，不能用 `==` 比较，只能模式匹配。
+    private var isCompletedState: Bool {
+        if case .completed = sessionManager.commandState { return true }
+        return false
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            switch sessionManager.commandState {
-            case .idle:
-                idleControls
-            case .sending:
-                HStack(spacing: 6) {
-                    ProgressView()
-                    Text("Sending...")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 4) {
+            // 失败提示：只有失败时出现（点一下收回）
+            if case .failed(let message) = sessionManager.commandState {
+                // message 是动态内容（设备返回的错误），不做本地化
+                Text(message)
+                    .font(.system(size: 9))
+                    .foregroundStyle(Color.bpDestructive)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onTapGesture { sessionManager.commandState = .idle }
+            }
+
+            composerCard
+        }
+        .onChange(of: sessionManager.commandState) { _, newState in
+            if case .completed = newState {
+                // 结果带对话 id：只刷新所属对话（旧版 iPhone 不带 id → 保持原行为）
+                let owner = sessionManager.lastResultConversationId
+                if owner == nil || owner == conversationId {
+                    finishAndRefresh()
                 }
-            case .sent(let text):
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "tray.and.arrow.up.fill")
-                            .foregroundStyle(.blue)
-                        Text("Sent")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                    }
-                    Text(text)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 4) {
-                        ProgressView()
-                        Text("Waiting...")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    if continuousMode {
-                        Color.clear.frame(height: 1).onAppear {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                startVoiceInput()
-                            }
-                        }
-                    }
-                }
-            case .completed(let text):
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                        Text("Done")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                        durationSuffix
-                    }
-                    Text(text)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    if continuousMode {
-                        Color.clear.frame(height: 1).onAppear {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                sessionManager.commandState = .idle
-                                startVoiceInput()
-                            }
-                        }
-                    } else {
-                        Button("New Command") {
-                            sessionManager.commandState = .idle
-                            commandText = ""
-                        }
-                        .font(.caption2)
-                    }
-                }
-            case .failed(let message):
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 4) {
-                        Text("Failed")
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                        durationSuffix
-                    }
-                    // message 是动态内容（设备返回的错误），不做本地化
-                    Text(message)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    if continuousMode {
-                        Button("Continue") {
-                            sessionManager.commandState = .idle
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                startVoiceInput()
-                            }
-                        }
-                        .font(.caption2)
-                    } else {
-                        Button("Retry") {
-                            sessionManager.commandState = .idle
-                        }
-                        .font(.caption2)
-                    }
-                }
+            }
+        }
+        .onChange(of: inputFocused) { _, focused in
+            // 键盘收起（说完话 / 点了别处）且还有内容 → 自动发送。
+            // 这是"说完就发"的触发点：手表键盘没有回车键，失焦即提交。
+            if !focused, hasDraft, !inFlight {
+                sendDraft()
             }
         }
     }
 
-    /// 耗时后缀（" · 1.5s"）。用单独 Text 拼接，避开 LocalizedStringKey
-    /// 不支持 format string 的限制。耗时数字本身是动态内容，不本地化。
-    @ViewBuilder
-    private var durationSuffix: some View {
-        if let d = sessionManager.lastCommandDuration {
-            Text(String(format: " · %.1fs", d))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-    }
+    // MARK: - 输入卡：输入框（仅输入时出现）+ 居中麦克风
 
-    // MARK: - 空闲状态
-
-    @ViewBuilder
-    private var idleControls: some View {
-        VStack(spacing: 8) {
-            if audioRecorder.isRecording {
-                recordingView
-            } else if showTranscribing {
-                HStack(spacing: 6) {
-                    ProgressView()
-                    Text("Recognizing...")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                Button {
-                    startVoiceInput()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "mic.fill")
-                            .font(.system(size: 14))
-                        Text(continuousMode
-                             ? LocalizedStringKey("Start Listening")
-                             : LocalizedStringKey("Speak"))
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                    .background(continuousMode ? Color.green.opacity(0.3) : Color.blue.opacity(0.25))
-                    .cornerRadius(8)
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    continuousMode.toggle()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: continuousMode ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(continuousMode ? .green : .secondary)
-                            .font(.system(size: 11))
-                        Text("Continuous")
-                            .font(.system(size: 10))
-                            .foregroundStyle(continuousMode ? .green : .secondary)
-                    }
-                }
-                .buttonStyle(.plain)
-
-                HStack(spacing: 4) {
-                    TextField("Type...", text: $commandText, axis: .vertical)
-                        .lineLimit(1...3)
-                        .font(.caption2)
-
-                    Button {
-                        sendTextCommand()
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(commandText.isEmpty ? .gray : .green)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-        }
-    }
-
-    // MARK: - 录音中
-
-    private var recordingView: some View {
+    private var composerCard: some View {
         VStack(spacing: 6) {
-            HStack(spacing: 2) {
-                ForEach(0..<7, id: \.self) { i in
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(barColor(for: i))
-                        .frame(width: 3, height: barHeight(for: i))
-                }
-                Spacer()
-                if audioRecorder.hasSpeech {
-                    Text("Listening...")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.green)
-                } else {
-                    Text("Speak now")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.orange)
+            // 输入框只在唤起键盘 / 有草稿时出现；平时整卡只有居中的麦克风
+            if inputFocused || hasDraft {
+                TextField("Type...", text: $draft)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.bpForeground)
+                    .focused($inputFocused)
+                    .onSubmit { sendDraft() }
+                    .padding(.horizontal, 6)
+            }
+
+            commandButton
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .bpCardStyle(cornerRadius: 14)
+    }
+
+    /// 居中单按钮，三态：🎤 麦克风 → ⏳ loading（锁定）→ ✓ 完成（短暂）→ 🎤。
+    private var commandButton: some View {
+        Button {
+            inputFocused = true
+        } label: {
+            Group {
+                switch sessionManager.commandState {
+                case .sending, .sent:
+                    // 执行中：按钮本身就是 loading，取代原来那行小字"正在发送"
+                    ProgressView()
+                        .controlSize(.regular)
+                        .tint(Color.bpPrimary)
+                case .completed:
+                    // 回复到达后的短暂确认态（0.8s 后自动回到麦克风）
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(Color.bpSuccess)
+                default:
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(sessionManager.activationState == .activated
+                                         ? Color.bpPrimary : Color.bpMutedForeground)
                 }
             }
-            .frame(height: 18)
+            .frame(width: 52, height: 52)
+            .background(Circle().fill(
+                isCompletedState ? Color.bpSuccess.opacity(0.15) : Color.bpPrimary.opacity(0.15)
+            ))
+            .overlay {
+                Circle().strokeBorder(Color.bpBorder, lineWidth: 1)
+            }
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        // 执行中锁定：等回复到了（震动 + ✓）才允许下一次
+        .disabled(inFlight || sessionManager.activationState != .activated)
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
 
-            HStack(spacing: 12) {
-                Button {
-                    audioRecorder.stopRecording()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 14))
-                        Text("Done")
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 5)
-                    .background(Color.green.opacity(0.25))
-                    .cornerRadius(6)
-                }
-                .buttonStyle(.plain)
+    // MARK: - 发送 / 收尾
 
-                Button {
-                    showTranscribing = false
-                    audioRecorder.cancelRecording()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.red)
-                }
-                .buttonStyle(.plain)
+    private func sendDraft() {
+        guard hasDraft, !inFlight else { return }
+        sessionManager.sendCommand(draft, conversationId: conversationId)
+        draft = ""
+        inputFocused = false
+    }
+
+    private func finishAndRefresh() {
+        sessionManager.requestConversation(id: conversationId)
+        // 稍作停留让 ✓ 可感知，然后回到麦克风
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            if sessionManager.commandState != .idle {
+                sessionManager.commandState = .idle
             }
         }
-    }
-
-    private func barHeight(for index: Int) -> CGFloat {
-        let normalized = CGFloat(audioRecorder.audioLevel) * 7
-        return CGFloat(index) < normalized ? CGFloat(6 + index * 2) : 4
-    }
-
-    private func barColor(for index: Int) -> Color {
-        let normalized = CGFloat(audioRecorder.audioLevel) * 7
-        if CGFloat(index) < normalized {
-            return index < 4 ? .green : (index < 6 ? .yellow : .red)
-        }
-        return .gray.opacity(0.2)
-    }
-
-    // MARK: - 语音输入
-
-    private func startVoiceInput() {
-        // 只要 WCSession 已激活就允许录音：
-        // 音频走 transferFile 排队投递，不要求 iPhone App 此刻在前台。
-        guard sessionManager.activationState == .activated else {
-            sessionManager.lastError = LW("iPhone not connected")
-            return
-        }
-
-        showTranscribing = true
-
-        audioRecorder.startRecording { [self] result in
-            DispatchQueue.main.async {
-                showTranscribing = false
-                switch result {
-                case .success(let url):
-                    WatchLog.audio.info("Recording finished, sending \(url.lastPathComponent, privacy: .private)")
-                    sessionManager.sendAudioCommand(fileURL: url)
-                case .failure(let error):
-                    WatchLog.audio.error("Recording failed: \(error.localizedDescription, privacy: .private)")
-                    sessionManager.commandState = .failed(error.errorDescription ?? LW("Recording failed"))
-                    if continuousMode {
-                        continuousMode = false
-                    }
-                }
-            }
-        }
-    }
-
-    private func sendTextCommand() {
-        let trimmed = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        sessionManager.sendCommand(trimmed)
-        commandText = ""
     }
 }

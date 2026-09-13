@@ -53,7 +53,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         let mode = agentMode ?? currentAgentMode
         guard activated, paired else { return }
         do {
-            try session.updateApplicationContext([
+            var context: [String: Any] = [
                 "macConnected": online,
                 "sessionState": sessionStateRaw,
                 "agentName": name,
@@ -68,7 +68,13 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
                 // 语言偏好：手表照抄 iPhone 的设置，避免两端各维护一份。
                 LanguageManager.syncKey: UserDefaults.standard
                     .string(forKey: LanguageManager.storageKey) ?? AppLanguage.system.rawValue
-            ])
+            ]
+            // 状态推送会整体覆盖 context —— 把最近命令结果合并回去，
+            // 否则手表端靠 applicationContext 恢复结果的兜底就失效了。
+            if let result = lastCommandResult {
+                context["lastCommandResult"] = result
+            }
+            try session.updateApplicationContext(context)
         } catch {
             BrewPingLog.watch.error("Status push failed: \(error.localizedDescription, privacy: .private)")
         }
@@ -91,35 +97,51 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         }
     }
 
-    func sendCommandResult(status: String, text: String, duration: Double? = nil) {
+    /// 最近一条命令结果。applicationContext 兜底用：
+    /// 手表 App 被杀 / session 未激活时，结果随 context 在手表下次激活时恢复。
+    private var lastCommandResult: [String: Any]?
+
+    func sendCommandResult(status: String, text: String, duration: Double? = nil, conversationId: String? = nil) {
         guard WCSession.isSupported() else { return }
         let session = WCSession.default
-        guard session.activationState == .activated else {
-            BrewPingLog.watch.error("Session not activated, command result dropped: \(status, privacy: .public)")
-            return
-        }
         var message: [String: Any] = [
             "type": "commandResult",
             "status": status,
-            "text": text
+            "text": text,
+            // 手表用它判断"这条结果属于哪个对话"，只有匹配的对话页才自动刷新
+            "ts": Date().timeIntervalSince1970
         ]
         if let duration { message["duration"] = duration }
+        if let conversationId, !conversationId.isEmpty { message["conversationId"] = conversationId }
+        lastCommandResult = message
 
-        // Watch App 不在前台时 sendMessage 必然失败，
-        // 原来直接丢弃结果，手表会永远停在 "Waiting..."——
-        // 改用 transferUserInfo 排队，在手表 App 下次运行时送达。
+        // Watch App 不在前台时 sendMessage 必然失败 → transferUserInfo 排队。
+        // applicationContext 单键覆盖（"最后一条结果"语义），手表重启也能恢复 + 去重。
         guard session.isReachable else {
             session.transferUserInfo(message)
+            pushResultContext(session)
             BrewPingLog.watch.info("Watch not reachable, queued command result: \(status, privacy: .public)")
             return
         }
-        session.sendMessage(message, replyHandler: nil) { error in
+        session.sendMessage(message, replyHandler: nil) { [weak self] error in
             BrewPingLog.watch.error("Command result push failed (\(error.localizedDescription, privacy: .private)), queuing instead")
             session.transferUserInfo(message)
         }
+        pushResultContext(session)
+    }
+
+    /// 把最近结果合并进 applicationContext（保留状态推送的其它键）。
+    private func pushResultContext(_ session: WCSession) {
+        guard session.activationState == .activated, session.isPaired, let result = lastCommandResult else { return }
+        var context = session.applicationContext
+        context["lastCommandResult"] = result
+        try? session.updateApplicationContext(context)
     }
 
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+        // session 刚激活：applicationContext 里可能还留着未送达的命令结果，
+        // 这里补写一次（手表端 applyContext 会在激活时消费并去重）。
+        if activationState == .activated { pushResultContext(session) }
         if let error {
             BrewPingLog.watch.error("WCSession activation error: \(error.localizedDescription, privacy: .private)")
         }
@@ -171,6 +193,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         }
 
         let agentId = metadata["agentId"] as? String
+        let conversationId = metadata["conversationId"] as? String
         let localeId = metadata["locale"] as? String
         let sourceName = metadata["fileName"] as? String ?? file.fileURL.lastPathComponent
         let size = (try? localURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
@@ -183,7 +206,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
             WatchAudioPlayback.shared.play(localURL, label: sourceName)
         }
 
-        transcribeAndForward(audioURL: localURL, agentId: agentId, localeIdentifier: localeId)
+        transcribeAndForward(audioURL: localURL, agentId: agentId, localeIdentifier: localeId, conversationId: conversationId)
     }
 
     private func handleWatchMessage(_ message: [String: Any], replyHandler: (([String: Any]) -> Void)?) {
@@ -219,6 +242,21 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
             ])
             return
         }
+        if type == "requestConversations" {
+            // WCSession 的 replyHandler 是可选的：没有就没人接结果，直接不取。
+            guard let replyHandler else { return }
+            fetchConversationsForWatch(replyHandler: replyHandler)
+            return
+        }
+        if type == "requestConversation" {
+            guard let conversationId = message["conversationId"] as? String, !conversationId.isEmpty else {
+                replyHandler?(["ok": false, "error": "missing conversationId"])
+                return
+            }
+            guard let replyHandler else { return }
+            fetchConversationDetailForWatch(conversationId: conversationId, replyHandler: replyHandler)
+            return
+        }
         if type == "switchAgent" {
             guard let agentId = message["agentId"] as? String else {
                 replyHandler?(["ok": false, "error": "missing agentId"])
@@ -244,9 +282,12 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         if type == "command" {
             let text = (message["text"] as? String) ?? (message["content"] as? String) ?? ""
             let agentId = message["agentId"] as? String
-            BrewPingLog.command.info("Command received from Watch, agent=\(agentId ?? "default", privacy: .public)")
+            // 新版手表从**对话详情页**发送：带 conversationId 直达该对话，
+            // 且不带 agentId（对话自带 Agent，切换 Mac 的 active Agent 是副作用）。
+            let conversationId = message["conversationId"] as? String
+            BrewPingLog.command.info("Command received from Watch, agent=\(agentId ?? "default", privacy: .public) conv=\(conversationId ?? "auto", privacy: .public)")
             replyHandler?(["ok": true, "type": "ack"])
-            ensureAgentThenForward(text: text, agentId: agentId)
+            ensureAgentThenForward(text: text, agentId: agentId, conversationId: conversationId)
             return
         }
         if type == "audioCommand" {
@@ -260,6 +301,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
                 return
             }
             let agentId = message["agentId"] as? String
+            let conversationId = message["conversationId"] as? String
             BrewPingLog.watch.info("Legacy inline audio command (\(audioData.count, privacy: .public) bytes)")
             let localURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("watch_audio_\(UUID().uuidString).m4a")
@@ -272,7 +314,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
                 return
             }
             replyHandler?(["ok": true, "type": "ack"])
-            transcribeAndForward(audioURL: localURL, agentId: agentId)
+            transcribeAndForward(audioURL: localURL, agentId: agentId, conversationId: conversationId)
             return
         }
         let text = message["text"] as? String ?? ""
@@ -283,6 +325,119 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
             self.lastReceivedText = text
         }
         replyHandler?(["ok": true, "type": "ack"])
+    }
+
+    // MARK: - Watch 对话浏览（手表只发意图，抓取由 iPhone 代劳）
+
+    /// Watch 端载荷上限约 65 KB，转发的目录/转录都要先做裁剪：
+    /// 目录最多 30 条（只留展示要用的字段），转录最多取最近 20 条、每条 800 字。
+    private static let watchConversationLimit = 30
+    private static let watchMessageLimit = 20
+    private static let watchMessageTextLimit = 800
+
+    /// 当前生效设备的对话目录。
+    /// `replyHandler` 在 HTTP 返回后才调用 —— WCSession 的回复通道容忍数秒延迟，
+    /// 手表侧另挂 10s 看门狗兜底。
+    private func fetchConversationsForWatch(replyHandler: @escaping ([String: Any]) -> Void) {
+        onMainWithActiveDevice { device in
+            guard let device,
+                  var request = BrewPingHTTP.request(device: device, path: "/api/conversations", timeout: 10) else {
+                BrewPingLog.watch.info("Watch requested conversations but no active device")
+                replyHandler(["ok": false, "error": "no device"])
+                return
+            }
+
+            Task {
+                do {
+                    let (data, response) = try await BrewPingHTTP.session.data(for: request)
+                    if BrewPingHTTP.isUnauthorized(response) {
+                        replyHandler(["ok": false, "error": "not paired"])
+                        return
+                    }
+                    guard (response as? HTTPURLResponse)?.statusCode == 200,
+                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let list = json["conversations"] as? [[String: Any]] else {
+                        replyHandler(["ok": false, "error": "unavailable"])
+                        return
+                    }
+
+                    // 只保留手表要显示的字段：payload 越小越不容易撞 65 KB 上限。
+                    // 归档对话不在手表目录里展示（小屏保持列表干净，与桌面端主列表一致）。
+                    let active = list.filter { ($0["archived"] as? Bool) != true }
+                    let compact = active.prefix(Self.watchConversationLimit).map { item -> [String: Any] in
+                        [
+                            "id": item["id"] as? String ?? "",
+                            "title": item["title"] as? String ?? "",
+                            "agentId": item["agentId"] as? String ?? "",
+                            "messageCount": item["messageCount"] as? Int ?? 0,
+                            "updatedAtMs": item["updatedAtMs"] as? Double ?? 0,
+                            "isPinned": item["isPinned"] as? Bool ?? false
+                        ]
+                    }
+                    BrewPingLog.watch.info("Conversations for Watch: \(compact.count, privacy: .public) of \(active.count, privacy: .public)")
+                    replyHandler(["ok": true, "conversations": compact])
+                } catch {
+                    BrewPingLog.watch.error("Conversations for Watch failed: \(error.localizedDescription, privacy: .private)")
+                    replyHandler(["ok": false, "error": "network"])
+                }
+            }
+        }
+    }
+
+    /// 单条对话的转录（手表迷你对话页）。
+    private func fetchConversationDetailForWatch(conversationId: String, replyHandler: @escaping ([String: Any]) -> Void) {
+        onMainWithActiveDevice { device in
+            guard let device,
+                  var request = BrewPingHTTP.request(
+                    device: device,
+                    path: "/api/conversations/\(conversationId)",
+                    timeout: 10
+                  ) else {
+                replyHandler(["ok": false, "error": "no device"])
+                return
+            }
+
+            Task {
+                do {
+                    let (data, response) = try await BrewPingHTTP.session.data(for: request)
+                    if BrewPingHTTP.isUnauthorized(response) {
+                        replyHandler(["ok": false, "error": "not paired"])
+                        return
+                    }
+                    guard (response as? HTTPURLResponse)?.statusCode == 200,
+                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          // 注意：响应体是 `{ "success":…, "conversation": {…} }`，
+                          // 转录在 `conversation` 里，不在顶层。
+                          let conversation = json["conversation"] as? [String: Any],
+                          let messages = conversation["messages"] as? [[String: Any]] else {
+                        replyHandler(["ok": false, "error": "unavailable"])
+                        return
+                    }
+
+                    // 最近 N 条 + 每条截断：手表小屏看不了长文，也控住 payload 体积。
+                    let tail = messages.suffix(Self.watchMessageLimit)
+                    let compact = tail.map { item -> [String: Any] in
+                        let text = item["text"] as? String ?? ""
+                        return [
+                            "role": item["role"] as? String ?? "assistant",
+                            "text": String(text.prefix(Self.watchMessageTextLimit)),
+                            "createdAtMs": item["createdAtMs"] as? Double ?? 0
+                        ]
+                    }
+                    BrewPingLog.watch.info("Conversation for Watch: \(compact.count, privacy: .public) messages")
+                    replyHandler([
+                        "ok": true,
+                        "id": conversationId,
+                        "title": conversation["title"] as? String ?? "",
+                        "messages": compact,
+                        "truncated": messages.count > tail.count
+                    ])
+                } catch {
+                    BrewPingLog.watch.error("Conversation for Watch failed: \(error.localizedDescription, privacy: .private)")
+                    replyHandler(["ok": false, "error": "network"])
+                }
+            }
+        }
     }
 
     // MARK: - Active Device Resolution
@@ -403,11 +558,18 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
     }
 
     /// 确保 Mac 端 active Agent 匹配后再发命令
-    private func ensureAgentThenForward(text: String, agentId: String?) {
+    private func ensureAgentThenForward(text: String, agentId: String?, conversationId: String? = nil) {
         let forward = {
             DispatchQueue.main.async {
-                CommandReceiver.shared.receive(type: .command, text: text)
+                CommandReceiver.shared.receive(type: .command, text: text, conversationId: conversationId)
             }
+        }
+
+        // 指定了对话（手表对话页发送）时不做 Agent 预切：
+        // 对话自带 Agent，切换 Mac 的 activeAgent 对用户是意外的副作用。
+        if conversationId != nil {
+            forward()
+            return
         }
 
         onMainWithActiveDevice { device in
@@ -575,7 +737,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
 
     /// 将 Watch 发来的音频文件转为文字，然后走已有的 command 链路。
     /// `audioURL` 必须是已经落在本 App 临时目录、不会被系统回收的文件。
-    private func transcribeAndForward(audioURL: URL, agentId: String?, localeIdentifier: String? = nil) {
+    private func transcribeAndForward(audioURL: URL, agentId: String?, localeIdentifier: String? = nil, conversationId: String? = nil) {
         // 权限先行：否则后台唤醒时识别必然失败，且错误信息没有指向性。
         guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
             let status = SFSpeechRecognizer.authorizationStatus()
@@ -634,9 +796,9 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
                 return
             }
 
-            // 确保 Agent 匹配后转发命令
+            // 确保 Agent 匹配后转发命令（对话页来的命令直达该对话）
             DispatchQueue.main.async {
-                self.ensureAgentThenForward(text: text, agentId: agentId)
+                self.ensureAgentThenForward(text: text, agentId: agentId, conversationId: conversationId)
             }
         }
     }

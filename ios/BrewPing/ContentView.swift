@@ -141,11 +141,13 @@ struct ContentView: View {
                         agentNames: agentNameMap
                     )
                 } else if deviceStore.devices.isEmpty {
-                    // 无设备：与 Android 空状态同构 —— 一张居中引导卡片，
-                    // 扫到电脑时下面多一张「附近」列表。不再用三段式 Form。
+                    // 无设备：附近一台没扫到时显示引导卡；扫到了就只显示「附近」列表
+                    // （对着一台就在跟前的电脑说"添加第一台电脑/去下载"是噪音）。
                     ScrollView {
                         VStack(spacing: 16) {
-                            emptyStateCard
+                            if bonjour.discoveredHosts.isEmpty {
+                                emptyStateCard
+                            }
                             nearbyCard
                         }
                         .padding(16)
@@ -314,6 +316,7 @@ struct ContentView: View {
     /// 「对话设置」面板（ConversationSettingsView，按对话独立生效）。
 
     /// 没有设备时的引导卡片 —— 与 Android `EmptyStateCard` 同构：
+    /// （整卡只在附近一台都没扫到时出现；扫到了就只显示「附近」列表。）
     /// 一张居中卡片（图标 / 标题 / 一句说明 / 一个主按钮 / 一行脚注）。
     ///
     /// 之前这里是「三段式 Form + 4 步编号引导 + 快捷入口」：同一件事被说了三四遍
@@ -445,8 +448,9 @@ struct ContentView: View {
         )
         deviceStore.addDevice(device)
         deviceStore.setActive(device.id)
-        // 弹出 pair sheet —— 复用现有 addDevice sheet，自动会展示 pairing code 输入框
-        startAddDevice()
+        // 弹出 pair sheet。🚨 必须走 beginEditing（预填名称 / IP / 端口 / 系统），
+        // startAddDevice() 会把表单清空 —— 用户点 + 就是为了省掉手输。
+        beginEditing(device)
     }
 
     /// 处理 brewping:// 唤起：参数化 addDevice + pair。
@@ -781,13 +785,27 @@ struct ContentView: View {
 
         let device: ManagedDevice
         if isNew {
-            device = ManagedDevice.new(
-                name: trimmedName.isEmpty ? editOS.label : trimmedName,
-                host: trimmedHost,
-                port: editPort,
-                osType: editOS
-            )
-            deviceStore.addDevice(device)
+            // 🚨 按 host+port 去重复用：同一台电脑可能已经有一条（例如刚从
+            // 附近列表点过 +，或之前添加过但没配对）。直接再建一条会出现
+            // "一条未配对 + 一条已配对"两个条目指向同一台机器。
+            // 复用时保留原 id —— Keychain 里的 token 是按设备存的，换 id 会丢。
+            if var existing = deviceStore.devices.first(where: {
+                $0.host.caseInsensitiveCompare(trimmedHost) == .orderedSame
+                    && $0.port == editPort
+            }) {
+                if !trimmedName.isEmpty { existing.name = trimmedName }
+                existing.osType = editOS
+                deviceStore.updateDevice(existing)
+                device = existing
+            } else {
+                device = ManagedDevice.new(
+                    name: trimmedName.isEmpty ? editOS.label : trimmedName,
+                    host: trimmedHost,
+                    port: editPort,
+                    osType: editOS
+                )
+                deviceStore.addDevice(device)
+            }
         } else if var updated = existing {
             updated.name = trimmedName
             updated.host = trimmedHost
@@ -858,6 +876,7 @@ struct ContentView: View {
             editHost = host.host
             editPort = String(host.port)
             editName = host.name
+            editOS = host.osType   // platform 取自 TXT 记录，否则回落默认 Mac（"幽灵 Mac"）
             discoveryMessage = L("Found: %@ (%@:%@)", host.name, host.host, String(host.port))
         } else {
             discoveryMessage = L("No BrewPing agent found. Make sure %@ is running and on the same Wi-Fi.",

@@ -12,6 +12,10 @@ struct BrewPingWatchApp: App {
                 // .id 强制重建让已渲染的文案换语言。
                 .environment(\.locale, language.locale)
                 .id(language.preferredLanguage)
+                // 奶白主题固定浅色外观（与 macOS 桌面端同一决策）。
+                // 否则系统前景色（navigationTitle 等）在深色外观下是白色，
+                // 铺在奶白底上直接隐形。
+                .preferredColorScheme(.light)
         }
     }
 }
@@ -20,39 +24,35 @@ struct ContentView: View {
     @StateObject private var sessionManager = WatchSessionManager()
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
-                // MARK: - 设备切换（可左右滑动）
-                if sessionManager.devices.count > 1 {
-                    deviceSwipeSection
-                } else if let device = sessionManager.devices.first {
-                    singleDeviceBanner(device)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    // MARK: - 设备切换
+                    deviceSection
+
+                    // MARK: - 对话目录
+                    conversationsEntry
+
+                    // MARK: - 连接状态
+                    connectionStatusSection
+
+                    // 发送入口在**对话详情页底部**（与 iOS / macOS 同构）；
+                    // Agent / 模型切换交给手机与桌面端，手表只看记录 + 在对话里续聊。
+
+                    if let error = sessionManager.lastError {
+                        // error 是动态内容（设备返回 / WCSession 错误），不做本地化
+                        Text(error)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.bpDestructive)
+                    }
                 }
-
-                // MARK: - Agent 切换区（可左右滑动）
-                agentSwipeSection
-
-                // MARK: - 模型切换区（可左右滑动）
-                modelSwipeSection
-
-                // MARK: - 连接状态
-                connectionStatusSection
-
-                // 语音入口只依赖会话是否激活：
-                // 音频经 transferFile 排队投递，iPhone App 不在前台时同样能发。
-                if sessionManager.activationState == .activated {
-                    // MARK: - 语音命令
-                    VoiceCommandView(sessionManager: sessionManager)
-                }
-
-                if let error = sessionManager.lastError {
-                    // error 是动态内容（设备返回 / WCSession 错误），不做本地化
-                    Text(error)
-                        .font(.caption2)
-                        .foregroundStyle(.red)
-                }
+                .padding(.horizontal, 4)
+                .padding(.bottom, 4)
             }
-            .padding(.horizontal, 4)
+            // 🚨 导航标题是系统代渲染，preferredColorScheme 只能保证不是白色；
+            //    要拿铁的深咖棕必须显式 foregroundStyle。
+            .navigationTitle(Text("BrewPing").foregroundStyle(Color.bpForeground))
+            .bpScreenBackground()
         }
         .onAppear {
             sessionManager.activate()
@@ -61,211 +61,145 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - 设备滑动切换
+    // MARK: - 设备切换（左右箭头 + 当前值）
 
-    private var deviceSwipeSection: some View {
-        VStack(spacing: 2) {
-            TabView(selection: $sessionManager.activeDeviceIndex) {
-                ForEach(Array(sessionManager.devices.enumerated()), id: \.element.id) { index, device in
-                    deviceCard(device)
-                        .tag(index)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .automatic))
-            .frame(height: 40)
-            .onChange(of: sessionManager.activeDeviceIndex) { _, newIndex in
-                sessionManager.switchToDevice(index: newIndex)
-            }
-
-            Text("← swipe device →")
-                .font(.system(size: 7))
-                .foregroundStyle(.tertiary)
-        }
-    }
-
-    private func singleDeviceBanner(_ device: WatchDevice) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: device.icon)
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-            Text(device.name)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-    }
-
-    private func deviceCard(_ device: WatchDevice) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: device.icon)
-                .font(.system(size: 12))
-                .foregroundStyle(.blue)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(device.name)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white)
-                Text(device.osLabel)
-                    .font(.system(size: 8))
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 4)
-        .padding(.horizontal, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.white.opacity(0.08))
-        )
-    }
-
-    // MARK: - Agent 滑动切换
-
-    private var agentSwipeSection: some View {
-        VStack(spacing: 4) {
-            TabView(selection: $sessionManager.activeAgentIndex) {
-                ForEach(Array(sessionManager.agents.enumerated()), id: \.element.id) { index, agent in
-                    agentCard(agent)
-                        .tag(index)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .automatic))
-            .frame(height: 52)
-            .onChange(of: sessionManager.activeAgentIndex) { _, newIndex in
-                sessionManager.switchToAgent(index: newIndex)
-            }
-
-            if sessionManager.agents.count > 1 {
-                Text("← swipe to switch →")
-                    .font(.system(size: 8))
-                    .foregroundStyle(.tertiary)
-            }
-        }
-    }
-
-    private func agentCard(_ agent: WatchAgent) -> some View {
-        VStack(spacing: 2) {
-            HStack(spacing: 4) {
-                Text(agentIcon(for: agent.id))
-                    .font(.system(size: 14))
-                Text(agent.name)
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
-            }
-
-            if agent.id == sessionManager.activeAgentID {
-                statusLabelText
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundColor(statusColor)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 4)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.white.opacity(0.08))
-        )
-    }
-
-    // MARK: - 模型滑动切换
-
-    /// 与 Agent 切换同一套交互（左右滑动），小屏上不需要弹层。
-    /// 只有真的有得选（`models.count > 1`）才出现。
+    /// 🚨 不用矮的 `TabView(.page)`：手表上把 `TabView` 压到几十 pt 高时，
+    /// 页码正常但**卡片文字会渲染成空白**（项目已知坑）。改为「箭头 + 当前值」。
     @ViewBuilder
-    private var modelSwipeSection: some View {
-        if sessionManager.canSwitchModel {
-            VStack(spacing: 2) {
-                HStack(spacing: 6) {
-                    Button {
-                        sessionManager.stepModel(by: -1)
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 11, weight: .semibold))
-                            .frame(width: 22, height: 24)
-                    }
-                    .buttonStyle(.plain)
-
-                    // 当前生效的模型名（用户配置的数据，不翻译）
-                    Text(verbatim: sessionManager.activeModelName)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .frame(maxWidth: .infinity)
-
-                    Button {
-                        sessionManager.stepModel(by: 1)
-                    } label: {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 11, weight: .semibold))
-                            .frame(width: 22, height: 24)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.vertical, 2)
-                .padding(.horizontal, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.white.opacity(0.08))
-                )
-                // 横向滑动切换：与左右两个 chevron 按钮并存。
-                //
-                // 用 `simultaneousGesture` 而不是 `gesture`：后者会抢掉两个按钮的点击，
-                // 让"点箭头"也一起失效。
-                //
-                // 关键过滤条件 `abs(dx) > abs(dy)`：只认"明确横向"的滑动，
-                // 纵向手势继续交给最外层 ScrollView。这正是模型区此前"划不动"的根因——
-                // 区里原本没有任何手势识别，横向拖拽被外层 ScrollView 吃掉；
-                // 而如果改用 TabView(.page) 内嵌，则纵向滚动与横向翻页会互相抢手势，同样失效。
-                .contentShape(RoundedRectangle(cornerRadius: 6))
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 20)
-                        .onEnded { value in
-                            let dx = value.translation.width
-                            let dy = value.translation.height
-                            // abs(dx) > 30：过滤抖动与误触；abs(dx) > abs(dy)：排除斜向/纵向滚动。
-                            guard abs(dx) > 30, abs(dx) > abs(dy) else { return }
-                            // 向左滑（dx < 0）看下一个模型，向右滑看上一个。
-                            sessionManager.stepModel(by: dx < 0 ? 1 : -1)
+    private var deviceSection: some View {
+        if sessionManager.devices.isEmpty {
+            sectionLabel(Text("No device"))
+        } else if sessionManager.devices.count == 1, let device = sessionManager.devices.first {
+            HStack(spacing: 5) {
+                Image(systemName: device.icon)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.bpPrimary)
+                Text(verbatim: device.name)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.bpForeground)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .bpCardStyle(cornerRadius: 8)
+        } else {
+            VStack(spacing: 3) {
+                stepper(
+                    left: { sessionManager.stepDevice(by: -1) },
+                    right: { sessionManager.stepDevice(by: 1) }
+                ) {
+                    HStack(spacing: 5) {
+                        Image(systemName: activeDevice?.icon ?? "desktopcomputer")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.bpPrimary)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(verbatim: activeDevice?.name ?? "")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color.bpForeground)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                            Text(verbatim: activeDevice?.osLabel ?? "")
+                                .font(.system(size: 8))
+                                .foregroundStyle(Color.bpMutedForeground)
                         }
-                )
-
-                // 有多个模型时才提示可以切换
-                if sessionManager.models.count > 1 {
-                    Text("← swipe model →")
-                        .font(.system(size: 7))
-                        .foregroundStyle(.tertiary)
+                    }
                 }
+                sectionLabel(Text("← device →"))
             }
         }
     }
 
-    private func agentIcon(for agentId: String) -> String {
-        switch agentId {
-        case "opencode":    return "⌥"
-        case "claude-code": return "◈"
-        case "codex":       return "⌘"
-        default:            return "●"
-        }
+    private var activeDevice: WatchDevice? {
+        guard sessionManager.activeDeviceIndex < sessionManager.devices.count else { return nil }
+        return sessionManager.devices[sessionManager.activeDeviceIndex]
     }
 
-    /// 返回 `Text` 而不是 `String` —— 强制走 LocalizedStringKey 路径做本地化。
-    private var statusLabelText: Text {
-        switch sessionManager.agentMode {
-        case "session":
-            return sessionManager.sessionState == "running"
-                ? Text("● running")
-                : Text("○ idle")
-        default:
-            return Text("● ready")
+    // MARK: - 通用步进器
+
+    /// 「左箭头 + 内容 + 右箭头」。横向滑动手势并存（`simultaneousGesture`，
+    /// 否则会抢掉箭头的点击），纵向滚动继续交给外层 ScrollView。
+    private func stepper<Content: View>(
+        left: @escaping () -> Void,
+        right: @escaping () -> Void,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(spacing: 6) {
+            chevronButton("chevron.left", action: left)
+
+            content()
+                .frame(maxWidth: .infinity)
+
+            chevronButton("chevron.right", action: right)
         }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 4)
+        .bpCardStyle(cornerRadius: 8)
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .onEnded { value in
+                    let dx = value.translation.width
+                    let dy = value.translation.height
+                    // 只认「明确横向」的滑动（abs(dx) > 30 且横向分量占优），
+                    // 纵向手势让给外层 ScrollView。
+                    guard abs(dx) > 30, abs(dx) > abs(dy) else { return }
+                    if dx < 0 { right() } else { left() }
+                }
+        )
     }
 
-    private var statusColor: Color {
-        if sessionManager.agentMode == "session" {
-            return sessionManager.sessionState == "running" ? .green : .orange
+    private func chevronButton(_ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.bpPrimary)
+                .frame(width: 22, height: 26)
+                .contentShape(Rectangle())
         }
-        return .green
+        .buttonStyle(.plain)
+    }
+
+    /// 小字提示（如「← device →」）
+    private func sectionLabel(_ text: Text) -> some View {
+        text
+            .font(.system(size: 8))
+            .foregroundStyle(Color.bpMutedForeground.opacity(0.8))
+            .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    // MARK: - 对话目录入口
+
+    private var conversationsEntry: some View {
+        NavigationLink {
+            WatchConversationListView(sessionManager: sessionManager)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "list.bullet.rectangle")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.bpPrimary)
+                Text("Conversations")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.bpForeground)
+                Spacer(minLength: 0)
+                if sessionManager.conversationsLoading {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else if !sessionManager.conversations.isEmpty {
+                    Text("\(sessionManager.conversations.count)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Color.bpMutedForeground)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color.bpMutedForeground)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+            .bpCardStyle(cornerRadius: 8)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - 连接状态
@@ -274,11 +208,11 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
                 Circle()
-                    .fill(sessionManager.reachable ? Color.green : Color.red)
+                    .fill(sessionManager.reachable ? Color.bpSuccess : Color.bpDestructive)
                     .frame(width: 6, height: 6)
                 statusText
-                    .font(.caption2)
-                    .foregroundStyle(sessionManager.reachable ? Color.secondary : Color.red)
+                    .font(.system(size: 11))
+                    .foregroundStyle(sessionManager.reachable ? Color.bpMutedForeground : Color.bpDestructive)
             }
 
             if sessionManager.reachable {
@@ -287,11 +221,14 @@ struct ContentView: View {
                         .fill(macDotColor)
                         .frame(width: 6, height: 6)
                     macStatusText
-                        .font(.caption2)
-                        .foregroundStyle(macDotColor == Color.green ? Color.secondary : Color.red)
+                        .font(.system(size: 11))
+                        .foregroundStyle(macDotColor == Color.bpSuccess ? Color.bpMutedForeground : Color.bpDestructive)
                 }
             }
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .bpCardStyle(cornerRadius: 8)
     }
 
     private var statusText: Text {
@@ -305,14 +242,13 @@ struct ContentView: View {
 
     private var macDotColor: Color {
         switch (sessionManager.macConnected, sessionManager.sessionState) {
-        case (true, "running"): return .green
-        case (true, _): return .orange
-        case (_, _): return .red
+        case (true, "running"): return Color.bpSuccess
+        case (true, _):         return Color.bpWarning
+        case (_, _):            return Color.bpDestructive
         }
     }
 
     /// 拼接文案：直接走 `Text` 多段拼接，避开 LocalizedStringKey 不支持插值。
-    /// Watch 屏幕太小不需要精细样式，名字与"Ready/Running"直接拼成一句。
     @ViewBuilder
     private var macStatusText: some View {
         let name = sessionManager.agentName

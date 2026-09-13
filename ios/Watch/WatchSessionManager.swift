@@ -1,5 +1,6 @@
 import Foundation
 import WatchConnectivity
+import WatchKit
 import Combine
 
 enum CommandSendState: Equatable {
@@ -44,6 +45,35 @@ struct WatchDevice: Identifiable, Equatable {
     }
 }
 
+/// 对话目录里的一条（由 iPhone 从 Mac 端 `GET /api/conversations` 转发，
+/// 只带展示要用的字段）。
+struct WatchConversation: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let agentId: String
+    let messageCount: Int
+    let updatedAtMs: Double
+    let isPinned: Bool
+}
+
+/// 迷你对话页里的一条消息。手表不做 Markdown 渲染，纯文本展示。
+struct WatchChatMessage: Identifiable, Equatable {
+    let id: String
+    /// "user" | "assistant" | "error" | "system"
+    let role: String
+    let text: String
+    let createdAtMs: Double
+}
+
+/// 一条对话的转录（iPhone 端裁剪过的最近若干条）。
+struct WatchConversationDetail: Equatable {
+    let id: String
+    let title: String
+    let messages: [WatchChatMessage]
+    /// iPhone 端只转发了最近的若干条时为 true —— 提示用户「上面还有更早的」。
+    let truncated: Bool
+}
+
 final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     @Published var reachable = false
     @Published var activationState: WCSessionActivationState = .notActivated
@@ -73,6 +103,14 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     @Published var devices: [WatchDevice] = []
     @Published var activeDeviceIndex: Int = 0
 
+    // MARK: - Conversations（对话目录 / 迷你对话）
+    @Published var conversations: [WatchConversation] = []
+    @Published var conversationsLoading = false
+    @Published var conversationsError: String?
+    @Published var conversationDetail: WatchConversationDetail?
+    @Published var detailLoading = false
+    @Published var detailError: String?
+
     /// 有得选才展示切换入口：0 个（没同步到）或 1 个（没得选）时隐藏。
     var canSwitchModel: Bool { models.count > 1 }
 
@@ -88,6 +126,14 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
         let count = models.count
         let next = ((activeModelIndex + delta) % count + count) % count
         switchToModel(index: next)
+    }
+
+    /// 左右切换一格设备（与 `stepModel` 同一套交互）。
+    func stepDevice(by delta: Int) {
+        guard !devices.isEmpty else { return }
+        let count = devices.count
+        let next = ((activeDeviceIndex + delta) % count + count) % count
+        switchToDevice(index: next)
     }
 
     var activeAgentID: String {
@@ -130,6 +176,11 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     private func applyContext(_ context: [String: Any]) {
+        // applicationContext 兜底：iPhone 把最近命令结果合并进了 context，
+        // 手表 App 被杀 / 消息通道未送达时，下次激活在这里恢复（内部有去重）。
+        if let result = context["lastCommandResult"] as? [String: Any] {
+            applyCommandResult(result)
+        }
         DispatchQueue.main.async {
             if let mac = context["macConnected"] as? Bool {
                 self.macConnected = mac
@@ -291,6 +342,14 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
         activeDeviceIndex = index
         let deviceId = devices[index].id
 
+        // 换设备 = 换一台 Mac，目录与详情都是旧设备的，立刻清掉，
+        // 避免切过去的那一瞬间还显示上一台 Mac 的对话。
+        conversations = []
+        conversationDetail = nil
+        conversationsError = nil
+        detailError = nil
+        requestedDetailId = nil
+
         guard let session, session.activationState == .activated, session.isReachable else { return }
         session.sendMessage(
             ["type": "switchDevice", "deviceId": deviceId],
@@ -306,6 +365,125 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     // MARK: - State Refresh
+
+    /// 带看门狗的请求。WCSession 的 replyHandler 没有文档化超时，
+    /// iPhone 端无响应时手表会永远等下去，所以自己挂 10s 兜底。
+    /// `onReply` / `onTimeout` 都已切回主线程。
+    private func sendWatchRequest(
+        _ payload: [String: Any],
+        timeout seconds: TimeInterval = 10,
+        onReply: @escaping ([String: Any]) -> Void,
+        onTimeout: @escaping () -> Void
+    ) {
+        guard let session, session.activationState == .activated, session.isReachable else {
+            DispatchQueue.main.async { onTimeout() }
+            return
+        }
+        let lock = NSLock()
+        var settled = false
+        func settle(_ reply: [String: Any]?) {
+            lock.lock()
+            let first = !settled
+            settled = true
+            lock.unlock()
+            guard first else { return }
+            DispatchQueue.main.async {
+                if let reply { onReply(reply) } else { onTimeout() }
+            }
+        }
+        session.sendMessage(
+            payload,
+            replyHandler: { reply in settle(reply) },
+            errorHandler: { _ in settle(nil) }
+        )
+        DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { settle(nil) }
+    }
+
+    /// 拉取当前设备的对话目录。
+    func requestConversations() {
+        DispatchQueue.main.async {
+            self.conversationsLoading = true
+            self.conversationsError = nil
+        }
+        sendWatchRequest(["type": "requestConversations"]) { [weak self] reply in
+            self?.applyConversations(reply)
+        } onTimeout: { [weak self] in
+            self?.conversationsLoading = false
+            self?.conversationsError = LW("iPhone Not Connected")
+        }
+    }
+
+    private func applyConversations(_ reply: [String: Any]) {
+        DispatchQueue.main.async {
+            self.conversationsLoading = false
+            guard reply["ok"] as? Bool == true,
+                  let list = reply["conversations"] as? [[String: Any]] else {
+                self.conversationsError = LW("Can't load conversations")
+                return
+            }
+            self.conversations = list.compactMap { item in
+                guard let id = item["id"] as? String, !id.isEmpty else { return nil }
+                let rawTitle = item["title"] as? String ?? ""
+                return WatchConversation(
+                    id: id,
+                    title: rawTitle.isEmpty ? LW("(untitled)") : rawTitle,
+                    agentId: item["agentId"] as? String ?? "",
+                    messageCount: item["messageCount"] as? Int ?? 0,
+                    updatedAtMs: item["updatedAtMs"] as? Double ?? 0,
+                    isPinned: item["isPinned"] as? Bool ?? false
+                )
+            }
+        }
+    }
+
+    /// 拉取一条对话的转录（迷你对话页）。
+    func requestConversation(id: String) {
+        DispatchQueue.main.async {
+            self.requestedDetailId = id
+            // 换了一条对话就先清掉上一条的内容，避免先闪一下旧转录
+            if self.conversationDetail?.id != id { self.conversationDetail = nil }
+            self.detailLoading = true
+            self.detailError = nil
+        }
+        sendWatchRequest(["type": "requestConversation", "conversationId": id]) { [weak self] reply in
+            self?.applyConversationDetail(reply)
+        } onTimeout: { [weak self] in
+            self?.detailLoading = false
+            self?.detailError = LW("iPhone Not Connected")
+        }
+    }
+
+    /// 当前正在请求的对话 id。迟到的旧响应据此丢弃 ——
+    /// 否则用户从 A 退回目录再点进 B，A 的转录可能后到，把 B 的内容覆盖掉。
+    private var requestedDetailId: String?
+
+    private func applyConversationDetail(_ reply: [String: Any]) {
+        DispatchQueue.main.async {
+            self.detailLoading = false
+            guard reply["ok"] as? Bool == true,
+                  let list = reply["messages"] as? [[String: Any]] else {
+                self.detailError = LW("Can't open conversation")
+                return
+            }
+            let detailId = reply["id"] as? String ?? ""
+            if let requested = self.requestedDetailId, detailId != requested { return }
+
+            let messages = list.enumerated().map { index, item in
+                WatchChatMessage(
+                    id: "\(index)",
+                    role: item["role"] as? String ?? "assistant",
+                    text: item["text"] as? String ?? "",
+                    createdAtMs: item["createdAtMs"] as? Double ?? 0
+                )
+            }
+            self.conversationDetail = WatchConversationDetail(
+                id: detailId,
+                title: reply["title"] as? String ?? "",
+                messages: messages,
+                truncated: reply["truncated"] as? Bool ?? false
+            )
+        }
+    }
 
     private func startStateTimer() {
         guard stateTimer == nil else { return }
@@ -383,7 +561,11 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
 
     // MARK: - Commands
 
-    func sendCommand(_ text: String) {
+    /// 发送文本命令。
+    /// - Parameter conversationId: 指定对话（对话详情页发送时传入）。
+    ///   带对话 id 时**不携带 agentId**——对话自带 Agent，
+    ///   让 iPhone 端切换 Mac 的 activeAgent 是意外副作用；`nil` 保持旧行为。
+    func sendCommand(_ text: String, conversationId: String? = nil) {
         guard let session else {
             DispatchQueue.main.async { self.commandState = .failed(LW("WatchConnectivity unsupported")) }
             return
@@ -397,12 +579,16 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
             DispatchQueue.main.async { self.commandState = .failed(LW("Empty command")) }
             return
         }
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "type": "command",
             "text": trimmed,
-            "content": trimmed,
-            "agentId": activeAgentID
+            "content": trimmed
         ]
+        if let conversationId, !conversationId.isEmpty {
+            payload["conversationId"] = conversationId
+        } else {
+            payload["agentId"] = activeAgentID
+        }
         DispatchQueue.main.async { self.commandState = .sending }
 
         // sendMessage 只在 iPhone App 处于前台时可用；
@@ -479,17 +665,39 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
         }
     }
 
+    /// 已处理命令结果的时间戳（UserDefaults 持久化）。
+    /// applicationContext 会在每次会话激活时重放"最后一条结果"，
+    /// 没有去重的话每次打开 App 都会震一下、刷一次。
+    private static let lastResultTsKey = "BrewPing.Watch.lastCommandResultTs"
+
+    /// 最近一条结果所属的对话。对话页用它判断"该不该由我来刷新"。
+    @Published var lastResultConversationId: String?
+
     private func applyCommandResult(_ message: [String: Any]) {
         guard message["type"] as? String == "commandResult" else { return }
         let status = message["status"] as? String ?? ""
         let text = message["text"] as? String ?? ""
         let duration = message["duration"] as? Double
+        let conversationId = message["conversationId"] as? String
+        let ts = message["ts"] as? Double ?? 0
+
+        // 去重：老结果（<= 已处理的最大时间戳）不再应用
+        let seen = UserDefaults.standard.double(forKey: Self.lastResultTsKey)
+        if ts > 0, ts <= seen { return }
+        if ts > 0 {
+            UserDefaults.standard.set(ts, forKey: Self.lastResultTsKey)
+        }
+
         DispatchQueue.main.async {
             self.lastCommandDuration = duration
+            self.lastResultConversationId = conversationId
             if status == "completed" || status == "completed_with_raw" {
                 self.commandState = .completed(text)
+                // 🎉 回复到了，无论用户停在哪个页面都给触觉反馈
+                WKInterfaceDevice.current().play(.success)
             } else {
                 self.commandState = .failed(text.isEmpty ? LW("Command failed") : text)
+                WKInterfaceDevice.current().play(.notification)
             }
         }
     }
@@ -505,7 +713,8 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     ///     而"用手表发语音"的典型场景恰恰是手机在口袋里。
     ///     `transferFile` 会排队并在后台投递。
     /// 因此这里只要求会话已激活，不再要求 reachable。
-    func sendAudioCommand(fileURL: URL, duration: TimeInterval? = nil) {
+    /// - Parameter conversationId: 指定对话；带对话时不携带 agentId（同 sendCommand）。
+    func sendAudioCommand(fileURL: URL, duration: TimeInterval? = nil, conversationId: String? = nil) {
         guard let session else {
             try? FileManager.default.removeItem(at: fileURL)
             DispatchQueue.main.async { self.commandState = .failed(LW("WatchConnectivity unsupported")) }
@@ -519,11 +728,15 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
 
         var metadata: [String: Any] = [
             "type": "audioCommand",
-            "agentId": activeAgentID,
             "fileName": fileURL.lastPathComponent,
             "createdAt": Date().timeIntervalSince1970,
             "locale": Locale.current.identifier
         ]
+        if let conversationId, !conversationId.isEmpty {
+            metadata["conversationId"] = conversationId
+        } else {
+            metadata["agentId"] = activeAgentID
+        }
         if let duration { metadata["duration"] = duration }
 
         let transfer = session.transferFile(fileURL, metadata: metadata)
