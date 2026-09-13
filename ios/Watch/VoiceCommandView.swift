@@ -72,15 +72,30 @@ struct WatchComposer: View {
         }
     }
 
-    // MARK: - 输入卡：输入框（仅输入时出现）+ 居中麦克风
+    // MARK: - 输入区：失败提示 / 输入框（仅输入时出现）+ 居中麦克风
+    // 🚨 用户指定：**不要奶白卡片底**，只留居中麦克风按钮悬浮在棕底上。
+    //    失败提示与输入框直接铺底，配色用棕底专用 token。
 
     private var composerCard: some View {
         VStack(spacing: 6) {
-            // 输入框只在唤起键盘 / 有草稿时出现；平时整卡只有居中的麦克风
+            // 失败提示：铺底用提亮红（bpDestructive 在棕底上看不清），点一下收回
+            if case .failed(let message) = sessionManager.commandState {
+                // message 是动态内容（设备返回的错误），不做本地化
+                Text(message)
+                    .font(.system(size: 9))
+                    .foregroundStyle(Color.bpDestructiveBright)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onTapGesture { sessionManager.commandState = .idle }
+            }
+
+            // 输入框只在唤起键盘 / 有草稿时出现；棕底上文字用奶白
             if inputFocused || hasDraft {
                 TextField("Type...", text: $draft)
                     .font(.system(size: 12))
-                    .foregroundStyle(Color.bpForeground)
+                    .foregroundStyle(Color.bpOnBackground)
                     .focused($inputFocused)
                     .onSubmit { sendDraft() }
                     .padding(.horizontal, 6)
@@ -88,9 +103,7 @@ struct WatchComposer: View {
 
             commandButton
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .bpCardStyle(cornerRadius: 14)
+        .padding(.horizontal, 4)
     }
 
     /// 居中单按钮，三态：🎤 麦克风 → ⏳ loading（锁定）→ ✓ 完成（短暂）→ 🎤。
@@ -104,27 +117,23 @@ struct WatchComposer: View {
                     // 执行中：按钮本身就是 loading，取代原来那行小字"正在发送"
                     ProgressView()
                         .controlSize(.regular)
-                        .tint(Color.bpPrimary)
+                        .tint(Color.bpOnBackground)
                 case .completed:
                     // 回复到达后的短暂确认态（0.8s 后自动回到麦克风）
                     Image(systemName: "checkmark")
                         .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(Color.bpSuccess)
+                        .foregroundStyle(Color.bpOnBackground)
                 default:
                     Image(systemName: "mic.fill")
                         .font(.system(size: 22))
                         .foregroundStyle(sessionManager.activationState == .activated
-                                         ? Color.bpPrimary : Color.bpMutedForeground)
+                                         ? Color.bpOnBackground : Color.bpOnBackgroundMuted)
                 }
             }
             .frame(width: 52, height: 52)
             .background(Circle().fill(
-                isCompletedState ? Color.bpSuccess.opacity(0.15) : Color.bpPrimary.opacity(0.15)
+                isCompletedState ? Color.bpSuccess.opacity(0.35) : Color.bpOnBackgroundMuted.opacity(0.35)
             ))
-            .overlay {
-                Circle().strokeBorder(Color.bpBorder, lineWidth: 1)
-            }
-            .contentShape(Circle())
         }
         .buttonStyle(.plain)
         // 执行中锁定：等回复到了（震动 + ✓）才允许下一次
