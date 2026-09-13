@@ -113,6 +113,12 @@ fun HomeScreen(viewModel: HomeViewModel) {
     /** QR 扫码（"pair" = 配对对话框扫码；"form" = 添加设备表单扫码）。 */
     var showQrScan by remember { mutableStateOf(false) }
     var qrTarget by remember { mutableStateOf("form") }
+    /**
+     * 配对窗扫码期间暂存的目标设备：PairDialog 是 AlertDialog（独立窗口层），
+     * 悬浮于普通 composable 之上——不先关掉会挡住全屏相机界面。
+     * 扫码取消 → 恢复配对窗；扫到码 → 按 payload 恢复/新建并自动配对。
+     */
+    var pairScanReturn by remember { mutableStateOf<ManagedDevice?>(null) }
     /** 表单扫码结果（DeviceFormDialog 预填 host/port/name）。 */
     var qrFormPayload by remember { mutableStateOf<com.brewping.android.model.PairPayload?>(null) }
     val discovered by viewModel.discoveredDevices.collectAsState()
@@ -314,7 +320,15 @@ fun HomeScreen(viewModel: HomeViewModel) {
             device = device,
             initialCode = pairInitialCode,
             onDismiss = { showPairFor = null; pairInitialCode = "" },
-            onScan = { qrTarget = "pair"; showQrScan = true },
+            onScan = {
+                // PairDialog 是 AlertDialog（独立窗口层），悬浮于普通 composable 之上，
+                // 不先关掉会挡住全屏相机界面 —— 点扫码立即关窗并暂存目标设备；
+                // 扫码取消 → 恢复配对窗；扫到码 → 按 payload 恢复/新建并自动配对。
+                pairScanReturn = device
+                showPairFor = null
+                qrTarget = "pair"
+                showQrScan = true
+            },
             onPair = viewModel::pairWithCode,
         )
     }
@@ -328,7 +342,7 @@ fun HomeScreen(viewModel: HomeViewModel) {
                     // 扫到的码可能属于别的机器：以码为准换目标设备。
                     // host:port 与已有设备一致时**复用该条目**（并同步名称/系统类型），
                     // 否则会为同一台机器建出两条设备（一条扫码一条手动/发现），token 跟着分裂。
-                    val target = if (payload.host.isNotEmpty() && payload.host != showPairFor?.host) {
+                    val target = if (payload.host.isNotEmpty() && payload.host != pairScanReturn?.host) {
                         val existing = devices.firstOrNull {
                             it.host.equals(payload.host, ignoreCase = true) &&
                                 it.port.trim() == payload.port.trim()
@@ -349,16 +363,31 @@ fun HomeScreen(viewModel: HomeViewModel) {
                             ).also { viewModel.addDevice(it); viewModel.setActiveDevice(it.id) }
                         }
                     } else {
-                        showPairFor
+                        pairScanReturn
                     }
+                    pairScanReturn = null
+                    qrTarget = ""
+                    // 预填 6 位码 → PairDialog 打开后 LaunchedEffect 自动发起配对，
+                    // 成功自动关窗，全程无需手动操作
                     pairInitialCode = payload.code
                     if (target != null) showPairFor = target
                 } else {
                     qrFormPayload = payload
                     showAddDevice = true
+                    qrTarget = ""
                 }
             },
-            onDismiss = { showQrScan = false },
+            onDismiss = {
+                showQrScan = false
+                // 用户取消扫码：恢复之前的配对窗；清掉残留旧码，
+                // 避免恢复窗口时用已失效的码自动重试一次
+                if (qrTarget == "pair" && pairScanReturn != null) {
+                    pairInitialCode = ""
+                    showPairFor = pairScanReturn
+                    pairScanReturn = null
+                }
+                qrTarget = ""
+            },
         )
     }
 }
