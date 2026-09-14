@@ -37,6 +37,11 @@ class HomeViewModel(
     private val appContext: android.content.Context? = null,
 ) : ViewModel() {
 
+    companion object {
+        /** 模型列表轮询间隔：与桌面端 status 轮询同频（对齐 iOS 的 5 秒）。 */
+        private const val MODEL_POLL_INTERVAL_MS = 5_000L
+    }
+
     /** 取本地化消息；无 context（单测）时回退英文原文。fallback 是格式串：必须替换占位符，别让 "%1$s" 字面量漏到 UI。 */
     private fun msg(resId: Int, fallback: String, vararg args: Any?): String =
         appContext?.getString(resId, *args) ?: String.format(fallback, *args)
@@ -102,6 +107,23 @@ class HomeViewModel(
             ?: "opencode"
 
     private var statusPollJob: Job? = null
+
+    /**
+     * 模型列表轮询（5 秒，与 status 同频）。
+     *
+     * 桌面端每次请求现读磁盘算指纹 → 用户改了厂商配置，这里下一拍就能拉到新列表。
+     * 指纹没变时 [ModelStore.refresh] 内部会直接返回、不动 state（不会造成列表闪烁）。
+     * 只有**当前正在看的对话**需要刷新，故跟随 [currentModelAgentId]。
+     */
+    private var modelPollJob: Job? = null
+
+    /** 当前需要在轮询里刷模型的 Agent（由对话详情页的设置决定；无对话时为 null = 不刷）。 */
+    private val currentModelAgentId = MutableStateFlow<String?>(null)
+
+    /** 对话详情页进入 / 切换 Agent 时登记，退出时清空。 */
+    fun setModelAgent(agentId: String?) {
+        currentModelAgentId.value = agentId
+    }
 
     /** PairingStore / ApiClient 单例（BrewPingApp 提供，测试可替换）。 */
     private val appPairingStore get() = com.brewping.android.BrewPingApp.instance.pairingStore
@@ -474,11 +496,34 @@ class HomeViewModel(
         }
     }
 
-    /** 归档对话（从列表消失，恢复走桌面端或后续「已归档」入口）。 */
+    /** 归档对话（从列表消失，进入「已归档」区块）。 */
     fun archiveConversation(id: String, onDone: () -> Unit) {
         val device = _desktopDevice.value ?: return
         viewModelScope.launch {
             if (conversationStore.setArchived(device, id, true)) onDone()
+        }
+    }
+
+    /**
+     * 恢复已归档对话（`PATCH archived = false`）。
+     * 桌面端会校验绑定目录是否仍存在，缺失 → 409；此时 [ConversationStore.detailError]
+     * 已带上服务端原因（"Working directory no longer exists"），列表页把它显示出来。
+     */
+    fun restoreConversation(id: String, onDone: () -> Unit) {
+        val device = _desktopDevice.value ?: return
+        viewModelScope.launch {
+            if (conversationStore.setArchived(device, id, false)) onDone()
+        }
+    }
+
+    /** 永久删除一条已归档对话（两段式删除第二段）。成功后刷新列表把它摘掉。 */
+    fun deleteConversation(id: String, onDone: () -> Unit) {
+        val device = _desktopDevice.value ?: return
+        viewModelScope.launch {
+            if (conversationStore.delete(device, id)) {
+                onDone()
+                conversationStore.refresh(device, force = true)
+            }
         }
     }
 
@@ -529,6 +574,25 @@ class HomeViewModel(
                 repository.refreshAgents(desktopDevice)
                 // 在线即拉对话列表（配对后 token 已就位，否则走 unsupported/error 提示）
                 conversationStore.refresh(desktopDevice)
+                startModelPolling(desktopDevice)
+            }
+        }
+    }
+
+    /**
+     * 每 5 秒刷新当前对话 Agent 的模型列表（对齐 iOS：`refreshStatus` 尾部 `refreshModels`）。
+     *
+     * 这就是「桌面端改了厂商配置，手机端自动同步」的落地路径：
+     * 桌面端返回的 `configVersion` 一变，[ModelStore.refresh] 就会更新列表与当前模型。
+     */
+    private fun startModelPolling(device: DesktopDevice) {
+        modelPollJob?.cancel()
+        modelPollJob = viewModelScope.launch {
+            while (true) {
+                delay(MODEL_POLL_INTERVAL_MS)
+                val agentId = currentModelAgentId.value ?: continue
+                if (!repository.online.value) continue
+                modelStore.refresh(device, agentId)
             }
         }
     }
@@ -555,6 +619,9 @@ class HomeViewModel(
         _sessionAgentName.value = "OpenCode"
         _desktopDevice.value = null
         _conversationRoute.value = null
+        statusPollJob?.cancel()
+        modelPollJob?.cancel()
+        currentModelAgentId.value = null
         conversationStore.invalidate()
         modelStore.invalidate()
         repository.resetAllState()
@@ -562,6 +629,7 @@ class HomeViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        modelPollJob?.cancel()
         repository.stop()
     }
 

@@ -27,6 +27,11 @@
     <string name="unpin">取消置顶</string>
     <string name="archive">归档</string>
 
+    <!-- Archived conversations (mirrors iOS "Archived" section) -->
+    <string name="archived">已归档</string>
+    <string name="restore">恢复</string>
+    <string name="delete_forever_confirm">确定要永久删除该对话吗？此操作无法撤销。</string>
+
     <!-- Language -->
     <string name="language">语言</string>
     <string name="follow_system">跟随系统</string>

@@ -530,6 +530,36 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
             parseConversationMutation(raw)
         }
 
+    /**
+     * DELETE /api/conversations/{id} —— 两段式删除的第二段：仅已归档对话可删。
+     * 成功时桌面端返回 200 + 空体，**不能复用 [parseConversationMutation]**
+     * （它要求响应体里有 `conversation` 对象）。语义对齐 iOS `ConversationStore.delete`。
+     */
+    suspend fun deleteConversation(device: DesktopDevice, id: String): ConversationResult? =
+        withContext(Dispatchers.IO) {
+            val request = signed(
+                Request.Builder()
+                    .url(baseUrl(device) + "/api/conversations/$id")
+                    .delete(),
+                device, "DELETE",
+            ).build()
+            val raw = executeRaw(messageClient, request)
+            when {
+                // code == 0 = 网络层失败（桌面端离线）：返回 null → 调用方显示 "Can't reach"
+                raw.code == 0 -> null
+                raw.code == 401 -> ConversationResult(detail = null, unauthorized = true)
+                raw.code == 404 || raw.code == 501 -> ConversationResult(detail = null, unsupported = true)
+                raw.code != 200 -> {
+                    // 409 = 未归档就想删（或恢复时绑定目录已不存在），服务端 error 承载原因
+                    val serverError = raw.body?.let { runCatching { JSONObject(it) }.getOrNull() }
+                        ?.optString("error", "").orEmpty()
+                    ConversationResult(detail = null, error = serverError.ifEmpty { "Server error ${raw.code}" })
+                }
+                // 200 且无响应体 = 删除成功（detail 保持 null，调用方只看 unauthorized/unsupported/error）
+                else -> ConversationResult(detail = null)
+            }
+        }
+
     // ─── POST /api/pair（配对码换长期 token；公开端点，码一次性 10 分钟有效）────
 
     suspend fun pairWithCode(device: DesktopDevice, code: String): com.brewping.android.model.PairResult? =
@@ -710,6 +740,9 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
                         activeModelID = json.optString("activeModelId", "").ifEmpty { null },
                         preferredModelID = json.optString("preferredModelId", "").ifEmpty { null },
                         preferredProviderID = json.optString("preferredProviderId", "").ifEmpty { null },
+                        // 配置指纹：桌面端现读磁盘算出，用于判断"厂商配置是否变过"。
+                        // 老版本桌面端不返回该字段 → optString 得到 "" → 存 null（退回原行为）。
+                        configVersion = json.optString("configVersion", "").ifEmpty { null },
                     )
                 } catch (e: Exception) {
                     Log.w(TAG, "[API] fetchAgentModels parse error: ${e.message}")

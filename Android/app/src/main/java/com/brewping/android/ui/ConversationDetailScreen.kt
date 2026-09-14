@@ -38,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -113,6 +114,8 @@ fun ConversationDetailScreen(
     onBindWorkdir: (path: String?, onDone: () -> Unit) -> Unit,
     onDecideApproval: (action: String) -> Unit,
     onDismissApproval: () -> Unit,
+    /** 通知 ViewModel 当前该轮询哪个 Agent 的模型列表（null = 离开本页，停止轮询刷新）。 */
+    onModelAgentChanged: (String?) -> Unit = {},
 ) {
     val detail by store.detail.collectAsState()
     val detailError by store.detailError.collectAsState()
@@ -147,6 +150,13 @@ fun ConversationDetailScreen(
         if (online) {
             modelStore.refresh(device, resolvedAgentId)
         }
+    }
+
+    // 登记当前 Agent：由 HomeViewModel 的 5 秒轮询持续刷模型列表
+    // （桌面端改了厂商配置 → 指纹变化 → 列表自动更新）。离开本页时清空，避免无谓请求。
+    DisposableEffect(resolvedAgentId, online) {
+        if (online) onModelAgentChanged(resolvedAgentId) else onModelAgentChanged(null)
+        onDispose { onModelAgentChanged(null) }
     }
 
     // 命令结束后：清掉本地挂起项 + 重取权威转录（助手条目此时已落库）

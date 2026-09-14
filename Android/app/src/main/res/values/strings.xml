@@ -27,6 +27,11 @@
     <string name="unpin">Unpin</string>
     <string name="archive">Archive</string>
 
+    <!-- Archived conversations (mirrors iOS "Archived" section) -->
+    <string name="archived">Archived</string>
+    <string name="restore">Restore</string>
+    <string name="delete_forever_confirm">Delete this conversation permanently? This cannot be undone.</string>
+
     <!-- Language (App-internal switch, mirrors iOS LangMode system/zh/en) -->
     <string name="language">Language</string>
     <string name="follow_system">Follow System</string>

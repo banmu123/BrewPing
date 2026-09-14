@@ -101,6 +101,12 @@ data class AgentModelsResult(
     val activeModelID: String? = null,
     val preferredModelID: String? = null,
     val preferredProviderID: String? = null,
+    /**
+     * 主机侧该 Agent **配置文件的指纹**（`mtime:size` 多文件 `|` 连接，缺失记 `-`）。
+     * 桌面端每次请求现读磁盘 → 指纹变化即代表用户改了厂商配置。
+     * 老版本桌面端不返回 → null（自动退回"每次都当没变"的原行为）。
+     */
+    val configVersion: String? = null,
     /** 这台主机没有实现该接口（HTTP 404 / 501）：不是错误，只是没得选。 */
     val unsupported: Boolean = false,
     val error: String? = null,

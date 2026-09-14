@@ -96,6 +96,13 @@ class ConversationStore(
             return if (unbound.isEmpty()) groups else groups + ConversationDirGroup(null, unbound)
         }
 
+    /**
+     * 已归档对话（独立区块，不进 [dirGroups]）。
+     * 按最近活动降序 —— 与 iOS `ConversationListView` 的 `archivedConversations` 一致。
+     */
+    val archivedConversations: List<ConversationSummary>
+        get() = _conversations.value.filter { it.archived }.sortedByDescending { it.updatedAtMs }
+
     /** 拉取对话列表。同设备且已有数据时不重复请求（列表页每次进入都会调用）。 */
     suspend fun refresh(device: DesktopDevice?, force: Boolean = false) {
         if (device == null) {
@@ -264,4 +271,40 @@ class ConversationStore(
     /** 绑定 / 解绑对话的工作目录（空串 = 解绑；目录不存在 → 桌面端 400）。 */
     suspend fun setWorkdir(device: DesktopDevice?, id: String, workdir: String?): Boolean =
         patch(device, id, JSONObject().put("workdir", workdir ?: ""))
+
+    /**
+     * 永久删除一条**已归档**对话（两段式删除的第二段，`DELETE /api/conversations/{id}`）。
+     * 成功返回 true 并把列表缓存作废（下次 refresh 会把它从列表里摘掉）。
+     * 失败原因写进 [detailError]（例如未归档就删、或 409 等）。
+     */
+    suspend fun delete(device: DesktopDevice?, id: String): Boolean {
+        if (device == null) return false
+        _detailError.value = null
+        val result = apiClient.deleteConversation(device, id) ?: run {
+            _detailError.value = msg(com.brewping.android.R.string.cant_reach, "Can't reach %1\$s", device.name)
+            return false
+        }
+        if (result.unauthorized) {
+            _detailError.value = null
+            _unauthorized.value = true
+            loadedKey = null
+            return false
+        }
+        if (result.unsupported) {
+            _detailError.value = null
+            _unsupported.value = true
+            return false
+        }
+        if (result.error != null) {
+            _detailError.value = result.error
+            return false
+        }
+        // 成功：服务端已删，本地列表缓存作废（下次 refresh 拉到真列表）
+        _detailError.value = null
+        loadedKey = null
+        // 被删的那条若正是当前打开的详情，同步清掉，避免详情页停在幽灵数据上
+        if (_detail.value?.id == id) _detail.value = null
+        Log.i(TAG, "[ConvStore] conversation deleted: $id")
+        return true
+    }
 }

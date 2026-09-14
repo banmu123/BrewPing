@@ -50,9 +50,20 @@ class ModelStore(
     private var currentAgentID: String = ""
     /** 已加载过的 "deviceID/agentID"，避免状态轮询重复拉模型列表。 */
     private var loadedKey: String? = null
+    /**
+     * 最近一次**成功响应**里的配置指纹（失败不更新，下次轮询再试）。
+     * 用于判断主机侧厂商配置是否变过 —— 变了才更新 UI 状态，否则每 5 秒
+     * 轮询都会重写 `_models` 触发 Compose 重组（列表闪）。
+     */
+    private var loadedConfigVersion: String? = null
 
-    /** 是否值得展示切换入口：0 个或只有 1 个模型时没有可选项。 */
-    val canSwitch: Boolean get() = !_unsupported.value && _models.value.size > 1
+    /**
+     * 是否值得展示切换入口：只要**有模型**就显示（单模型时只读展示当前模型）。
+     *
+     * ⚠️ 早先是 `size > 1` —— 只配了 1 个厂商 1 个模型时整个入口被隐藏，
+     * 用户「明明配好了却说没得选」。iOS 侧已改为 `!isEmpty`，此处对齐。
+     */
+    val canSwitch: Boolean get() = !_unsupported.value && _models.value.isNotEmpty()
 
     /** 当前生效模型的展示名；列表里没有时直接显示 id。 */
     val activeModelName: String?
@@ -60,7 +71,16 @@ class ModelStore(
             _models.value.firstOrNull { it.id == id }?.name ?: id
         }
 
-    /** 拉取指定设备上某个 Agent 的模型列表（device/agent 变化时才真正发请求）。 */
+    /**
+     * 拉取指定设备上某个 Agent 的模型列表。
+     *
+     * 去重语义（对齐 iOS `ModelCatalog.refresh` 修复后的实现）：
+     *  - **照发探测请求** —— 指纹只能从响应里拿，本地无从预判主机配置变没变；
+     *    请求本身很轻（一个 GET、几十字节），不值得为省它而漏掉变更。
+     *  - 目标（设备/Agent）变了 → 先清空再拉，防新主机短暂显示旧主机的模型。
+     *  - 拿到响应后：指纹与上次一致且非 force → **直接返回，不动 state**
+     *    （否则 5 秒轮询每次都重写列表，Compose 重组 + 闪烁）。
+     */
     suspend fun refresh(device: DesktopDevice?, agentId: String, force: Boolean = false) {
         currentDevice = device
         currentAgentID = agentId
@@ -70,16 +90,19 @@ class ModelStore(
             _unsupported.value = false
             _loadError.value = null
             loadedKey = null
+            loadedConfigVersion = null
             return
         }
 
         val key = "${device.id}/$agentId"
-        if (!force && loadedKey == key) return
+        val targetChanged = loadedKey != key
+        // 换目标（设备/Agent）：先清空，避免短暂显示上一个目标的模型
+        if (targetChanged) clearModels()
 
         val result = apiClient.fetchAgentModels(device, agentId)
         if (result == null) {
             // 同一主机上失败不清空已有列表（一次网络抖动不该让选项消失）
-            if (loadedKey != key) clearModels()
+            if (targetChanged) clearModels()
             _unsupported.value = false
             _loadError.value = appContext.getString(com.brewping.android.R.string.cant_load_models)
             return
@@ -90,25 +113,37 @@ class ModelStore(
                 _loadError.value = null
                 _unsupported.value = true
                 loadedKey = key
+                loadedConfigVersion = null
             }
             result.error != null -> {
-                if (loadedKey != key) clearModels()
+                if (targetChanged) clearModels()
                 _unsupported.value = false
                 _loadError.value = result.error
             }
             else -> {
+                // 指纹没变且非强制 → 不动 state（避免轮询导致的无谓重组）
+                val incoming = result.configVersion
+                if (!force && !targetChanged && incoming != null && incoming == loadedConfigVersion) {
+                    _loadError.value = null
+                    return
+                }
                 _models.value = result.models
                 _activeModelID.value = resolveActive(result, result.models, localSelection(device.id, agentId))
                 _loadError.value = null
                 _unsupported.value = false
                 loadedKey = key
+                loadedConfigVersion = incoming
             }
         }
     }
 
-    /** 设备或 Agent 变了 —— 下次必须重新拉，否则会沿用上一个 Agent 的模型。 */
+    /**
+     * 设备或 Agent 变了 —— 下次必须重新拉，否则会沿用上一个 Agent 的模型。
+     * 指纹一并清掉：它描述的是旧目标那次响应，留着会误判"配置没变"。
+     */
     fun invalidate() {
         loadedKey = null
+        loadedConfigVersion = null
     }
 
     /**

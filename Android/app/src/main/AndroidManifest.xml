@@ -7,8 +7,8 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
-    <!-- NSD (mDNS) discovery requires local network access on Android 13+ -->
-    <uses-permission android:name="android.permission.NSD" />
+    <!-- 注：NSD (mDNS) 发现不需要额外权限，靠上面的 CHANGE_WIFI_MULTICAST_STATE。
+         曾误声明 android.permission.NSD —— 该权限在 Android 平台并不存在。 -->
 
     <!-- QR 扫码配对（对齐 iOS NSCameraUsageDescription：仅用于扫配对码） -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -25,10 +25,23 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.BrewPing">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- 深链配对：系统相机 / 微信扫桌面端二维码 → brewping://pair?... → 唤起 App 自动配对。
+                 与 iOS 同一套 URL 契约（CFBundleURLSchemes=brewping）：
+                   brewping://pair?host=&port=&deviceId=&name=&osType=&code=
+                 BROWSABLE 必加，否则外部（相机 / 浏览器）无法唤起；
+                 singleTask 保证已在前台时走 onNewIntent 而不是叠新实例。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="brewping" />
             </intent-filter>
         </activity>
     </application>

@@ -124,6 +124,45 @@ fun HomeScreen(viewModel: HomeViewModel) {
     val discovered by viewModel.discoveredDevices.collectAsState()
     val pairingVersion by viewModel.pairingVersion.collectAsState()
 
+    // ─── 深链配对（系统相机 / 微信扫桌面端二维码 → brewping://pair?...）──────────
+    // 与「配对窗扫码」共用同一套「复用已有设备 / 新建并激活」逻辑，
+    // 差别只在入口：那条来自 App 内相机，这条来自系统 Intent（冷启动或 onNewIntent）。
+    val deepLinkPayload by com.brewping.android.model.PairingDeepLink.pendingAction.collectAsState()
+    LaunchedEffect(deepLinkPayload) {
+        val payload = deepLinkPayload ?: return@LaunchedEffect
+        com.brewping.android.model.PairingDeepLink.consume()
+        val target = if (payload.host.isNotEmpty()) {
+            val existing = devices.firstOrNull {
+                it.host.equals(payload.host, ignoreCase = true) &&
+                    it.port.trim() == payload.port.trim()
+            }
+            if (existing != null) {
+                // 同一台机器已在列表里：同步名称/系统类型，复用原条目（否则 token 会分裂）
+                if (existing.name != payload.name || existing.osType != payload.osType) {
+                    viewModel.updateDevice(
+                        existing.copy(
+                            name = payload.name.ifEmpty { existing.name },
+                            osType = payload.osType,
+                        ),
+                    )
+                }
+                existing
+            } else {
+                ManagedDevice.new(
+                    name = payload.name.ifEmpty { "Desktop" },
+                    host = payload.host,
+                    port = payload.port,
+                    osType = payload.osType,
+                ).also { viewModel.addDevice(it); viewModel.setActiveDevice(it.id) }
+            }
+        } else {
+            null
+        }
+        // 预填 6 位码 → PairDialog 打开后 LaunchedEffect 自动发起配对（全程无手动操作）
+        pairInitialCode = payload.code
+        if (target != null) showPairFor = target
+    }
+
     // 详情页内返回 = 关闭对话（系统返回键 + 顶栏返回钮一致）
     BackHandler(enabled = route != null) { viewModel.closeConversation() }
 
@@ -232,6 +271,7 @@ fun HomeScreen(viewModel: HomeViewModel) {
                         },
                         onDecideApproval = viewModel::decideApproval,
                         onDismissApproval = viewModel::clearPendingApproval,
+                        onModelAgentChanged = viewModel::setModelAgent,
                     )
                     else -> Column(modifier = Modifier.fillMaxSize()) {
                         DiscoveredDevicesSection(
@@ -252,6 +292,8 @@ fun HomeScreen(viewModel: HomeViewModel) {
                             onNewConversation = { viewModel.openDraftConversation() },
                             onPinConversation = { id, pinned -> viewModel.pinConversation(id, pinned) { viewModel.refreshConversations() } },
                             onArchiveConversation = { id -> viewModel.archiveConversation(id) { viewModel.refreshConversations() } },
+                            onRestoreConversation = { id -> viewModel.restoreConversation(id) { viewModel.refreshConversations() } },
+                            onDeleteConversation = { id -> viewModel.deleteConversation(id) { viewModel.refreshConversations() } },
                             onRePair = {
                                 // 401 → 弹出当前设备的配对窗（输入 6 位码换新 token）
                                 val active = desktopDevice ?: return@ConversationListScreen

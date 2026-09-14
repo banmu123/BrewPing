@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Warning
@@ -76,6 +77,9 @@ fun ConversationListScreen(
     /** 置顶 / 归档（对齐桌面端侧栏的同名操作，PATCH /api/conversations/{id}）。 */
     onPinConversation: (id: String, pinned: Boolean) -> Unit = { _, _ -> },
     onArchiveConversation: (id: String) -> Unit = {},
+    /** 「已归档」区块：恢复（PATCH archived=false）/ 彻底删除（DELETE，两段式第二段）。 */
+    onRestoreConversation: (id: String) -> Unit = {},
+    onDeleteConversation: (id: String) -> Unit = {},
     /** 401（未配对 / token 失效）时的"重新配对"入口；null 表示不显示入口按钮。 */
     onRePair: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -85,8 +89,13 @@ fun ConversationListScreen(
     val unsupported by store.unsupported.collectAsState()
     val unauthorized by store.unauthorized.collectAsState()
     val dirGroups = store.dirGroups
+    val archivedConversations = store.archivedConversations
     // 折叠的目录组（仅视觉折叠，不改变过滤——与 iOS / 桌面端一致）
     var collapsedGroups by remember { mutableStateOf(setOf<String>()) }
+    // 两段式删除：非 null 表示正在等用户确认（值为待删对话 id）
+    var pendingDeleteId by remember { mutableStateOf<String?>(null) }
+    // 「已归档」区块的折叠状态（独立于目录组）
+    var archivedCollapsed by remember { mutableStateOf(true) }
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -150,14 +159,20 @@ fun ConversationListScreen(
                         PlainNotice(text = stringResource(R.string.unsupported_desktop))
                     }
                 }
-                // ─── 空态 ──────────────────────────────────────────────────
-                conversations.isEmpty() -> {
+                // ─── 空态（全部归档也算空：下面 else 分支会把「已归档」区块放出来）──
+                conversations.isEmpty() && archivedConversations.isEmpty() -> {
                     item(key = "__empty__") {
                         PlainNotice(text = stringResource(R.string.no_conversations_yet))
                     }
                 }
                 // ─── 按工作目录分组 ─────────────────────────────────────────
                 else -> {
+                    if (dirGroups.isEmpty()) {
+                        // 只剩归档项：给一句空态说明，再接归档区块（纯归档时不该是一片空白）
+                        item(key = "__empty_active__") {
+                            PlainNotice(text = stringResource(R.string.no_conversations_yet))
+                        }
+                    }
                     dirGroups.forEach { group ->
                         groupSection(
                             group = group,
@@ -175,6 +190,28 @@ fun ConversationListScreen(
                             onArchiveConversation = onArchiveConversation,
                         )
                     }
+
+                    // ─── 已归档（对齐 iOS：恢复 / 彻底删除）─────────────────
+                    if (archivedConversations.isNotEmpty()) {
+                        item(key = "__archived_header__") {
+                            ArchivedHeader(
+                                count = archivedConversations.size,
+                                collapsed = archivedCollapsed,
+                                onToggle = { archivedCollapsed = !archivedCollapsed },
+                            )
+                        }
+                        if (!archivedCollapsed) {
+                            items(archivedConversations, key = { "archived-${it.id}" }) { conv ->
+                                ArchivedRow(
+                                    conv = conv,
+                                    agentNames = agentNames,
+                                    onRestore = { onRestoreConversation(conv.id) },
+                                    onDelete = { pendingDeleteId = conv.id },
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                            }
+                        }
+                    }
                 }
             }
 
@@ -190,6 +227,52 @@ fun ConversationListScreen(
                 }
             }
         }
+    }
+
+    // 彻底删除是破坏性且不可逆的：先弹确认框（两段式删除的第二段由用户显式确认后才发）
+    pendingDeleteId?.let { deleteId ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingDeleteId = null },
+            containerColor = LatteCard,
+            title = {
+                Text(
+                    text = stringResource(R.string.delete),
+                    color = LatteOnSurface,
+                    fontWeight = FontWeight.Medium,
+                )
+            },
+            text = {
+                Text(
+                    text = stringResource(R.string.delete_forever_confirm),
+                    fontSize = 13.sp,
+                    color = LatteOnSurfaceVariant,
+                )
+            },
+            confirmButton = {
+                Text(
+                    text = stringResource(R.string.delete),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = LatteDestructive,
+                    modifier = Modifier
+                        .clickable {
+                            pendingDeleteId = null
+                            onDeleteConversation(deleteId)
+                        }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            },
+            dismissButton = {
+                Text(
+                    text = stringResource(R.string.cancel),
+                    fontSize = 14.sp,
+                    color = LatteOnSurfaceVariant,
+                    modifier = Modifier
+                        .clickable { pendingDeleteId = null }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            },
+        )
     }
 }
 
@@ -260,6 +343,121 @@ private fun androidx.compose.foundation.lazy.LazyListScope.groupSection(
                 onArchive = { onArchiveConversation(conv.id) },
             )
             Spacer(modifier = Modifier.height(6.dp))
+        }
+    }
+}
+
+/**
+ * 「已归档」区块头：封箱图标 + 标题 + 数量 + 折叠箭头。
+ * 结构与 [groupSection] 的组头一致（同样的 12sp 半粗 + 数量右对齐），
+ * 视觉上归入同一套列表语法。
+ */
+@Composable
+private fun ArchivedHeader(count: Int, collapsed: Boolean, onToggle: () -> Unit) {
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (collapsed) 0f else 90f,
+        animationSpec = tween(BrewMotion.Fast, easing = BrewMotion.FastEasing),
+        label = "archivedChevron",
+    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onToggle() }
+            .padding(horizontal = 4.dp, vertical = 8.dp),
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = LatteOnSurfaceVariant,
+            modifier = Modifier
+                .size(14.dp)
+                .graphicsLayer { rotationZ = chevronRotation },
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Icon(
+            imageVector = Icons.Filled.Archive,
+            contentDescription = null,
+            tint = LatteOnSurfaceVariant,
+            modifier = Modifier.size(13.dp),
+        )
+        Spacer(modifier = Modifier.width(5.dp))
+        Text(
+            text = stringResource(R.string.archived),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = LatteOnSurface.copy(alpha = 0.85f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = count.toString(),
+            fontSize = 11.sp,
+            color = LatteOnSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * 已归档对话行：标题 + 元信息，右侧两个动作 —— 「恢复」（PATCH archived=false）
+ * 与「删除」（DELETE，仅归档态可删）。
+ *
+ * 之所以不做 iOS 那样的滑动：Android Material 的 SwipeToDismissBox 对每行要多一层
+ * 状态与动画，而这里两条动作加起来只有两个字宽；直接给按钮更省事也更好点。
+ * 删除是不可逆操作，点击后由调用方弹二段确认（不在这里直接发请求）。
+ */
+@Composable
+private fun ArchivedRow(
+    conv: ConversationSummary,
+    agentNames: Map<String, String>,
+    onRestore: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = LatteCard,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = conv.title ?: stringResource(R.string.untitled),
+                    fontSize = 15.sp,
+                    color = LatteOnSurface.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = metaLine(conv, agentNames),
+                    fontSize = 11.sp,
+                    color = LatteOnSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                text = stringResource(R.string.restore),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = LattePrimary,
+                modifier = Modifier
+                    .clickable { onRestore() }
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+            )
+            Text(
+                text = stringResource(R.string.delete),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = LatteDestructive,
+                modifier = Modifier
+                    .clickable { onDelete() }
+                    .padding(start = 2.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
+            )
         }
     }
 }
