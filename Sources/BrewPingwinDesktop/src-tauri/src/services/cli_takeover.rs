@@ -12,7 +12,7 @@
 //! - Claude Code：`~/.claude/settings.json` → `env.ANTHROPIC_BASE_URL` +
 //!   `env.ANTHROPIC_AUTH_TOKEN`（占位 key，代理会替换成真实凭据）；
 //! - Codex：`~/.codex/config.toml` → `model_provider = "brewping"` +
-//!   `[model_providers.brewping]`（base_url 指代理、wire_api = "chat"）；
+//!   `[model_providers.brewping]`（base_url 指代理、wire_api = "responses"）；
 //!   `~/.codex/auth.json` → `OPENAI_API_KEY` 占位。
 //! - pi：`~/.pi/agent/models.json` → `providers.brewping`（baseUrl 带别名
 //!   `/pi`、api = "anthropic-messages"、占位 key、至少一条占位模型——契约
@@ -301,7 +301,11 @@ impl CliTakeover {
                 let mut section = toml_edit::Table::new();
                 section["name"] = toml_edit::value("BrewPing Proxy");
                 section["base_url"] = toml_edit::value(self.codex_base_url(port));
-                section["wire_api"] = toml_edit::value("chat");
+                // 🚨 必须是 "responses"：Codex CLI 已废弃 "chat"
+                // （新版实测报错 `wire_api = "chat" is no longer supported`，
+                //  见 https://github.com/openai/codex/discussions/7782）。
+                // 写入 "chat" 会让 codex 直接拒载整份 config.toml。
+                section["wire_api"] = toml_edit::value("responses");
                 providers[CODEX_PROVIDER_NAME] = toml_edit::Item::Table(section);
 
                 // auth.json：占位 OPENAI_API_KEY（保留其他字段）
@@ -597,7 +601,7 @@ mod tests {
         assert!(text.contains("model_provider = \"brewping\""));
         assert!(text.contains("[model_providers.brewping]"));
         assert!(text.contains("base_url = \"http://127.0.0.1:15721/codex\""));
-        assert!(text.contains("wire_api = \"chat\""));
+        assert!(text.contains("wire_api = \"responses\""), "Codex 新版只认 responses");
         assert!(text.contains("model = \"gpt-5\""), "既有键必须保留");
 
         let auth: Value =
