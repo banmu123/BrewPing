@@ -84,3 +84,7 @@
 
 ## 上架
 隐私政策在 GitHub Pages；TEAM TGA82PM3DZ；待重新 Archive；暂不做国区。
+
+## macOS 按钮样式约定
+- `LatteButtonStyle` 自带内边距：`regular`（默认，文本钮 12/5）/ `icon`（方形图标钮 6/6）。**纯图标按钮必须传 `size: .icon`** 且不要再套 `.frame(width:height:)`（会裁掉内边距）；字号尊重调用处（样式不再强制 sm）。
+- 空态问候垂直居中的写法：ScrollView 内容 `.frame(minHeight: 视口高)`（GeometryReader），不要直接把内容丢进 ScrollView（会顶在页首）。
