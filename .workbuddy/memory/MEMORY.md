@@ -65,9 +65,12 @@
 - 🚨 **两套体系互不相通**：① 转发代理路由表 `~/.brewping/model_providers.json`；② CLI 原生配置（模型发现唯一来源）。只在②配却接管→路由表空→503。
 - 🚨 Codex 接管必须 `wire_api="responses"`（新版废弃 chat，写入即拒载整份 config.toml）；代理缺 responses→anthropic 转换，待补。
 - 🚨 npm 装 `@openai/codex` 可能半残（optionalDependency 静默跳过）→ uninstall 后整体重装；切勿单独装 `@openai/codex@<ver>-win32-x64`（会覆盖主包）。
-- 🚨 **预设端点按 agent 分派**（2026-09-14 对齐 cc-switch 源码实证）：`provider_catalog.rs` 每条带 `endpoints: [AgentEndpoint{agent, base_url, wire_api, npm, pi_api}]` —— **`/anthropic` 只属于 Claude Code**；Codex 用 OpenAI Responses 端点（五家全原生支持，DeepSeek=裸域 `api.deepseek.com`、智谱=`/api/v1` 三端点分立）；OpenCode/pi 用 OpenAI 兼容端点（`@ai-sdk/openai-compatible` / `openai-completions`）。顶层 base_url/api_format 仍是转发代理语义（Anthropic）。前端 `resolvePresetEndpoint(entry, agentId)` 解析，四表单 applyPreset(c, ep)：codex 联动 wireApi=responses、opencode 联动 npm、pi 联动 api（协议字段无条件覆盖，名称/baseURL 只填没填过的）。护栏 TC-PC-12/13。`codex_provider_config.rs::DEFAULT_WIRE_API="chat"` 未改（存量行为变更，建议后续单独评估）。macOS 侧 `ProviderCatalog.swift`/`CLIProviderPanels.swift` 尚未同步。
-- 🚨 特性开关（model-config-card.tsx 均 false）：`SHOW_FORWARD_PROXY_SECTION`=厂商卡片列表；`SHOW_TAKEOVER_UI`=全部接管 UI。后端保留，置 true 恢复。
-- 预设下拉共用 `vendor-preset-select.tsx`（VendorPresetSelect + groupCatalogByCategory + resolvePresetEndpoint），agentId 必传。
+- 🚨 **预设端点按 agent 分派**（2026-09-14 对齐 cc-switch 源码实证）：`provider_catalog.rs` 每条带 `endpoints: [AgentEndpoint{agent, base_url, wire_api, npm, pi_api}]` —— **`/anthropic` 只属于 Claude Code**；Codex 用 OpenAI Responses 端点（五家全原生支持，DeepSeek=裸域 `api.deepseek.com`、智谱=`/api/v1` 三端点分立）；OpenCode/pi 用 OpenAI 兼容端点（`@ai-sdk/openai-compatible` / `openai-completions`）。顶层 base_url/api_format 仍是转发代理语义（Anthropic）。前端 `resolvePresetEndpoint(entry, agentId)` 解析，四表单 applyPreset(c, ep)：codex 联动 wireApi=responses、opencode 联动 npm、pi 联动 api（协议字段无条件覆盖，名称/baseURL 只填没填过的）。护栏 TC-PC-12/13。`codex_provider_config.rs::DEFAULT_WIRE_API="chat"` 未改（存量行为变更，建议后续单独评估）。
+  ✅ **macOS 已同步（2026-09-14 深夜，fced961）**：`ProviderCatalog.swift` 带 endpoints + `resolvePresetEndpoint`；四个 CLI 表单接共用 `VendorPresetSelect`（SwiftUI 版）+ applyPreset 同语义 + key 自动 slug（dirty 标记，**空名称不派生**——slug 回落 "provider" 且 SwiftUI TextField 绑定挂载时会触发一次空 set）+ opencode/codex「拉取模型」。
+  ⚠️ **Windows 存量 bug（macOS 已修，待两端同批）**：Windows 拉取模型按顶层 `/anthropic` 匹配目录，而 CLI 表单预填的是 agent 端点（`/v1` 等）→ 预设地址必然匹配失败报「不支持」；macOS `matchByBaseUrl` 同时匹配顶层与各 agent 端点。
+- 🚨 特性开关（model-config-card.tsx 均 false）：`SHOW_FORWARD_PROXY_SECTION`=厂商卡片列表；`SHOW_TAKEOVER_UI`=全部接管 UI。后端保留，置 true 恢复。**macOS 同步对齐**（`ModelProvidersView.showForwardProxySection/showTakeoverUI` 均 false，代码保留），标题行「添加配置」不受开关限制（Windows 同款）。
+- 预设下拉共用 `vendor-preset-select.tsx`（VendorPresetSelect + groupCatalogByCategory + resolvePresetEndpoint），agentId 必传；macOS 等价物在 `CLIProviderPanels.swift`（`VendorPresetSelect` + `cliGroupedCatalog`）。
+- 「Agent 模型偏好」折叠区（两端同构）：每 Agent 一卡（生效模型 + 偏好/跟随徽章 + 偏好失效警告），展开 = 按 provider 分组模型 chips（isDefault 实心、不可用半透明）+ 清除偏好。macOS 的 preferredStillValid 在**客户端算**（providers 里找偏好 id），Windows 在后端算。macOS 触发用 `.task(id: "\(prefsOpen)|\(agents.count)")` —— 不带 count 会撞上「父级 reload 未完成」竞态。
 
 ## 授权确认
 三档 safe/askAll/auto 作用域=全局；检测点=命令进 agent 前；超时默认拒绝（TTL 300s）；危险模式本地正则绝不信任 agent 自报。
