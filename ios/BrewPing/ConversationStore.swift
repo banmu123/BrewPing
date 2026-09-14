@@ -74,11 +74,13 @@ struct ConversationDetail: Equatable {
     let id: String
     let agentId: String
     let title: String?
-    let modelOverride: String?
-    let modelProviderOverride: String?
-    let workdirOverride: String?
+    // 覆盖字段用 var：详情页轮询（refreshOverrides）只 merge 这四个字段，
+    // 不动 messages —— Mac 端改目录/模型/授权时 iOS 数秒内跟上且列表不闪。
+    var modelOverride: String?
+    var modelProviderOverride: String?
+    var workdirOverride: String?
     /// 对话级授权档位；nil = 未设置（跟随桌面端全局默认）。
-    let approvalMode: String?
+    var approvalMode: String?
     let updatedAtMs: Double
     let messages: [TranscriptEntry]
 }
@@ -297,6 +299,34 @@ final class ConversationStore: ObservableObject {
             updatedAtMs: conv.updatedAtMs ?? 0,
             messages: entries
         )
+    }
+
+    /// 只刷新对话级覆盖字段（模型 / 授权 / 工作目录），**不动 messages**。
+    ///
+    /// 用途：详情页的低频轮询 —— 桌面端改了目录等覆盖时，iOS 数秒内跟上，
+    /// 且不重拉转录（避免消息列表闪烁 / 打断滚动位置）。
+    /// 拉取失败静默跳过（下一轮再试），401/下线不打扰用户。
+    func refreshOverrides(id: String, device: ManagedDevice?) async {
+        guard let device, detail?.id == id else { return }
+        guard let request = BrewPingHTTP.request(
+            device: device,
+            path: "/api/conversations/\(id)",
+            timeout: 10
+        ) else { return }
+        do {
+            let (data, response) = try await BrewPingHTTP.session.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200,
+                  let raw = try? JSONDecoder().decode(RawDetailResponse.self, from: data),
+                  let conv = raw.conversation else { return }
+            guard var current = detail, current.id == id else { return }
+            current.modelOverride = conv.modelOverride
+            current.modelProviderOverride = conv.modelProviderOverride
+            current.workdirOverride = conv.workdirOverride
+            current.approvalMode = conv.approvalMode
+            detail = current
+        } catch {
+            BrewPingLog.net.error("Refresh overrides failed: \(error.localizedDescription, privacy: .private)")
+        }
     }
 
     // MARK: - 写操作（对话级 Agent / 模型 / 授权；与桌面端同一套存储语义）

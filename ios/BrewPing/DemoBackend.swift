@@ -298,6 +298,9 @@ final class DemoBackend {
                 overrides["modelProviderOverride"] =
                     (modelID.isEmpty || provider.isEmpty) ? NSNull() : provider
             }
+            if let workdir = json["workdir"] as? String {
+                overrides["workdirOverride"] = workdir.isEmpty ? NSNull() : workdir
+            }
             lock.lock()
             conversationOverrides[id] = overrides
             lock.unlock()

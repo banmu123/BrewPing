@@ -30,6 +30,8 @@ struct ConversationDetailView: View {
     @State private var materializedID: String?
     /// 对话设置弹窗（Agent / 模型 / 授权，均按对话独立）。
     @State private var showSettings = false
+    /// 工作目录条点开的目录选择弹窗（对话级绑定，复用目录浏览器）。
+    @State private var showWorkdirPicker = false
     /// 草稿态选定的 Agent（nil = 跟随桌面端当前默认 Agent）。
     @State private var draftAgentID: String?
     /// 草稿态选定的授权档位（nil = 跟随桌面端全局默认），随首条消息固化。
@@ -55,6 +57,19 @@ struct ConversationDetailView: View {
         .task { await load() }
         // 模型列表跟随当前对话的 Agent（切 Agent 后自动重拉）
         .task(id: agentId) { await modelStore.refresh(device: device, agentID: agentId) }
+        // 覆盖字段轮询：Mac 端改了目录 / 模型 / 授权 → iOS 数秒内跟上。
+        // 只 merge 覆盖字段（不动 messages），不会打断滚动或输入。
+        .task(id: activeConversationID) {
+            guard let id = activeConversationID else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if Task.isCancelled { break }
+                await store.refreshOverrides(id: id, device: device)
+            }
+        }
+        .sheet(isPresented: $showWorkdirPicker) {
+            workdirPickerSheet
+        }
         .sheet(isPresented: $showSettings) {
             ConversationSettingsView(
                 device: device,
@@ -249,17 +264,50 @@ struct ConversationDetailView: View {
 
     // MARK: - Workdir bar
 
+    /// 对话级覆盖（nil = 未单独绑定；Mac 端 composer「绑定到对话」写这里）。
     private var boundDir: String? {
         guard let dir = store.detail?.workdirOverride, !dir.isEmpty else { return nil }
         return dir
     }
 
+    /// Agent 级偏好（Mac 端 composer 草稿态选目录写这里；`/api/agents` 带 workdir）。
+    private var agentWorkdir: String? {
+        let agentID = store.detail?.agentId ?? draftResolvedAgentID
+        guard !agentID.isEmpty else { return nil }
+        return agents.first(where: { $0.id == agentID })?.workdir
+            .flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// 当前生效目录 = 对话覆盖 → Agent 偏好 → CLI 默认（nil），与桌面端同链。
+    private var effectiveWorkdir: String? { boundDir ?? agentWorkdir }
+
+    private var workdirCaptionKey: String {
+        if boundDir != nil { return "This chat's folder. File operations use it." }
+        if agentWorkdir != nil { return "Agent default folder is used. Tap to bind this chat." }
+        return "Not bound — the CLI default folder is used."
+    }
+
     private var workdirBar: some View {
+        Group {
+            if isDraft {
+                workdirBarContent
+            } else {
+                Button {
+                    showWorkdirPicker = true
+                } label: {
+                    workdirBarContent
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var workdirBarContent: some View {
         HStack(spacing: 6) {
             Image(systemName: "folder")
                 .font(.system(size: 12))
                 .foregroundStyle(Color.bpPrimary.opacity(0.85))
-            if let dir = boundDir {
+            if let dir = effectiveWorkdir {
                 Text(bpPathLabel(dir))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color.bpForeground)
@@ -274,10 +322,16 @@ struct ConversationDetailView: View {
                     .foregroundStyle(Color.bpForeground)
             }
             Spacer(minLength: 6)
-            Text(L(boundDir == nil ? "Not bound — the CLI default folder is used." : "This chat's folder. File operations use it."))
+            Text(L(workdirCaptionKey))
                 .font(.system(size: 10))
                 .foregroundStyle(Color.bpMutedForeground.opacity(0.8))
                 .lineLimit(1)
+            if !isDraft {
+                // 可点提示（草稿态不可点，没有箭头）
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color.bpMutedForeground)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -291,6 +345,45 @@ struct ConversationDetailView: View {
         )
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+    }
+
+    /// 目录选择弹窗：复用目录浏览器（对话级绑定模式）+ 底部解绑。
+    private var workdirPickerSheet: some View {
+        NavigationStack {
+            FolderBrowserView(
+                device: device,
+                agentID: "",
+                currentWorkdir: boundDir,
+                onSet: { _ in },
+                onPick: { path in
+                    Task {
+                        if let id = store.detail?.id,
+                           await store.setWorkdir(device: device, id: id, workdir: path) {
+                            await reloadAfterSettingsChange()
+                            showWorkdirPicker = false
+                        }
+                    }
+                }
+            )
+            .toolbar {
+                ToolbarItem(placement: .bottomBar) {
+                    if boundDir != nil {
+                        Button(role: .destructive) {
+                            Task {
+                                if let id = store.detail?.id,
+                                   await store.setWorkdir(device: device, id: id, workdir: "") {
+                                    await reloadAfterSettingsChange()
+                                    showWorkdirPicker = false
+                                }
+                            }
+                        } label: {
+                            Text("Unbind Folder")
+                        }
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 
     // MARK: - Composer

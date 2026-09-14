@@ -259,3 +259,4 @@
 "Controls" = "Controls";
 "This chat's folder. File operations use it." = "This chat's folder. File operations use it.";
 "Not bound — the CLI default folder is used." = "Not bound — the CLI default folder is used.";
+"Agent default folder is used. Tap to bind this chat." = "Agent default folder is used. Tap to bind this chat.";

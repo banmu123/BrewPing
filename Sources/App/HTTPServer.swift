@@ -4,9 +4,25 @@ import Network
 struct HTTPRequest {
     let method: String
     let path: String
+    /// `?` 之后的原始 query（未解码，可为 nil）。`/api/folders?path=…` 这类
+    /// 带参 GET 依赖它 —— 之前 query 被直接丢弃，带参路由无法实现。
+    let query: String?
     let body: Data
     /// 头字段名**统一小写**，取值时直接用小写 key（HTTP 头本身大小写不敏感）。
     let headers: [String: String]
+
+    /// 解析 query 为字典（percent 解码；同名字段取最后一个）。
+    var queryItems: [String: String] {
+        guard let query, !query.isEmpty else { return [:] }
+        var items: [String: String] = [:]
+        for pair in query.split(separator: "&") {
+            let kv = pair.split(separator: "=", maxSplits: 1)
+            guard let key = String(kv[0]).removingPercentEncoding else { continue }
+            let value = kv.count > 1 ? (String(kv[1]).removingPercentEncoding ?? "") : ""
+            items[key] = value
+        }
+        return items
+    }
 }
 
 struct HTTPResponse {
@@ -128,13 +144,17 @@ final class HTTPServer {
                 var body = buf.subdata(in: headerEnd.upperBound..<buf.endIndex)
                 if body.count >= head.contentLength {
                     body = body.prefix(head.contentLength)
-                    let request = HTTPRequest(method: head.method, path: head.path, body: body, headers: head.headers)
+                    let request = HTTPRequest(
+                        method: head.method, path: head.path, query: head.query,
+                        body: body, headers: head.headers
+                    )
                     self.respond(connection, self.handler(request))
                 } else {
                     self.receiveBody(
                         connection,
                         method: head.method,
                         path: head.path,
+                        query: head.query,
                         headers: head.headers,
                         contentLength: head.contentLength,
                         buffer: body
@@ -158,6 +178,7 @@ final class HTTPServer {
         _ connection: NWConnection,
         method: String,
         path: String,
+        query: String?,
         headers: [String: String],
         contentLength: Int,
         buffer: Data
@@ -184,7 +205,7 @@ final class HTTPServer {
             }
             if buf.count >= contentLength {
                 let body = buf.prefix(contentLength)
-                let request = HTTPRequest(method: method, path: path, body: Data(body), headers: headers)
+                let request = HTTPRequest(method: method, path: path, query: query, body: Data(body), headers: headers)
                 self.respond(connection, self.handler(request))
                 return
             }
@@ -193,6 +214,7 @@ final class HTTPServer {
                     connection,
                     method: method,
                     path: path,
+                    query: query,
                     headers: headers,
                     contentLength: contentLength,
                     buffer: buf
@@ -206,6 +228,7 @@ final class HTTPServer {
     private struct ParsedHead {
         let method: String
         let path: String
+        let query: String?
         let contentLength: Int
         let headers: [String: String]
     }
@@ -219,7 +242,9 @@ final class HTTPServer {
         guard parts.count >= 2 else { return nil }
         let method = String(parts[0])
         var path = String(parts[1])
+        var query: String?
         if let queryStart = path.firstIndex(of: "?") {
+            query = String(path[path.index(after: queryStart)...])
             path = String(path[..<queryStart])
         }
 
@@ -236,7 +261,7 @@ final class HTTPServer {
                 contentLength = Int(value) ?? 0
             }
         }
-        return ParsedHead(method: method, path: path, contentLength: contentLength, headers: headers)
+        return ParsedHead(method: method, path: path, query: query, contentLength: contentLength, headers: headers)
     }
 
     private func respond(_ connection: NWConnection, _ response: HTTPResponse) {

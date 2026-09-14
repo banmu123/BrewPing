@@ -65,6 +65,12 @@ enum HTTPAPI {
             return agentSwitchResponse(agentID)
         case ("POST", "/api/agents/models/default"):
             return setDefaultModelResponse(request)
+        case ("GET", "/api/folders/roots"):
+            return folderRootsResponse()
+        case ("GET", "/api/folders"):
+            return folderBrowseResponse(request)
+        case ("POST", "/api/agents/workdir"):
+            return setAgentWorkdirResponse(request)
         case let ("GET", path) where path.hasPrefix("/api/message/"):
             let id = String(path.dropFirst("/api/message/".count))
             return commandResponse(id)
@@ -205,6 +211,95 @@ enum HTTPAPI {
         return HTTPResponse(status: 200, reason: "OK", body: data)
     }
 
+    // MARK: - 目录浏览 / Agent 工作目录（iOS 目录选择器；契约对齐 Windows folder_api.rs）
+
+    /// `GET /api/folders/roots` → 根列表（home + `/` + `/Volumes` 卷）。
+    /// 注意：响应是**裸对象**（不包 success 信封），iOS 直接按 RootsInfo 解码。
+    private static func folderRootsResponse() -> HTTPResponse {
+        let encoder = JSONEncoder()
+        guard let data = try? encoder.encode(FolderBrowser.roots()) else {
+            return .json(500, "Internal Server Error", ["success": false, "error": "encode roots failed"])
+        }
+        return HTTPResponse(status: 200, reason: "OK", body: data)
+    }
+
+    /// `GET /api/folders?path=&hidden=0|1&limit=&cursor=` —— 浏览子目录（只返回目录）。
+    /// `cursor` = 上一页回传的 offset 字符串（iOS 原样回传，不解析）。
+    /// `hidden=0` 时过滤点前缀目录；缺省/1 = 原样返回（条目自带 hidden 标记）。
+    private static func folderBrowseResponse(_ request: HTTPRequest) -> HTTPResponse {
+        let items = request.queryItems
+        let offset = items["cursor"].flatMap(Int.init) ?? 0
+        do {
+            let result = try FolderBrowser.browse(
+                path: items["path"],
+                limit: items["limit"].flatMap(Int.init),
+                offset: offset
+            )
+            // hidden 过滤在分页**之后**做：下一页 offset 必须基于未过滤的页宽，
+            // 否则客户端翻页会跳条目。
+            var entries = result.entries
+            if items["hidden"] != "1" {
+                entries = entries.filter { !$0.hidden }
+            }
+            let nextCursor: String? = result.truncated
+                ? String(offset + result.entries.count)
+                : nil
+            let object: [String: Any] = [
+                "path": result.path,
+                "parentPath": result.parentPath ?? NSNull(),
+                "entries": entries.map { entry in
+                    [
+                        "name": entry.name,
+                        "absolutePath": entry.absolutePath,
+                        "isSymlink": entry.isSymlink,
+                        "hidden": entry.hidden
+                    ]
+                },
+                "truncated": result.truncated,
+                "nextCursor": nextCursor ?? NSNull()
+            ]
+            return .json(200, "OK", object)
+        } catch {
+            // 错误码与 iOS FolderBrowserStore 的映射对齐（path-invalid → 提示路径不存在）
+            return .json(400, "Bad Request", ["success": false, "error": "path-invalid"])
+        }
+    }
+
+    /// `POST /api/agents/workdir` —— body `{"agentId": "...", "path": "..."}`。
+    /// `path` 空串/null = 清除偏好。错误码与 iOS `workdirErrorMessage` 映射对齐。
+    private static func setAgentWorkdirResponse(_ request: HTTPRequest) -> HTTPResponse {
+        guard let object = try? JSONSerialization.jsonObject(with: request.body, options: []),
+              let body = object as? [String: Any],
+              let agentID = body["agentId"] as? String, !agentID.isEmpty else {
+            return .json(400, "Bad Request", [
+                "success": false,
+                "error": "expected JSON body {\"agentId\": \"...\", \"path\": \"...\"}"
+            ])
+        }
+        guard AgentDiscovery.catalog.contains(where: { $0.id == agentID }) else {
+            return .json(404, "Not Found", ["success": false, "error": "unknown agent"])
+        }
+        // opencode 是 stub：执行链不支持 workdir，拒绝语义与 Windows 一致
+        if agentID == "opencode" {
+            return .json(400, "Bad Request",
+                         ["success": false, "error": "opencode does not support workdir"])
+        }
+        let rawPath = (body["path"] as? String) ?? ""
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            // 清除偏好
+            _ = DesktopCommands.setAgentWorkdir(agentID, path: nil)
+            return .json(200, "OK", ["success": true, "agentId": agentID, "workdir": NSNull()])
+        }
+        // 🚨 先校验再写入：非法路径不能把既有偏好顺手清掉（WorkdirPrefs.set 的
+        // 语义是"normalize 失败 = 移除"，HTTP 层必须拦在前面回 400）。
+        guard let normalized = try? FolderBrowser.validateWorkdir(trimmed) else {
+            return .json(400, "Bad Request", ["success": false, "error": "path-invalid"])
+        }
+        _ = DesktopCommands.setAgentWorkdir(agentID, path: normalized)
+        return .json(200, "OK", ["success": true, "agentId": agentID, "workdir": normalized])
+    }
+
     private static func agentsResponse() -> HTTPResponse {
         let defaultID = AgentManager.shared.defaultAgentID
         let agents = AgentDiscovery.shared.discover().map { agent -> [String: Any] in
@@ -218,6 +313,9 @@ enum HTTPAPI {
                     || AgentManager.shared.provider(for: agent.id) != nil
             ]
             if let version = agent.version { object["version"] = version }
+            // 当前生效目录的 agent 级偏好（对话级覆盖在 conversation detail 里）。
+            // iOS 的目录条用它做回落显示；未设置为 null。
+            object["workdir"] = WorkdirPrefs.shared.get(agentID: agent.id) ?? NSNull()
             return object
         }
         return .json(200, "OK", ["agents": agents, "defaultAgent": defaultID])

@@ -257,3 +257,4 @@
 "Controls" = "控制面板";
 "This chat's folder. File operations use it." = "本对话绑定的工作目录，文件操作将作用于它。";
 "Not bound — the CLI default folder is used." = "未绑定目录，将使用 CLI 默认位置。";
+"Agent default folder is used. Tap to bind this chat." = "使用 Agent 默认目录；点按可为本对话单独绑定。";

@@ -1104,6 +1104,9 @@ struct ContentView: View {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             guard !Task.isCancelled else { break }
             await refreshStatus()
+            // agent 级数据（含工作目录偏好）也要周期刷新：Mac 端在 composer
+            // 草稿态换目录写的是 agent 偏好，iOS 的目录条回落值依赖它。
+            await refreshAgentsKeepingOldData()
         }
     }
 
@@ -1178,6 +1181,17 @@ struct ContentView: View {
             watchBridge.currentOnline = false
             watchBridge.currentSessionState = ""
             watchBridge.pushStatus(online: false, sessionStateRaw: "")
+        }
+    }
+
+    /// 5s 循环专用的非破坏性刷新：`refreshAgents` 失败路径会把 `agents` 清空，
+    /// 周期轮询里一次网络抖动就会把界面上的 Agent 列表 / 目录回落清掉 ——
+    /// 这里在失败（且非 401）时回滚旧值。401 不回滚：那是真实的鉴权状态变化。
+    private func refreshAgentsKeepingOldData() async {
+        let previous = agents
+        await refreshAgents()
+        if agents.isEmpty, !previous.isEmpty, !agentsUnauthorized {
+            agents = previous
         }
     }
 
