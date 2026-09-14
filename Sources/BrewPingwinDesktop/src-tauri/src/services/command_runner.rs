@@ -298,6 +298,8 @@ pub async fn execute_agent_command(
     };
     // opencode 的 `--model` 要求 `provider/model` 复合格式；其它 agent
     // （claude/codex/aider）的 --model 只认裸 model id，原样传。
+    // 绑定诊断日志（方案 §7.5）：用户报错时能立刻定位是不是模型名不对。
+    log::info!("[Agent] {agent_id} model={model:?} (provider={model_provider:?})");
     let model_arg = match (model_provider, model) {
         (Some(provider), Some(id)) if agent_id == "opencode" && !id.contains('/') => {
             Some(format!("{provider}/{id}"))

@@ -64,6 +64,7 @@ import { ChatView, fromTranscript } from "./components/chat/chat-view";
 import { ComposerDropdown } from "./components/chat/composer-dropdown";
 import { WorkdirPicker } from "./components/chat/workdir-picker";
 import { EnvironmentCard } from "./components/settings/environment-card";
+import { ModelConfigCard } from "./components/settings/model-config-card";
 import { cn } from "./lib/utils";
 import { useI18n, intlLocale, type LangMode } from "./i18n";
 import "./styles/app.css";
@@ -75,7 +76,7 @@ const APPROVAL_MODES: Array<{ id: ApprovalMode; label: string; descKey: "approva
 ];
 
 /// 设置页左侧导航的分类（弹窗双栏布局，参考 WorkBuddy 设置弹窗）。
-type SettingsSectionId = "general" | "machine" | "environment" | "pairing";
+type SettingsSectionId = "general" | "machine" | "environment" | "models" | "pairing";
 
 /// 草稿输入的存储键（尚无对话 ID 时）。
 const DRAFT_KEY = "__draft__";
@@ -1290,6 +1291,7 @@ function SettingsView({
     { id: "general", label: t("set.navGeneral"), icon: <Globe size={13} /> },
     { id: "machine", label: t("set.navMachine"), icon: <Info size={13} /> },
     { id: "environment", label: t("set.navEnvironment"), icon: <Cpu size={13} /> },
+    { id: "models", label: t("mp.title"), icon: <Layers size={13} /> },
     { id: "pairing", label: t("set.navPairing"), icon: <QrCode size={13} /> },
   ];
   const activeLabel = NAV_ITEMS.find((n) => n.id === section)?.label ?? "";
@@ -1395,6 +1397,9 @@ function SettingsView({
 
             {/* ── 环境与 AI CLI（Node / NVM / 各智能体 CLI 的检测与安装引导）── */}
             {section === "environment" && <EnvironmentCard />}
+
+            {/* ── 模型配置（多厂商配置管理 + 本地转发代理，内置 cc-switch 能力）── */}
+            {section === "models" && <ModelConfigCard />}
 
             {/* ── 配对 ── */}
             {section === "pairing" && (

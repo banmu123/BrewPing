@@ -4,9 +4,14 @@ mod services;
 
 use services::agent_discovery::AgentEntryApi;
 use services::approval_gate::{ApprovalGate, ApprovalMode};
+use services::cli_takeover::{CliTakeover, CliTakeoverInfo, CliKind};
 use services::conversation_store::ConversationStore;
 use services::http_server::{AppState, CommandStore};
 use services::model_prefs::ModelPrefs;
+use services::model_provider_store::{
+    ModelProviderConfig, ModelProviderStore, ProviderView, StoredSnapshot,
+};
+use services::model_proxy::ModelProxyManager;
 use services::pairing_store::PairingStore;
 use services::terminal_state::{AgentTerminalState, TerminalManager};
 use services::workdir_prefs::WorkdirPrefs;
@@ -50,6 +55,10 @@ pub struct DesktopCore {
     pub runtime_state: Arc<std::sync::RwLock<RuntimeState>>,
     /// 环境安装会话状态（设置页「环境与 AI CLI」区块：本会话经 NVM 装好的 Node 版本）。
     pub env_setup: Arc<services::env_setup::EnvSetupState>,
+    /// 模型供应商配置（多厂商接入，内置 cc-switch 能力）。
+    pub model_providers: Arc<ModelProviderStore>,
+    /// 模型转发代理管理器（按 model_providers 的开关/端口启停）。
+    pub model_proxy: Arc<ModelProxyManager>,
 }
 
 // ─── Pairing payload ─────────────────────────────────────────────────────────
@@ -469,12 +478,28 @@ async fn get_agent_models(
         })
         .collect();
 
+    // 绑定有效性（G6）：preferredModelId 是否仍属于某个已发现 provider
+    // （若设了 preferredProviderId 还需 provider 匹配）。换厂商后旧绑定悬空时，
+    // 前端据此显示警示。
+    let preferred_still_valid = preferred
+        .as_deref()
+        .map(|pid| {
+            config.providers.iter().any(|p| {
+                p.models.iter().any(|m| m.id == pid)
+                    && preferred_provider
+                        .as_deref()
+                        .map_or(true, |pp| pp == p.id)
+            })
+        })
+        .unwrap_or(false);
+
     Ok(serde_json::json!({
         "agentId": agent_id,
         "providers": providers,
         "activeModelId": config.active_model_id,
         "preferredModelId": preferred,
         "preferredProviderId": preferred_provider,
+        "preferredStillValid": preferred_still_valid,
     }))
 }
 
@@ -839,6 +864,198 @@ async fn update_agent_cli(
     )
 }
 
+// ─── Model providers（设置页「模型配置」；内置 cc-switch 供应商接入 + 转发代理）──
+
+/// 设置页模型配置区块的完整快照（配置列表 + 当前项 + 代理运行态）。
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelProvidersInfo {
+    pub providers: Vec<ProviderView>,
+    pub current_id: Option<String>,
+    pub proxy_enabled: bool,
+    pub proxy_port: u16,
+    pub proxy_running: bool,
+    /// 故障转移开关（开 = 上游失败自动按队列换下一家）。
+    pub failover_enabled: bool,
+    /// 最近一次代理启动失败的原因（运行中为 None）。
+    pub proxy_error: Option<String>,
+}
+
+async fn model_providers_info(core: &DesktopCore) -> ModelProvidersInfo {
+    let snap: StoredSnapshot = core.model_providers.snapshot();
+    let proxy = core.model_proxy.status().await;
+    ModelProvidersInfo {
+        providers: snap.providers,
+        current_id: snap.current_id,
+        proxy_enabled: snap.proxy_enabled,
+        proxy_port: snap.proxy_port,
+        proxy_running: proxy.running,
+        failover_enabled: snap.failover_enabled,
+        proxy_error: proxy.error,
+    }
+}
+
+/// 读取模型配置全量快照。
+#[tauri::command]
+async fn get_model_providers(
+    core: tauri::State<'_, DesktopCore>,
+) -> Result<ModelProvidersInfo, String> {
+    Ok(model_providers_info(&core).await)
+}
+
+/// 新增或更新一条模型配置（id 为空 = 新建；返回刷新后的快照）。
+#[tauri::command]
+async fn save_model_provider(
+    core: tauri::State<'_, DesktopCore>,
+    provider: ModelProviderConfig,
+) -> Result<ModelProvidersInfo, String> {
+    core.model_providers.upsert(provider)?;
+    Ok(model_providers_info(&core).await)
+}
+
+/// 删除一条模型配置（删当前项时 current 一并清空）。
+#[tauri::command]
+async fn delete_model_provider(
+    core: tauri::State<'_, DesktopCore>,
+    id: String,
+) -> Result<ModelProvidersInfo, String> {
+    core.model_providers.delete(&id)?;
+    Ok(model_providers_info(&core).await)
+}
+
+/// 切换当前生效的模型配置（即时生效：转发代理按请求读当前值，CLI 无感）。
+#[tauri::command]
+async fn switch_model_provider(
+    core: tauri::State<'_, DesktopCore>,
+    id: String,
+) -> Result<ModelProvidersInfo, String> {
+    core.model_providers.switch_current(&id)?;
+    Ok(model_providers_info(&core).await)
+}
+
+/// 设置转发代理开关与端口（落盘 + 立即启停代理实例）。
+#[tauri::command]
+async fn set_model_proxy(
+    core: tauri::State<'_, DesktopCore>,
+    enabled: bool,
+    port: u16,
+) -> Result<ModelProvidersInfo, String> {
+    core.model_providers.set_proxy(enabled, port);
+    core.model_proxy.apply(enabled, port).await;
+    Ok(model_providers_info(&core).await)
+}
+
+/// 设置故障转移开关（开 = 当前供应商失败时按列表顺序自动换下一家）。
+#[tauri::command]
+async fn set_model_failover(
+    core: tauri::State<'_, DesktopCore>,
+    enabled: bool,
+) -> Result<ModelProvidersInfo, String> {
+    core.model_providers.set_failover(enabled);
+    Ok(model_providers_info(&core).await)
+}
+
+/// 读取 CLI 接入状态（动态列表：Claude Code / Codex / OpenCode / Aider …，
+/// 含 installed 检测；仅前两者支持配置接管）。
+#[tauri::command]
+async fn get_cli_takeover(
+    core: tauri::State<'_, DesktopCore>,
+) -> Result<CliTakeoverInfo, String> {
+    let port = core.model_providers.snapshot().proxy_port;
+    Ok(CliTakeover::new().status(port))
+}
+
+/// 启用/还原 CLI 配置接管（写或还原 ~/.claude/settings.json、~/.codex/config.toml）。
+#[tauri::command]
+async fn set_cli_takeover(
+    core: tauri::State<'_, DesktopCore>,
+    cli: String,
+    enable: bool,
+) -> Result<CliTakeoverInfo, String> {
+    let kind = CliKind::parse(&cli).ok_or_else(|| format!("unknown cli: {cli}"))?;
+    let snap = core.model_providers.snapshot();
+    let takeover = CliTakeover::new();
+    if enable {
+        takeover.enable(kind, snap.proxy_port)?;
+        // 首次接入自动拉起转发代理（否则 CLI 指到 127.0.0.1:port 无人监听）
+        let running = core.model_proxy.status().await.running;
+        if !running || !snap.proxy_enabled {
+            core.model_providers.set_proxy(true, snap.proxy_port);
+            core.model_proxy.apply(true, snap.proxy_port).await;
+        }
+    } else {
+        takeover.disable(kind, snap.proxy_port)?;
+    }
+    Ok(takeover.status(snap.proxy_port))
+}
+
+/// 返回内置厂商目录（纯静态预填模板，不含任何密钥）。
+#[tauri::command]
+async fn get_provider_catalog() -> Result<Vec<services::provider_catalog::CatalogEntry>, String> {
+    Ok(services::provider_catalog::CATALOG.to_vec())
+}
+
+/// 拉取某厂商的真实可用模型清单（走目录里的 OpenAI 端点 `models_url`；
+/// 转发用的 Anthropic 端点没有 GET /models，二者地址不同）。
+///
+/// Key 解析：优先用前端刚填的明文（尚未保存场景）；为空 / 掩码（•）时
+/// 回落已存配置里同 base_url 的真实 Key —— 明文 Key 绝不写日志、
+/// 绝不回显到错误信息（错误只带状态码）。任何失败前端都回落静态候选。
+#[tauri::command]
+async fn fetch_provider_models(
+    core: tauri::State<'_, DesktopCore>,
+    provider_id: String,
+    api_key: Option<String>,
+) -> Result<Vec<String>, String> {
+    let entry = services::provider_catalog::find(&provider_id)
+        .ok_or_else(|| format!("unknown provider: {provider_id}"))?;
+    if entry.models_url.is_empty() {
+        return Err("no models endpoint for this provider".into());
+    }
+
+    // 解析 Key：掩码（•）视为未提供，避免把掩码串当真实 Key 发出去
+    let provided = api_key.unwrap_or_default();
+    let provided = provided.trim();
+    let provided: &str = if provided.contains('•') { "" } else { provided };
+    let key: String = if !provided.is_empty() {
+        provided.to_string()
+    } else {
+        // 从已存配置里找同 base_url 且配过 Key 的条目（route_chain 内部携带真实 Key）
+        let (chain, _) = core.model_providers.route_chain();
+        let base = entry.base_url.trim_end_matches('/');
+        chain
+            .iter()
+            .find(|p| !p.api_key.is_empty() && p.base_url.trim_end_matches('/') == base)
+            .map(|p| p.api_key.clone())
+            .ok_or_else(|| "missing api key: fill it in the form first".to_string())?
+    };
+
+    let resp = services::model_proxy::http_client()
+        .get(entry.models_url)
+        .header("Authorization", format!("Bearer {key}"))
+        .send()
+        .await
+        .map_err(|e| format!("request failed: {e}"))?;
+    let code = resp.status().as_u16();
+    if code == 401 || code == 403 {
+        return Err(format!("upstream {code}: invalid api key"));
+    }
+    if !(200..300).contains(&code) {
+        return Err(format!("upstream returned {code}"));
+    }
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("read body failed: {e}"))?;
+    let list = services::model_list::parse_openai_models(&body);
+    if list.is_empty() {
+        // 404 类 / 解析失败：报错让前端回落目录静态候选，不 panic 不硬失败
+        return Err("no models parsed from upstream response".into());
+    }
+    Ok(list)
+}
+
+
 // ─── App Entry Point ─────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -893,6 +1110,14 @@ pub fn run() {
             let conversations = Arc::new(ConversationStore::new());
             // 环境安装会话状态（设置页：刚经 NVM 装好的 Node 版本，供 CLI 安装补 PATH）
             let env_setup = Arc::new(services::env_setup::EnvSetupState::new());
+            // 模型供应商配置 + 转发代理（内置 cc-switch 能力；默认关闭 = 行为零差异）
+            let model_providers = Arc::new(ModelProviderStore::new());
+            let model_proxy = Arc::new(ModelProxyManager::new(model_providers.clone()));
+            // 故障转移切到备用供应商时向前端广播（model-provider-switched 事件）
+            let proxy_app = app.handle().clone();
+            model_proxy.set_event_sink(Arc::new(move |event, payload| {
+                let _ = proxy_app.emit(event, payload);
+            }));
 
             // 事件广播回调：把 tauri emit 包成通用 sink 注入 HTTP 层
             // （http_server / command_runner 不依赖 tauri 类型，见 EventSink 注释）。
@@ -931,6 +1156,8 @@ pub fn run() {
                 // 而不是停在 idle（会被渲染成红色 Offline，让用户以为没启起来）。
                 runtime_state: Arc::new(std::sync::RwLock::new(RuntimeState::Starting)),
                 env_setup,
+                model_providers: model_providers.clone(),
+                model_proxy: model_proxy.clone(),
             };
 
             // Clone Arc handles BEFORE app.manage(core) consumes core
@@ -946,6 +1173,19 @@ pub fn run() {
             let agents_clone = agents.clone();
             tauri::async_runtime::spawn(async move {
                 terminal_clone.init_from_agents(&agents_clone).await;
+            });
+
+            // 按落盘配置自启动转发代理（端口被占用等失败只记日志 + 状态可查，
+            // 不影响主服务 —— 设置页会显示启动失败原因）
+            let proxy_manager = model_proxy.clone();
+            let proxy_snapshot = model_providers.snapshot();
+            tauri::async_runtime::spawn(async move {
+                let st = proxy_manager
+                    .apply(proxy_snapshot.proxy_enabled, proxy_snapshot.proxy_port)
+                    .await;
+                if let Some(e) = st.error {
+                    log::warn!("[ModelProxy] auto-start issue: {e}");
+                }
             });
 
             // Setup system tray FIRST so TrayHandles are registered before async task
@@ -1093,6 +1333,16 @@ pub fn run() {
             install_node,
             install_agent_cli,
             update_agent_cli,
+            get_model_providers,
+            save_model_provider,
+            delete_model_provider,
+            switch_model_provider,
+            set_model_proxy,
+            set_model_failover,
+            get_cli_takeover,
+            set_cli_takeover,
+            get_provider_catalog,
+            fetch_provider_models,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

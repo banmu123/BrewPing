@@ -13,6 +13,10 @@ import type {
   EnvironmentStatus,
   NodeVersionOption,
   AgentCliStatus,
+  ModelProviderConfig,
+  ModelProvidersInfo,
+  CliTakeoverInfo,
+  CatalogEntry,
 } from "./types";
 
 /**
@@ -349,4 +353,95 @@ export async function installAgentCli(
  */
 export async function updateAgentCli(agentId: string): Promise<AgentCliStatus> {
   return invoke<AgentCliStatus>("update_agent_cli", { agentId });
+}
+
+// ─── 模型配置（设置页「模型配置」区块；内置 cc-switch 供应商接入 + 转发代理）────
+
+/**
+ * 读取模型配置全量快照（配置列表 + 当前项 + 代理运行态）。
+ */
+export async function getModelProviders(): Promise<ModelProvidersInfo> {
+  return invoke<ModelProvidersInfo>("get_model_providers");
+}
+
+/**
+ * 新增或更新一条模型配置（config.id 为空 = 新建，后端生成 id）。
+ * 返回刷新后的快照。
+ */
+export async function saveModelProvider(
+  config: ModelProviderConfig,
+): Promise<ModelProvidersInfo> {
+  return invoke<ModelProvidersInfo>("save_model_provider", { provider: config });
+}
+
+/**
+ * 删除一条模型配置（删当前项时 current 一并清空）。
+ */
+export async function deleteModelProvider(id: string): Promise<ModelProvidersInfo> {
+  return invoke<ModelProvidersInfo>("delete_model_provider", { id });
+}
+
+/**
+ * 切换当前生效的模型配置（即时生效：转发代理按请求读当前值，CLI 无需重启）。
+ */
+export async function switchModelProvider(id: string): Promise<ModelProvidersInfo> {
+  return invoke<ModelProvidersInfo>("switch_model_provider", { id });
+}
+
+/**
+ * 设置转发代理开关与端口（后端落盘并立即启停代理实例）。
+ */
+export async function setModelProxy(
+  enabled: boolean,
+  port: number,
+): Promise<ModelProvidersInfo> {
+  return invoke<ModelProvidersInfo>("set_model_proxy", { enabled, port });
+}
+
+/**
+ * 设置故障转移开关（开 = 当前供应商失败时按列表顺序自动换下一家）。
+ */
+export async function setModelFailover(
+  enabled: boolean,
+): Promise<ModelProvidersInfo> {
+  return invoke<ModelProvidersInfo>("set_model_failover", { enabled });
+}
+
+/**
+ * 读取 CLI 接入状态（动态列表：installed 检测 + 接管状态）。
+ */
+export async function getCliTakeover(): Promise<CliTakeoverInfo> {
+  return invoke<CliTakeoverInfo>("get_cli_takeover");
+}
+
+/**
+ * 启用/还原某个 CLI 的配置接入（cli = item.id；enable 时代理未运行会自动拉起）。
+ */
+export async function setCliTakeover(
+  cli: string,
+  enable: boolean,
+): Promise<CliTakeoverInfo> {
+  return invoke<CliTakeoverInfo>("set_cli_takeover", { cli, enable });
+}
+
+/**
+ * 读取内置厂商目录（纯静态预填模板，不含任何密钥）。
+ */
+export async function getProviderCatalog(): Promise<CatalogEntry[]> {
+  return invoke<CatalogEntry[]>("get_provider_catalog");
+}
+
+/**
+ * 拉取某厂商的真实可用模型清单（走目录里的 OpenAI 端点）。
+ * apiKey 传表单当前值即可（明文刚填 / 已存掩码均可）——后端见空或掩码
+ * 会自动回落已存配置里同地址的真实 Key，明文 Key 不在前端之间流转。
+ */
+export async function fetchProviderModels(
+  providerId: string,
+  apiKey: string | null,
+): Promise<string[]> {
+  return invoke<string[]>("fetch_provider_models", {
+    providerId,
+    apiKey: apiKey || null,
+  });
 }

@@ -103,6 +103,8 @@ export interface AgentModelsInfo {
   /// 用户偏好对应的 providerId（同名模型跨 provider 时用于精确勾选；
   /// 旧记录 / 未带 provider 时为 null）。
   preferredProviderId?: string | null;
+  /// 偏好是否仍指向某个已发现的 provider（换厂商后旧绑定悬空时为 false）。
+  preferredStillValid?: boolean;
 }
 
 // ─── Folder browse（composer 目录条；对齐 folder_browser.rs 的 serde 契约）──
@@ -256,4 +258,100 @@ export interface EnvSetupDone {
   task: string;
   ok: boolean;
   error: string | null;
+}
+
+// ─── 模型配置（设置页；对齐 model_provider_store.rs 的 serde 契约，camelCase）──
+
+/// 上游 API 协议族（决定转发代理的默认鉴权方式）。
+export type ApiFormat = "anthropic" | "openai_chat" | "openai_responses";
+
+/// 鉴权方式（auto = 按协议族默认；bearer / x-api-key 显式覆盖）。
+export type AuthStyle = "auto" | "bearer" | "x-api-key";
+
+/// 一条模型供应商配置（转发代理的目标上游）。
+export interface ModelProviderConfig {
+  /// 稳定 ID；空串 = 新建（后端生成）。
+  id: string;
+  name: string;
+  /// 上游接口地址；isFullUrl=false 时为 base（转发时拼接路径）。
+  baseUrl: string;
+  /// 出参 = 掩码（如 "sk-••••••••abcd"），明文 Key 绝不回传前端；
+  /// 入参 = 用户输入或掩码回填（后端见空串/掩码则保留旧 Key）。
+  apiKey: string;
+  /// 是否已配置真实 Key（仅出参有意义；提交时被后端忽略）。
+  hasKey: boolean;
+  apiFormat: ApiFormat;
+  authStyle: AuthStyle;
+  /// baseUrl 已是完整端点，转发不再拼接路径。
+  isFullUrl: boolean;
+  /// 默认模型（展示用，透传模式不改写请求体）。
+  model: string | null;
+  notes: string | null;
+  createdAtMs: number;
+  sortIndex: number;
+}
+
+/// 厂商性质分类（驱动下拉分组与排序；custom 恒排最后）。
+export type CatalogCategory =
+  | "official"
+  | "cn_official"
+  | "aggregator"
+  | "third_party"
+  | "custom";
+
+/// 内置厂商目录项（纯静态预填模板，不含任何密钥）。
+export interface CatalogEntry {
+  id: string;
+  name: string;
+  /// 展示别名 / 中文名（UI 优先用它，为空回落 name）。
+  displayName: string;
+  baseUrl: string;
+  apiFormat: ApiFormat;
+  authStyle: AuthStyle;
+  models: string[];
+  /// 列模型端点（OpenAI 格式；空串 = 不支持自动获取）。
+  /// 转发走 Anthropic 端点（无 GET /models），列模型走 OpenAI 端点，二者地址不同。
+  modelsUrl: string;
+  consoleUrl: string;
+  /// 官网（非推广链接）。
+  websiteUrl: string;
+  category: CatalogCategory;
+}
+
+/// `get_model_providers` 等命令的返回（配置 + 代理运行态）。
+export interface ModelProvidersInfo {
+  providers: ModelProviderConfig[];
+  currentId: string | null;
+  proxyEnabled: boolean;
+  proxyPort: number;
+  proxyRunning: boolean;
+  /// 故障转移开关（开 = 上游失败自动按列表顺序换下一家）。
+  failoverEnabled: boolean;
+  /// 最近一次代理启动失败的原因（运行中为 null）。
+  proxyError: string | null;
+}
+
+/// 单个 CLI 的检测/接入状态（动态列表项；后端按 ALL_KINDS 顺序下发）。
+export interface CliTakeoverItem {
+  /// CLI 标识（"claude_code" | "codex" | "opencode" | "aider" …，随支持面扩展）。
+  id: string;
+  /// 展示名（如 "Claude Code"）。
+  name: string;
+  /// 本机是否安装（后端 which 检测可执行文件）。
+  installed: boolean;
+  /// 是否支持配置接入（不支持时按钮置灰）。
+  supported: boolean;
+  /// true = 该 CLI 的配置当前指向本地转发代理。
+  active: boolean;
+  /// 配置文件绝对路径（展示用）。
+  configFile: string;
+  /// 配置文件是否存在。
+  exists: boolean;
+}
+
+/// `get_cli_takeover` / `set_cli_takeover` 的返回。
+export interface CliTakeoverInfo {
+  /// 全部已知 CLI（数量随支持面扩展，顺序由后端固定）。
+  items: CliTakeoverItem[];
+  proxyPort: number;
 }

@@ -157,6 +157,81 @@ public enum LKey: String, CaseIterable {
     case envTaskNode = "env.taskNode"
     case envTaskCli = "env.taskCli"
     case envAlreadyInstalled = "env.alreadyInstalled"
+    case mpTitle = "mp.title"
+    case mpHint = "mp.hint"
+    case mpProxy = "mp.proxy"
+    case mpEndpoint = "mp.endpoint"
+    case mpEndpointHint = "mp.endpointHint"
+    case mpStateRunning = "mp.stateRunning"
+    case mpStateStopped = "mp.stateStopped"
+    case mpStateError = "mp.stateError"
+    case mpAdd = "mp.add"
+    case mpEdit = "mp.edit"
+    case mpEmpty = "mp.empty"
+    case mpEmptyHint = "mp.emptyHint"
+    case mpCurrent = "mp.current"
+    case mpSetCurrent = "mp.setCurrent"
+    case mpDelete = "mp.delete"
+    case mpConfirmDelete = "mp.confirmDelete"
+    case mpSave = "mp.save"
+    case mpCancel = "mp.cancel"
+    case mpName = "mp.name"
+    case mpNamePlaceholder = "mp.namePlaceholder"
+    case mpBaseUrl = "mp.baseUrl"
+    case mpBaseUrlPlaceholder = "mp.baseUrlPlaceholder"
+    case mpApiKey = "mp.apiKey"
+    case mpApiKeyPlaceholder = "mp.apiKeyPlaceholder"
+    case mpModel = "mp.model"
+    case mpModelPlaceholder = "mp.modelPlaceholder"
+    case mpApiFormat = "mp.apiFormat"
+    case mpFormatAnthropic = "mp.format.anthropic"
+    case mpFormatOpenaiChat = "mp.format.openai_chat"
+    case mpFormatOpenaiResponses = "mp.format.openai_responses"
+    case mpAuthStyle = "mp.authStyle"
+    case mpAuthAuto = "mp.auth.auto"
+    case mpAuthBearer = "mp.auth.bearer"
+    case mpIsFullUrl = "mp.isFullUrl"
+    case mpNotes = "mp.notes"
+    case mpPort = "mp.port"
+    case mpEnable = "mp.enable"
+    case mpDisable = "mp.disable"
+    case mpFailover = "mp.failover"
+    case mpFailoverHint = "mp.failoverHint"
+    case mpTakeover = "mp.takeover"
+    case mpTakeoverHint = "mp.takeoverHint"
+    case mpTakeoverActive = "mp.takeoverActive"
+    case mpTakeoverOn = "mp.takeoverOn"
+    case mpTakeoverOff = "mp.takeoverOff"
+    case mpTakeoverNeedsProxy = "mp.takeoverNeedsProxy"
+    case mpCliNotInstalled = "mp.cliNotInstalled"
+    case mpTakeoverUnsupported = "mp.takeoverUnsupported"
+    case mpTakeoverEmpty = "mp.takeoverEmpty"
+    case mpAgentModels = "mp.agentModels"
+    case mpAgentModelsHint = "mp.agentModelsHint"
+    case mpAgentPrefBadge = "mp.agentPrefBadge"
+    case mpAgentFollowBadge = "mp.agentFollowBadge"
+    case mpAgentModelInvalid = "mp.agentModelInvalid"
+    case mpAgentModelClear = "mp.agentModelClear"
+    case mpAgentModelsEmpty = "mp.agentModelsEmpty"
+    case mpVendor = "mp.vendor"
+    case mpVendorPick = "mp.vendorPick"
+    case mpGetKey = "mp.getKey"
+    case mpApiKeyKeepHint = "mp.apiKeyKeepHint"
+    case mpAdvanced = "mp.advanced"
+    case mpAvailableModels = "mp.availableModels"
+    case mpFetchModels = "mp.fetchModels"
+    case mpFetching = "mp.fetching"
+    case mpFetchFailed = "mp.fetchFailed"
+    case mpFetchUnsupported = "mp.fetchUnsupported"
+    case mpFetchNeedKey = "mp.fetchNeedKey"
+    case mpInvalidKey = "mp.invalidKey"
+    case mpModelMappingHint = "mp.modelMappingHint"
+    case mpEffectiveEndpoint = "mp.effectiveEndpoint"
+    case mpPresetCategoryOfficial = "mp.presetCategory.official"
+    case mpPresetCategoryCnOfficial = "mp.presetCategory.cn_official"
+    case mpPresetCategoryAggregator = "mp.presetCategory.aggregator"
+    case mpPresetCategoryThirdParty = "mp.presetCategory.third_party"
+    case mpPresetCategoryCustom = "mp.presetCategory.custom"
     case envUpdate = "env.update"
     case envUpdateTitle = "env.updateTitle"
 }
@@ -312,6 +387,81 @@ public enum DesktopStrings {
         .envTaskNode: "Node",
         .envTaskCli: "{name}",
         .envAlreadyInstalled: "已安装，无需重复操作",
+        .mpTitle: "模型配置",
+        .mpHint: "配置多厂商 API，经内置转发代理供本机 CLI 使用；切换配置即时生效，CLI 无需重启。",
+        .mpProxy: "转发代理",
+        .mpEndpoint: "接入地址",
+        .mpEndpointHint: "把 CLI 的 API 地址指到这里（如 ANTHROPIC_BASE_URL=http://127.0.0.1:{port}），请求将按当前选中的配置转发到真实厂商。",
+        .mpStateRunning: "转发中",
+        .mpStateStopped: "已停止",
+        .mpStateError: "启动失败",
+        .mpAdd: "添加配置",
+        .mpEdit: "编辑配置",
+        .mpEmpty: "还没有模型配置",
+        .mpEmptyHint: "先添加一个厂商配置（名称 / 接口地址 / API Key），再把 CLI 指向上方转发地址。",
+        .mpCurrent: "当前",
+        .mpSetCurrent: "设为当前",
+        .mpDelete: "删除",
+        .mpConfirmDelete: "再次点击确认删除",
+        .mpSave: "保存",
+        .mpCancel: "取消",
+        .mpName: "名称",
+        .mpNamePlaceholder: "如 Kimi / DeepSeek",
+        .mpBaseUrl: "接口地址（Base URL）",
+        .mpBaseUrlPlaceholder: "https://api.example.com",
+        .mpApiKey: "API Key",
+        .mpApiKeyPlaceholder: "上游厂商的密钥（仅保存在本机）",
+        .mpModel: "默认模型（可选）",
+        .mpModelPlaceholder: "如 kimi-k2.5",
+        .mpApiFormat: "接口协议",
+        .mpFormatAnthropic: "Anthropic Messages",
+        .mpFormatOpenaiChat: "OpenAI Chat Completions",
+        .mpFormatOpenaiResponses: "OpenAI Responses",
+        .mpAuthStyle: "鉴权方式",
+        .mpAuthAuto: "自动（按协议）",
+        .mpAuthBearer: "Bearer Token",
+        .mpIsFullUrl: "Base URL 已是完整端点（不再拼接路径）",
+        .mpNotes: "备注（可选）",
+        .mpPort: "端口",
+        .mpEnable: "启用",
+        .mpDisable: "停用",
+        .mpFailover: "自动故障转移",
+        .mpFailoverHint: "当前厂商请求失败时，按配置列表顺序自动换下一家（请求参数错误不重试）。",
+        .mpTakeover: "CLI 接入",
+        .mpTakeoverHint: "一键把本机 CLI 指向下方转发地址（http://127.0.0.1:{port}），之后在 BrewPing 里切换厂商即时生效。关闭时会精确还原，不误删你自己的配置。",
+        .mpTakeoverActive: "已接入",
+        .mpTakeoverOn: "接入",
+        .mpTakeoverOff: "还原",
+        .mpTakeoverNeedsProxy: "转发代理未运行：首次接入 CLI 时会自动启动，无需手动操作。",
+        .mpCliNotInstalled: "未安装",
+        .mpTakeoverUnsupported: "暂不支持接入",
+        .mpTakeoverEmpty: "未发现可接入的 CLI",
+        .mpAgentModels: "Agent 模型",
+        .mpAgentModelsHint: "每个 Agent 当前生效的模型。展开查看完整列表，点击模型即设为该 Agent 的默认（启动 Agent 时自动带上）。",
+        .mpAgentPrefBadge: "默认",
+        .mpAgentFollowBadge: "跟随 CLI",
+        .mpAgentModelInvalid: "绑定已失效",
+        .mpAgentModelClear: "清除默认",
+        .mpAgentModelsEmpty: "该 Agent 未发现可用模型",
+        .mpVendor: "厂商",
+        .mpVendorPick: "选择厂商（自动预填）",
+        .mpGetKey: "获取 API Key",
+        .mpApiKeyKeepHint: "已配置——留空或不改动即保留原 Key",
+        .mpAdvanced: "高级选项",
+        .mpAvailableModels: "可用模型",
+        .mpFetchModels: "获取模型列表",
+        .mpFetching: "获取中…",
+        .mpFetchFailed: "获取失败，可手动填写",
+        .mpFetchUnsupported: "该厂商不支持自动获取",
+        .mpFetchNeedKey: "请先填写 API Key 再获取",
+        .mpInvalidKey: "API Key 无效",
+        .mpModelMappingHint: "此处填写的默认模型会覆盖下游请求的型号（模型映射）；留空则原样透传。",
+        .mpEffectiveEndpoint: "生效端点",
+        .mpPresetCategoryOfficial: "官方",
+        .mpPresetCategoryCnOfficial: "国内官方",
+        .mpPresetCategoryAggregator: "聚合服务",
+        .mpPresetCategoryThirdParty: "第三方",
+        .mpPresetCategoryCustom: "自定义",
         .envUpdate: "更新",
         .envUpdateTitle: "更新到最新版本（官方更新通道）",
     ]
@@ -465,6 +615,81 @@ public enum DesktopStrings {
         .envTaskNode: "Node",
         .envTaskCli: "{name}",
         .envAlreadyInstalled: "Already installed",
+        .mpTitle: "Model Providers",
+        .mpHint: "Configure multiple API providers and reach them through the built-in forwarding proxy. Switching providers takes effect instantly — no CLI restart needed.",
+        .mpProxy: "Forwarding proxy",
+        .mpEndpoint: "Endpoint",
+        .mpEndpointHint: "Point your CLI's API base URL here (e.g. ANTHROPIC_BASE_URL=http://127.0.0.1:{port}); requests are forwarded to the selected provider.",
+        .mpStateRunning: "Forwarding",
+        .mpStateStopped: "Stopped",
+        .mpStateError: "Start failed",
+        .mpAdd: "Add provider",
+        .mpEdit: "Edit provider",
+        .mpEmpty: "No model providers yet",
+        .mpEmptyHint: "Add a provider (name / base URL / API key) first, then point your CLI at the proxy endpoint above.",
+        .mpCurrent: "Current",
+        .mpSetCurrent: "Set current",
+        .mpDelete: "Delete",
+        .mpConfirmDelete: "Click again to confirm",
+        .mpSave: "Save",
+        .mpCancel: "Cancel",
+        .mpName: "Name",
+        .mpNamePlaceholder: "e.g. Kimi / DeepSeek",
+        .mpBaseUrl: "Base URL",
+        .mpBaseUrlPlaceholder: "https://api.example.com",
+        .mpApiKey: "API Key",
+        .mpApiKeyPlaceholder: "Provider secret (stored locally only)",
+        .mpModel: "Default model (optional)",
+        .mpModelPlaceholder: "e.g. kimi-k2.5",
+        .mpApiFormat: "API format",
+        .mpFormatAnthropic: "Anthropic Messages",
+        .mpFormatOpenaiChat: "OpenAI Chat Completions",
+        .mpFormatOpenaiResponses: "OpenAI Responses",
+        .mpAuthStyle: "Auth style",
+        .mpAuthAuto: "Auto (by format)",
+        .mpAuthBearer: "Bearer Token",
+        .mpIsFullUrl: "Base URL is a full endpoint (do not append paths)",
+        .mpNotes: "Notes (optional)",
+        .mpPort: "Port",
+        .mpEnable: "Enable",
+        .mpDisable: "Disable",
+        .mpFailover: "Auto failover",
+        .mpFailoverHint: "On upstream failure, try providers in list order (client-side errors are not retried).",
+        .mpTakeover: "CLI integration",
+        .mpTakeoverHint: "Point local CLIs at the forwarding endpoint (http://127.0.0.1:{port}) in one click. Switching providers then takes effect instantly. Disabling restores your original config by exact value — nothing of yours is removed.",
+        .mpTakeoverActive: "Connected",
+        .mpTakeoverOn: "Connect",
+        .mpTakeoverOff: "Restore",
+        .mpTakeoverNeedsProxy: "Proxy is not running — it starts automatically the first time you connect a CLI.",
+        .mpCliNotInstalled: "Not installed",
+        .mpTakeoverUnsupported: "Not supported yet",
+        .mpTakeoverEmpty: "No integrable CLI found",
+        .mpAgentModels: "Agent models",
+        .mpAgentModelsHint: "The model in effect for each agent. Expand to see the full list; click a model to set it as the agent's default (applied automatically on launch).",
+        .mpAgentPrefBadge: "Default",
+        .mpAgentFollowBadge: "From CLI",
+        .mpAgentModelInvalid: "Stale binding",
+        .mpAgentModelClear: "Clear default",
+        .mpAgentModelsEmpty: "No models discovered for this agent",
+        .mpVendor: "Provider",
+        .mpVendorPick: "Pick a provider (auto-fills)",
+        .mpGetKey: "Get API Key",
+        .mpApiKeyKeepHint: "Configured — leave untouched to keep the current key",
+        .mpAdvanced: "Advanced",
+        .mpAvailableModels: "Available models",
+        .mpFetchModels: "Fetch models",
+        .mpFetching: "Fetching…",
+        .mpFetchFailed: "Fetch failed — fill in manually",
+        .mpFetchUnsupported: "Auto-fetch not supported for this provider",
+        .mpFetchNeedKey: "Fill in the API key first",
+        .mpInvalidKey: "Invalid API key",
+        .mpModelMappingHint: "The default model here overrides the downstream request model (mapping); leave empty to pass through.",
+        .mpEffectiveEndpoint: "Effective endpoint",
+        .mpPresetCategoryOfficial: "Official",
+        .mpPresetCategoryCnOfficial: "China official",
+        .mpPresetCategoryAggregator: "Aggregator",
+        .mpPresetCategoryThirdParty: "Third-party",
+        .mpPresetCategoryCustom: "Custom",
         .envUpdate: "Update",
         .envUpdateTitle: "Update to the latest version (official channel)",
     ]

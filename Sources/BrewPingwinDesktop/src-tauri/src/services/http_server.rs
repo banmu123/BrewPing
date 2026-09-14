@@ -2536,19 +2536,28 @@ mod tests {
     }
 
     /// 等命令落终态（assistant 或 error 条目出现），返回最新快照。
+    ///
+    /// 必须等到 `latest_command_id` 被清空才算收尾完成：错误条目入库与
+    /// 指针清理之间隔着一个 await（command_runner 三条收尾路径同构），
+    /// 高负载下轮询可能恰好撞进这个间隙（TC-CR-02 偶发假阳性的根因）。
+    /// 指针若永远不清，循环超时后 panic —— 不变量仍然被强制。
     async fn wait_for_reply(
         srv: &TestServer,
         conv_id: &str,
     ) -> crate::services::conversation_store::Conversation {
         for _ in 0..200 {
             if let Some(c) = srv.state.conversations.get(conv_id) {
-                if c.messages.iter().any(|m| m.role == "assistant" || m.role == "error") {
+                let has_reply = c
+                    .messages
+                    .iter()
+                    .any(|m| m.role == "assistant" || m.role == "error");
+                if has_reply && c.latest_command_id.is_none() {
                     return c;
                 }
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        panic!("命令结束后应落一条 assistant / error 转录");
+        panic!("命令结束后应落一条 assistant / error 转录，且调度指针被清空");
     }
 
     // TC-CR-01  执行期间必须持续推送 conversation-delta，且文本单调增长

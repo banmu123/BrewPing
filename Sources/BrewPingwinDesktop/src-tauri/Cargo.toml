@@ -31,6 +31,14 @@ env_logger = "0.11"
 # Node 版本清单（nodejs.org dist index）与 NVM 官方安装包下载：
 # 只需要阻塞式 GET + TLS（rustls），ureq 比 reqwest 轻一个量级
 ureq = { version = "2", default-features = false, features = ["tls"] }
+# 模型转发代理（model_proxy）的上游请求：异步 + 流式（SSE 透传）。
+# 不开 gzip/brotli feature —— 压缩语义必须原样透传，reqwest 不得代解压。
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+# model_transform 的 SSE 流转换（unfold + StreamExt）与字节分块
+futures = "0.3"
+bytes = "1"
+# cli_takeover 写 Codex config.toml（保注释保格式的编辑式写入）
+toml_edit = "0.22"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
