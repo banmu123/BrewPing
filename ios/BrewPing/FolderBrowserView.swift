@@ -38,11 +38,17 @@ struct FolderBrowserView: View {
             case .empty:
                 browsingList
                     .overlay {
-                        ContentUnavailableView(
-                            "Empty Folder",
-                            systemImage: "folder",
-                            description: Text("This folder has no subfolders.")
-                        )
+                        ContentUnavailableView {
+                            Label("Empty Folder", systemImage: "folder")
+                        } description: {
+                            Text("This folder has no subfolders.")
+                        } actions: {
+                            // 进入后发现没有子目录 → 允许直接选当前目录
+                            Button("Select This Folder") {
+                                selectCurrentFolder()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
                     }
             case .permissionDenied:
                 browsingList
@@ -150,13 +156,33 @@ struct FolderBrowserView: View {
 
             Section {
                 ForEach(store.entries) { entry in
-                    Button {
-                        guard !entry.isUnreadable else { return }
-                        pendingSelection = entry
-                    } label: {
-                        rowLabel(entry)
+                    HStack(spacing: 8) {
+                        // 主动作 = **下钻**。原来点行直接弹「确认选择」，根本没有
+                        // 下钻动作 —— 这就是"部分目录无法进入"的根因。
+                        // 客户端无法预知子目录数：进入后为空会有「选择此目录」兜底。
+                        Button {
+                            guard !entry.isUnreadable else { return }
+                            Task { await store.enter(entry) }
+                        } label: {
+                            rowLabel(entry)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(entry.isUnreadable)
+
+                        // 并列动作 = 不下钻、直接把这个目录设为工作目录。
+                        if !entry.isUnreadable {
+                            Button {
+                                pendingSelection = entry
+                            } label: {
+                                Image(systemName: "checkmark.circle")
+                                    .font(.body)
+                                    .foregroundStyle(Color.bpPrimary)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel(Text("Select This Folder"))
+                        }
                     }
-                    .disabled(entry.isUnreadable)
                 }
 
                 if store.canLoadMore {
@@ -237,6 +263,27 @@ struct FolderBrowserView: View {
             }
         } message: {
             Text(verbatim: L("Workdir set alert message", pendingSelection?.absolutePath ?? ""))
+        }
+    }
+
+    /// 进入后发现没有子目录 → 允许把「当前正在浏览的目录」直接选为工作目录
+    /// （对话级 onPick / Agent 级 setWorkdir 两条分流与确认框的 Set Here 一致）。
+    private func selectCurrentFolder() {
+        let path = store.currentPath
+        guard !path.isEmpty else { return }
+        if let onPick {
+            onPick(path)
+            dismiss()
+            return
+        }
+        Task {
+            let error = await store.setWorkdir(path, for: agentID)
+            if let error {
+                settingNotice = error
+            } else {
+                onSet(path)
+                dismiss()
+            }
         }
     }
 

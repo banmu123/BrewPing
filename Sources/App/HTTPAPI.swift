@@ -259,8 +259,16 @@ enum HTTPAPI {
                 "nextCursor": nextCursor ?? NSNull()
             ]
             return .json(200, "OK", object)
+        } catch let error as FolderBrowser.BrowseError {
+            // 错误码与 iOS FolderBrowserStore 的映射对齐：
+            // permission-denied → 「无权限」锁态；path-invalid → 「路径不存在」。
+            switch error {
+            case .permissionDenied:
+                return .json(403, "Forbidden", ["success": false, "error": "permission-denied"])
+            case .pathInvalid, .notADirectory:
+                return .json(400, "Bad Request", ["success": false, "error": "path-invalid"])
+            }
         } catch {
-            // 错误码与 iOS FolderBrowserStore 的映射对齐（path-invalid → 提示路径不存在）
             return .json(400, "Bad Request", ["success": false, "error": "path-invalid"])
         }
     }

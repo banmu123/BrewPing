@@ -56,11 +56,16 @@ public enum FolderBrowser {
     enum BrowseError: LocalizedError {
         case pathInvalid
         case notADirectory
+        /// 目录存在但枚举失败（TCC 保护的 Desktop/Documents/Downloads、
+        /// 其它权限受限目录）。明确报出，而不是吞成"空目录"——
+        /// 否则移动端会误以为没有子目录、无法下钻。
+        case permissionDenied
 
         var errorDescription: String? {
             switch self {
             case .pathInvalid: return "path is invalid or cannot be resolved"
             case .notADirectory: return "path is not a directory"
+            case .permissionDenied: return "no permission to list this directory"
             }
         }
     }
@@ -109,7 +114,14 @@ public enum FolderBrowser {
         let pageLimit = min(max(limit ?? defaultLimit, 1), hardLimit)
 
         // 步骤 4：枚举。只认目录；隐藏 = 点号前缀。
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: real)) ?? []
+        // 🚨 枚举失败必须抛错（permission-denied），不能吞成空列表：
+        // 受 TCC 保护 / 权限受限的目录吞成空会让客户端误判为"没有子目录"。
+        let names: [String]
+        do {
+            names = try FileManager.default.contentsOfDirectory(atPath: real)
+        } catch {
+            throw BrowseError.permissionDenied
+        }
         var entries: [EntryInfo] = []
         entries.reserveCapacity(names.count)
 
