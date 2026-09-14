@@ -338,9 +338,18 @@ export default function App() {
     try {
       const conv = await getConversation(id);
       setActiveConv(conv);
-      // 真实条目已落库 → 丢掉同命令的流式占位（不可变更新：返回 null 或原值）
+      // 真实回复已落库 → 丢掉同命令的流式占位（不可变更新：返回 null 或原值）。
+      // 🚨 只认 assistant/error 条目：用户消息在 submit 时也带着**同一个**
+      // commandId 落库（submit_command 的单一写出口），如果把 user 也算进去，
+      // busy 期间每 700ms 的转录轮询会在回复仍在流式生成时就把气泡删掉 ——
+      // 表现为"内容闪没 → 正在思考 → 内容再次出现"的循环闪断。
       setStreaming((prev) =>
-        prev && conv.messages.some((m) => m.commandId === prev.commandId)
+        prev &&
+        conv.messages.some(
+          (m) =>
+            m.commandId === prev.commandId &&
+            (m.role === "assistant" || m.role === "error"),
+        )
           ? null
           : prev,
       );
