@@ -32,15 +32,22 @@ struct ModelProvidersView: View {
 
     private static let tabKey = "brewping.modelTab"
 
+    // 与 Windows `model-config-card.tsx` 同名同值的两个特性开关（2026-09-14 起 Windows 均为 false）：
+    // ① 自有库厂商面板 —— 转发代理语义；macOS 转发代理未实现（Phase 2），同步隐藏保持两端一致。
+    // ② CLI 接管 UI —— 依赖转发代理，Windows 已整体隐藏，macOS 同步隐藏。
+    // 代码全部保留，置 true 即恢复。
+    private static let showForwardProxySection = false
+    private static let showTakeoverUI = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
             summaryRow
             if proxyOpen { proxySettings }
             tabBar
-            providerPanel
+            if Self.showForwardProxySection { providerPanel }
             cliProviderSection
-            cliSection
+            if Self.showTakeoverUI { cliSection }
             agentPrefsSection
 
             if let error {
@@ -64,14 +71,25 @@ struct ModelProvidersView: View {
     // MARK: - 头部 / 摘要行
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(i18n.t(.mpTitle))
-                .font(LatteFont.sm.weight(.medium))
-                .foregroundStyle(Latte.foreground)
-            Text(i18n.t(.mpHint))
-                .font(LatteFont.xs)
-                .foregroundStyle(Latte.mutedForeground)
-                .fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(i18n.t(.mpTitle))
+                    .font(LatteFont.sm.weight(.medium))
+                    .foregroundStyle(Latte.foreground)
+                Text(i18n.t(.mpHint))
+                    .font(LatteFont.xs)
+                    .foregroundStyle(Latte.mutedForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            // Windows：面板被开关隐藏后仍保留「添加」入口（表单不受开关限制）
+            Button {
+                startAdd()
+            } label: {
+                Label(i18n.t(.mpAdd), systemImage: "plus").font(LatteFont.xs)
+            }
+            .buttonStyle(LatteButtonStyle(variant: .outline))
+            .disabled(busy)
         }
     }
 
@@ -398,6 +416,14 @@ struct ModelProvidersView: View {
 
     // MARK: - Agent 模型偏好
 
+    // 对齐 Windows「Agent 模型偏好」折叠区：每个 Agent 一张卡（摘要行 = 名称 +
+    // 生效模型 + 偏好/跟随徽章 + 失效警告），展开 = 按 provider 分组的模型 chips
+    // 点选 +「清除偏好」。语义 = 用户偏好 → 回落 CLI 当前模型。
+
+    @State private var agentModels: [String: AgentModelsInfo] = [:]
+    @State private var expandedAgent: String?
+    @State private var agentBusy: String?
+
     private var agentPrefsSection: some View {
         card {
             Button {
@@ -421,27 +447,172 @@ struct ModelProvidersView: View {
                     .font(LatteFont.xs)
                     .foregroundStyle(Latte.mutedForeground)
                     .fixedSize(horizontal: false, vertical: true)
-                // 具体模型选择在 composer 的模型下拉里（与 Windows 相同分工），
-                // 这里只显示每个 Agent 当前生效的模型 id。
-                ForEach(agents, id: \.id) { agent in
-                    HStack(spacing: 6) {
-                        Text(verbatim: agent.name)
-                            .font(LatteFont.xs)
-                            .foregroundStyle(Latte.foreground)
-                        Spacer(minLength: 0)
-                        Text(verbatim: agentPrefModel(agent.id))
-                            .font(.system(size: 11, design: .monospaced))
+
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(agents, id: \.id) { agent in
+                        agentPrefCard(agent)
+                    }
+                    if agents.isEmpty {
+                        Text(i18n.t(.mpAgentModelsEmpty))
+                            .font(LatteFont.font10)
                             .foregroundStyle(Latte.mutedForeground)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 4)
                     }
                 }
             }
         }
+        // id 带上 agents.count：父级 reload 完成前本任务可能先跑（此时 agents 还是空），
+        // 等 agents 就绪后自动重拉一次（幂等，代价是 4 次本地读）。
+        .task(id: "\(prefsOpen)|\(agents.count)") {
+            guard prefsOpen, !agents.isEmpty else { return }
+            await reloadAgentModels()
+        }
     }
 
-    private func agentPrefModel(_ agentId: String) -> String {
-        (try? DesktopCommands.getAgentModels(agentId))?.preferredModelId
-            ?? (try? DesktopCommands.getAgentModels(agentId))?.activeModelId
-            ?? "—"
+    /// 单个 Agent 的偏好卡。
+    private func agentPrefCard(_ agent: DesktopStatusAgent) -> some View {
+        let info = agentModels[agent.id]
+        let expanded = expandedAgent == agent.id
+        let preferred = info?.preferredModelId ?? nil
+        let effective = preferred ?? info?.activeModelId ?? nil
+        // preferredStillValid 的客户端等价：偏好是否仍属于某个已发现的 provider
+        let stillValid = preferred == nil || (info?.providers.contains { provider in
+            provider.models.contains { $0.id == preferred }
+        } ?? true)
+        let modelCount = (info?.providers.reduce(0) { $0 + $1.models.count }) ?? 0
+
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                expandedAgent = expanded ? nil : agent.id
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Latte.mutedForeground)
+                    Text(verbatim: agent.name)
+                        .font(LatteFont.xs.weight(.medium))
+                        .foregroundStyle(Latte.foreground)
+                        .lineLimit(1)
+                    if agentBusy == agent.id {
+                        ProgressView()
+                            .controlSize(.mini)
+                    }
+                    if preferred != nil, !stillValid {
+                        LatteBadge(variant: .warning, text: i18n.t(.mpAgentModelInvalid))
+                    }
+                    Spacer(minLength: 8)
+                    Text(verbatim: effective ?? "—")
+                        .font(LatteFont.monoXS)
+                        .foregroundStyle(Latte.mutedForeground)
+                        .lineLimit(1)
+                    if effective != nil {
+                        LatteBadge(
+                            variant: preferred != nil ? .success : .muted,
+                            text: preferred != nil ? i18n.t(.mpAgentPrefBadge) : i18n.t(.mpAgentFollowBadge)
+                        )
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+
+            if expanded {
+                Rectangle()
+                    .fill(Latte.border)
+                    .frame(height: 1)
+                VStack(alignment: .leading, spacing: 8) {
+                    if info == nil || modelCount == 0 {
+                        Text(i18n.t(.mpAgentModelsEmpty))
+                            .font(LatteFont.font10)
+                            .foregroundStyle(Latte.mutedForeground)
+                    } else {
+                        ForEach(info?.providers ?? [], id: \.id) { provider in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(verbatim: provider.name)
+                                    .font(LatteFont.font10)
+                                    .foregroundStyle(Latte.mutedForeground)
+                                FlowRow(spacing: 4) {
+                                    ForEach(provider.models, id: \.id) { model in
+                                        modelChip(agent.id, provider.id, model)
+                                    }
+                                }
+                            }
+                        }
+                        if preferred != nil {
+                            HStack {
+                                Spacer(minLength: 0)
+                                Button(i18n.t(.mpAgentModelClear)) {
+                                    Task { await clearAgentModel(agent.id) }
+                                }
+                                .buttonStyle(LatteButtonStyle(variant: .ghost))
+                                .font(LatteFont.xs)
+                                .disabled(agentBusy == agent.id)
+                            }
+                        }
+                    }
+                }
+                .padding(10)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Latte.card.opacity(0.7)))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(Latte.border, lineWidth: 1)
+        }
+    }
+
+    /// 模型 chip：选中 = 实心主色；不可用半透明。显示名优先，悬停显示 id。
+    private func modelChip(_ agentId: String, _ providerId: String, _ model: ProviderModel) -> some View {
+        let selected = model.isDefault
+        return Button {
+            Task { await pickAgentModel(agentId, modelId: model.id, providerId: providerId) }
+        } label: {
+            Text(verbatim: model.name.isEmpty ? model.id : model.name)
+                .font(.system(size: 10, design: .monospaced))
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(selected ? Latte.primary : Latte.background)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(selected ? Latte.primary : Latte.border, lineWidth: 1)
+                }
+                .foregroundStyle(selected ? Latte.primaryForeground : Latte.foreground)
+        }
+        .buttonStyle(.plain)
+        .opacity(model.available || selected ? 1 : 0.5)
+        .help(model.id)
+    }
+
+    private func reloadAgentModels() async {
+        var snapshot: [String: AgentModelsInfo] = [:]
+        for agent in agents {
+            snapshot[agent.id] = await offMain { try? DesktopCommands.getAgentModels(agent.id) }
+        }
+        agentModels = snapshot
+    }
+
+    private func pickAgentModel(_ agentId: String, modelId: String, providerId: String) async {
+        agentBusy = agentId
+        defer { agentBusy = nil }
+        await offMain { DesktopCommands.setDefaultModel(agentId, modelId: modelId, providerId: providerId) }
+        await reloadAgentModels()
+        // 偏好变了 → composer 的模型下拉重新拉取（与保存厂商后同效）
+        DesktopEventBus.shared.post(.conversationsChanged, payload: [:])
+    }
+
+    private func clearAgentModel(_ agentId: String) async {
+        agentBusy = agentId
+        defer { agentBusy = nil }
+        await offMain { DesktopCommands.setDefaultModel(agentId, modelId: nil, providerId: nil) }
+        await reloadAgentModels()
+        DesktopEventBus.shared.post(.conversationsChanged, payload: [:])
     }
 
     // MARK: - 数据动作

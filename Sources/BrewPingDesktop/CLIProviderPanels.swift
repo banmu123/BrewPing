@@ -289,7 +289,7 @@ extension OpenCodeProviderEntry: Identifiable {}
 struct OpenCodeProviderPanel: View {
     @ObservedObject private var i18n = I18n()
     @State private var info: OpenCodeProvidersInfo?
-    @State private var editing: OpenCodeProviderEntry?
+    @State private var editing: OpenCodeProviderEntry? = OpenCodeProviderEntry()
     @State private var confirmId: String?
     @State private var busy = false
     @State private var error: String?
@@ -302,7 +302,14 @@ struct OpenCodeProviderPanel: View {
                 path: info?.configFile ?? "", pathExists: info?.exists ?? true,
                 missingLabel: i18n.t(.ocNotCreated),
                 addTitle: i18n.t(.ocAddTitle), disabled: busy
-            ) { editing = OpenCodeProviderEntry() }
+            ) {
+                var draft = OpenCodeProviderEntry()
+                if draft.npm.isEmpty {
+                    draft.npm = (info?.npmPackages ?? OpenCodeProviderConfigStore.npmPackages)
+                        .first?.value ?? draft.npm
+                }
+                editing = draft
+            }
 
             cliError(error)
 
@@ -837,6 +844,94 @@ func offMainThrowing<T>(_ work: @escaping () throws -> T) async throws -> T {
     }
 }
 
+// MARK: - 厂商预设（对齐 Windows `vendor-preset-select.tsx`）
+
+/// 分组结果（struct 而非 tuple：SwiftUI ForEach 的 keyPath 不支持元组）。
+struct CLIProviderCatalogGroup: Identifiable {
+    let category: String
+    var entries: [ProviderCatalogEntry]
+    var id: String { category }
+}
+
+/// 按 category 稳定分组（custom 恒最后），= Windows `groupCatalogByCategory`。
+func cliGroupedCatalog(_ catalog: [ProviderCatalogEntry]) -> [CLIProviderCatalogGroup] {
+    let sorted = catalog.sorted {
+        ProviderCatalog.categoryOrder($0.category) < ProviderCatalog.categoryOrder($1.category)
+    }
+    var groups: [CLIProviderCatalogGroup] = []
+    for entry in sorted {
+        if let last = groups.last, last.category == entry.category {
+            groups[groups.count - 1].entries.append(entry)
+        } else {
+            groups.append(CLIProviderCatalogGroup(category: entry.category, entries: [entry]))
+        }
+    }
+    return groups
+}
+
+/// 「选择厂商（自动预填）」下拉 —— 四个 CLI 表单共用。
+/// 目录**只是预填模板，不是校验白名单**（选完仍可随意改，中转站地址千变万化）；
+/// `custom` 不预填任何值（只当「我要自己填」的显式选择）。
+private struct VendorPresetSelect: View {
+    @ObservedObject var i18n = I18n()
+    /// 可用目录条目（空数组 = 不渲染控件）。
+    let catalog: [ProviderCatalogEntry]
+    /// 所属 agent —— 决定回传哪个端点（baseURL 与协议都按 agent 分派）。
+    let agentId: String
+    @Binding var selection: String
+    let onPick: (ProviderCatalogEntry, ProviderCatalogEndpoint) -> Void
+
+    var body: some View {
+        Group {
+            if !catalog.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(verbatim: i18n.t(.mpVendor))
+                        .font(LatteFont.xs.weight(.medium))
+                        .foregroundStyle(Latte.foreground.opacity(0.75))
+                    Picker("", selection: $selection) {
+                        Text(verbatim: i18n.t(.mpVendorPick)).tag("")
+                        ForEach(cliGroupedCatalog(catalog)) { group in
+                            Section(categoryLabel(group.category)) {
+                                ForEach(group.entries) { entry in
+                                    Text(verbatim: entry.displayName.isEmpty ? entry.name : entry.displayName)
+                                        .tag(entry.id)
+                                }
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .controlSize(.large)
+                    .onChange(of: selection) { value in
+                        guard !value.isEmpty,
+                              let entry = catalog.first(where: { $0.id == value }) else { return }
+                        onPick(entry, ProviderCatalog.resolvePresetEndpoint(entry, agentId: agentId))
+                    }
+                }
+            }
+        }
+    }
+
+    private func categoryLabel(_ category: String) -> String {
+        switch category {
+        case "official": return i18n.t(.mpPresetCategoryOfficial)
+        case "cn_official": return i18n.t(.mpPresetCategoryCnOfficial)
+        case "aggregator": return i18n.t(.mpPresetCategoryAggregator)
+        case "third_party": return i18n.t(.mpPresetCategoryThirdParty)
+        default: return i18n.t(.mpPresetCategoryCustom)
+        }
+    }
+}
+
+/// CLI 表单「拉取模型」的错误文案（与 Windows 相同的三分支）。
+@MainActor
+private func cliFetchErrorMessage(_ error: Error, i18n: I18n) -> String {
+    let message = error.localizedDescription
+    if message.contains("401") || message.contains("403") { return i18n.t(.mpInvalidKey) }
+    if message.contains("missing api key") { return i18n.t(.mpFetchNeedKey) }
+    return "\(i18n.t(.mpFetchFailed)): \(message)"
+}
+
 // MARK: - 表单共享件
 
 /// 一个字段 = 标签 + 控件 +（可选）说明，**作为一个整体**。
@@ -890,6 +985,8 @@ private struct ModelRowsEditor: View {
     var namePlaceholder: String
     var addTitle: String
     var removeHelp: String
+    /// opencode 表单把「添加」挪进工具行（拉取模型旁）→ 传 false 隐藏这里的加号。
+    var showsAddButton: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -909,13 +1006,15 @@ private struct ModelRowsEditor: View {
                     .help(removeHelp)
                 }
             }
-            Button {
-                models.append("\u{1}")
-            } label: {
-                Label(addTitle, systemImage: "plus").font(LatteFont.xs)
+            if showsAddButton {
+                Button {
+                    models.append("\u{1}")
+                } label: {
+                    Label(addTitle, systemImage: "plus").font(LatteFont.xs)
+                }
+                .buttonStyle(LatteButtonStyle(variant: .outline))
+                .padding(.top, 2)
             }
-            .buttonStyle(LatteButtonStyle(variant: .outline))
-            .padding(.top, 2)
         }
     }
 
@@ -1010,6 +1109,12 @@ struct OpenCodeProviderForm: View {
     @State private var draft: OpenCodeProviderEntry
     @State private var rows: [String]
     @State private var error: String?
+    // 厂商预设 / key 自动派生 / 拉取模型（对齐 Windows）
+    @State private var catalog: [ProviderCatalogEntry] = []
+    @State private var presetId = ""
+    @State private var keyDirty = false
+    @State private var fetchingModels = false
+    @State private var fetchError: String?
 
     init(
         draft: OpenCodeProviderEntry, packages: [NpmPackageOption], isNew: Bool,
@@ -1030,18 +1135,17 @@ struct OpenCodeProviderForm: View {
             error: error, busy: false, onCancel: onCancel, onSave: submit
         ) {
             formNote(i18n.t(.ocFormHint))
-            formField(i18n.t(.ocKey), hint: i18n.t(.ocKeyHint)) {
-                TextField(i18n.t(.ocKeyPlaceholder), text: $draft.id)
-                    .cliInput()
-                    .disabled(!isNew)      // 改 key = 新建，编辑时锁定
+            VendorPresetSelect(catalog: catalog, agentId: "opencode", selection: $presetId) {
+                applyPreset($0, $1)
             }
             formField(i18n.t(.mpName)) {
-                TextField(i18n.t(.ocNamePlaceholder), text: $draft.name)
+                TextField(i18n.t(.ocNamePlaceholder), text: nameBinding)
                     .cliInput()
             }
-            formField(i18n.t(.mpBaseUrl)) {
-                TextField(i18n.t(.mpBaseUrlPlaceholder), text: $draft.baseURL)
+            formField(i18n.t(.ocKey), hint: i18n.t(.ocKeyHint)) {
+                TextField(i18n.t(.ocKeyPlaceholder), text: keyBinding)
                     .cliInput()
+                    .disabled(!isNew)      // 改 key = 新建，编辑时锁定
             }
             formField(i18n.t(.ocNpm)) {
                 Picker("", selection: $draft.npm) {
@@ -1052,19 +1156,139 @@ struct OpenCodeProviderForm: View {
                 .labelsHidden()
                 .controlSize(.large)
             }
+            formField(i18n.t(.mpBaseUrl)) {
+                TextField(i18n.t(.mpBaseUrlPlaceholder), text: $draft.baseURL)
+                    .cliInput()
+            }
             formField(i18n.t(.mpApiKey)) {
                 SecureField("sk-…", text: $draft.apiKey)
                     .cliInput()
             }
             formField(i18n.t(.ocModels)) {
-                ModelRowsEditor(
-                    models: $rows, idPlaceholder: i18n.t(.ocModelIdPlaceholder),
-                    namePlaceholder: i18n.t(.ocModelNamePlaceholder),
-                    addTitle: i18n.t(.ocAddModel), removeHelp: i18n.t(.mpDelete)
-                )
+                modelsSection
             }
             formHint(i18n.t(.ocHeadersHint))
         }
+        .task {
+            if catalog.isEmpty {
+                catalog = await offMainLoad { DesktopCommands.providerCatalog() }
+            }
+        }
+    }
+
+    /// 模型列表区：工具行（拉取 + 添加）→ 拉取错误 → 模型行（= Windows 布局）。
+    private var modelsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Button {
+                    Task { await fetchModels() }
+                } label: {
+                    Label(fetchingModels ? i18n.t(.mpFetching) : i18n.t(.ocFetchModels),
+                          systemImage: fetchingModels ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
+                        .font(LatteFont.xs)
+                }
+                .buttonStyle(LatteButtonStyle(variant: .outline))
+                .disabled(fetchingModels || draft.baseURL.trimmingCharacters(in: .whitespaces).isEmpty)
+
+                Button {
+                    rows.append("\u{1}")
+                } label: {
+                    Label(i18n.t(.ocAddModel), systemImage: "plus").font(LatteFont.xs)
+                }
+                .buttonStyle(LatteButtonStyle(variant: .outline))
+            }
+            if let fetchError {
+                Text(verbatim: fetchError)
+                    .font(LatteFont.font10)
+                    .foregroundStyle(Latte.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ModelRowsEditor(
+                models: $rows, idPlaceholder: i18n.t(.ocModelIdPlaceholder),
+                namePlaceholder: i18n.t(.ocModelNamePlaceholder),
+                addTitle: i18n.t(.ocAddModel), removeHelp: i18n.t(.mpDelete),
+                showsAddButton: false
+            )
+        }
+    }
+
+    /// 名称 → key 自动派生（用户手改过 key 就不再覆盖，dirty 标记）。
+    private var nameBinding: Binding<String> {
+        Binding(
+            get: { draft.name },
+            set: { newValue in
+                draft.name = newValue
+                // 🚨 空名称不派生（slug 的回落值是 "provider"）：SwiftUI 的 TextField
+                // 绑定可能在挂载时触发一次空 set，不拦会把 key 无端填成 "provider"。
+                if !keyDirty && isNew, !newValue.trimmingCharacters(in: .whitespaces).isEmpty {
+                    draft.id = OpenCodeProviderConfigStore.slugifyProviderKey(newValue)
+                }
+            }
+        )
+    }
+
+    private var keyBinding: Binding<String> {
+        Binding(
+            get: { draft.id },
+            set: { keyDirty = true; draft.id = $0 }
+        )
+    }
+
+    /// 选中预设 → 名称 / baseURL / 首个空模型行**只填空位**；npm **无条件覆盖**
+    /// （恒有默认值）；新表单且 key 未手改时按显示名 slug 派生。= Windows `applyPreset`。
+    private func applyPreset(_ entry: ProviderCatalogEntry, _ ep: ProviderCatalogEndpoint) {
+        presetId = entry.id
+        let nextName = entry.displayName.isEmpty ? entry.name : entry.displayName
+        let presetModel = entry.models.first ?? ""
+
+        if !presetModel.isEmpty, !rows.contains(where: rowHasModelId) {
+            if rows.isEmpty {
+                rows.append(presetModel + "\u{1}")
+            } else {
+                let parts = rows[0].components(separatedBy: "\u{1}")
+                rows[0] = presetModel + "\u{1}" + (parts.count > 1 ? parts[1] : "")
+            }
+        }
+        if draft.name.trimmingCharacters(in: .whitespaces).isEmpty { draft.name = nextName }
+        if !keyDirty && isNew { draft.id = OpenCodeProviderConfigStore.slugifyProviderKey(nextName) }
+        if draft.baseURL.trimmingCharacters(in: .whitespaces).isEmpty { draft.baseURL = ep.baseUrl }
+        draft.npm = ep.npm.isEmpty ? draft.npm : ep.npm
+    }
+
+    /// 拉取上游真实模型：按 baseURL（含各 agent 端点）匹配目录 → 合并进现有清单
+    /// 并**保留已填显示名**。= Windows `handleOpenCodeFetchModels`。
+    private func fetchModels() async {
+        let base = draft.baseURL.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+        guard let entry = ProviderCatalog.matchByBaseUrl(base) else {
+            fetchError = i18n.t(.ocFetchUnsupported)
+            return
+        }
+        fetchingModels = true
+        fetchError = nil
+        defer { fetchingModels = false }
+        do {
+            // fetchProviderModels 自身是 async（URLSession 直连上游公开端点），
+            // 无需再经 offMainThrowing 切线程。
+            let ids = try await DesktopCommands.fetchProviderModels(
+                providerId: entry.id, apiKey: draft.apiKey
+            )
+            // 合并进现有清单（保留用户已填的显示名）
+            var names: [String: String] = [:]
+            for row in rows {
+                let parts = row.components(separatedBy: "\u{1}")
+                let id = parts.first ?? ""
+                if !id.isEmpty { names[id] = parts.count > 1 ? parts[1] : "" }
+            }
+            rows = ids.map { $0 + "\u{1}" + (names[$0] ?? "") }
+        } catch {
+            fetchError = cliFetchErrorMessage(error, i18n: i18n)
+        }
+    }
+
+    private func rowHasModelId(_ row: String) -> Bool {
+        !(row.components(separatedBy: "\u{1}").first ?? "")
+            .trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private func submit() {
@@ -1109,6 +1333,9 @@ struct ClaudeProviderForm: View {
     @State private var tierNames: [String: String]
     @State private var advancedOpen = false
     @State private var error: String?
+    // 厂商预设（对齐 Windows；claude 表单无 key 字段联动）
+    @State private var catalog: [ProviderCatalogEntry] = []
+    @State private var presetId = ""
 
     private static let tierSpecs: [ClaudeTierSpec] = [
         ClaudeTierSpec(key: "sonnet", label: .clSonnet, placeholder: "claude-sonnet-4-6"),
@@ -1141,6 +1368,9 @@ struct ClaudeProviderForm: View {
             error: error, busy: false, onCancel: onCancel, onSave: submit
         ) {
             formNote(i18n.t(.clFormHint))
+            VendorPresetSelect(catalog: catalog, agentId: "claude-code", selection: $presetId) {
+                applyPreset($0, $1)
+            }
             formField(i18n.t(.clProviderName)) {
                 TextField(i18n.t(.ocNamePlaceholder), text: $draft.name)
                     .cliInput()
@@ -1172,6 +1402,29 @@ struct ClaudeProviderForm: View {
             }
             advancedSection
         }
+        .task {
+            if catalog.isEmpty {
+                catalog = await offMainLoad { DesktopCommands.providerCatalog() }
+            }
+        }
+    }
+
+    /// 选中预设 → 名称 / baseURL **只填空位**；目录首个模型只填进第一个空档位
+    /// （通常 sonnet），不覆盖已有档位。= Windows claude `applyPreset`。
+    private func applyPreset(_ entry: ProviderCatalogEntry, _ ep: ProviderCatalogEndpoint) {
+        presetId = entry.id
+        let nextName = entry.displayName.isEmpty ? entry.name : entry.displayName
+        let presetModel = entry.models.first ?? ""
+        if !presetModel.isEmpty {
+            for spec in Self.tierSpecs {
+                if (tiers[spec.key] ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
+                    tiers[spec.key] = presetModel
+                    break
+                }
+            }
+        }
+        if draft.name.trimmingCharacters(in: .whitespaces).isEmpty { draft.name = nextName }
+        if draft.baseURL.trimmingCharacters(in: .whitespaces).isEmpty { draft.baseURL = ep.baseUrl }
     }
 
     /// 「高级选项」：与 Windows 一致地把 otherKeys 收在这里，不再占面板篇幅。
@@ -1253,6 +1506,12 @@ struct CodexProviderForm: View {
 
     @State private var draft: CodexProviderEntry
     @State private var error: String?
+    // 厂商预设 / key 自动派生 / 拉取模型（对齐 Windows）
+    @State private var catalog: [ProviderCatalogEntry] = []
+    @State private var presetId = ""
+    @State private var keyDirty = false
+    @State private var fetchingModels = false
+    @State private var fetchError: String?
 
     init(
         draft: CodexProviderEntry, wireApis: [WireApiOption], isNew: Bool,
@@ -1274,13 +1533,20 @@ struct CodexProviderForm: View {
             error: error, busy: false, onCancel: onCancel, onSave: submit
         ) {
             formNote(i18n.t(.cxFormHint))
+            VendorPresetSelect(catalog: catalog, agentId: "codex", selection: $presetId) {
+                applyPreset($0, $1)
+            }
+            formField(i18n.t(.mpName)) {
+                TextField(i18n.t(.ocNamePlaceholder), text: nameBinding)
+                    .cliInput()
+            }
             formField(i18n.t(.ocKey), hint: i18n.t(.ocKeyHint)) {
-                TextField(i18n.t(.cxKeyPlaceholder), text: $draft.id)
+                TextField(i18n.t(.cxKeyPlaceholder), text: keyBinding)
                     .cliInput()
                     .disabled(!isNew)
             }
-            formField(i18n.t(.mpName)) {
-                TextField(i18n.t(.ocNamePlaceholder), text: $draft.name)
+            formField(i18n.t(.mpBaseUrl)) {
+                TextField(i18n.t(.cxBaseUrlPlaceholder), text: $draft.baseURL)
                     .cliInput()
             }
             formField(i18n.t(.cxWireApi), hint: i18n.t(.cxWireApiHint)) {
@@ -1292,19 +1558,102 @@ struct CodexProviderForm: View {
                 .labelsHidden()
                 .controlSize(.large)
             }
-            formField(i18n.t(.mpBaseUrl)) {
-                TextField(i18n.t(.cxBaseUrlPlaceholder), text: $draft.baseURL)
-                    .cliInput()
-            }
             formField(i18n.t(.mpApiKey), hint: i18n.t(.cxApiKeyHint)) {
                 SecureField("sk-…", text: $draft.apiKey)
                     .cliInput()
             }
             formField(i18n.t(.cxModel), hint: i18n.t(.cxModelHint)) {
-                TextField(i18n.t(.cxModelPlaceholder), text: $draft.model)
-                    .cliInput()
+                modelSection
             }
             formHint(i18n.t(.cxAdvancedHint))
+        }
+        .task {
+            if catalog.isEmpty {
+                catalog = await offMainLoad { DesktopCommands.providerCatalog() }
+            }
+        }
+    }
+
+    /// 模型 + 拉取按钮（config.toml 顶层 model 只存一条）。
+    private var modelSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                TextField(i18n.t(.cxModelPlaceholder), text: $draft.model)
+                    .cliInput()
+                Button {
+                    Task { await fetchModels() }
+                } label: {
+                    Label(fetchingModels ? i18n.t(.mpFetching) : i18n.t(.ocFetchModels),
+                          systemImage: fetchingModels ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
+                        .font(LatteFont.xs)
+                }
+                .buttonStyle(LatteButtonStyle(variant: .outline))
+                .disabled(fetchingModels || draft.baseURL.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            if let fetchError {
+                Text(verbatim: fetchError)
+                    .font(LatteFont.font10)
+                    .foregroundStyle(Latte.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// 名称 → key 自动派生（用户手改过 key 就不再覆盖，dirty 标记）。
+    private var nameBinding: Binding<String> {
+        Binding(
+            get: { draft.name },
+            set: { newValue in
+                draft.name = newValue
+                if !keyDirty && isNew, !newValue.trimmingCharacters(in: .whitespaces).isEmpty {
+                    draft.id = CodexProviderConfigStore.slugifyProviderKey(newValue)
+                }
+            }
+        )
+    }
+
+    private var keyBinding: Binding<String> {
+        Binding(
+            get: { draft.id },
+            set: { keyDirty = true; draft.id = $0 }
+        )
+    }
+
+    /// 选中预设 → 名称 / baseURL / 模型**只填空位**；wireApi **无条件覆盖**
+    /// （预设固定 "responses"，新版 Codex 已废弃 "chat"）。= Windows `applyPreset`。
+    private func applyPreset(_ entry: ProviderCatalogEntry, _ ep: ProviderCatalogEndpoint) {
+        presetId = entry.id
+        let nextName = entry.displayName.isEmpty ? entry.name : entry.displayName
+        if draft.name.trimmingCharacters(in: .whitespaces).isEmpty { draft.name = nextName }
+        if !keyDirty && isNew { draft.id = CodexProviderConfigStore.slugifyProviderKey(nextName) }
+        if draft.baseURL.trimmingCharacters(in: .whitespaces).isEmpty { draft.baseURL = ep.baseUrl }
+        draft.wireApi = ep.wireApi.isEmpty ? draft.wireApi : ep.wireApi
+        if draft.model.trimmingCharacters(in: .whitespaces).isEmpty { draft.model = entry.models.first ?? "" }
+    }
+
+    /// 拉取上游模型 → 只在模型为空时填首个候选。= Windows `handleCodexFetchModels`。
+    private func fetchModels() async {
+        let base = draft.baseURL.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+        guard let entry = ProviderCatalog.matchByBaseUrl(base) else {
+            fetchError = i18n.t(.ocFetchUnsupported)
+            return
+        }
+        fetchingModels = true
+        fetchError = nil
+        defer { fetchingModels = false }
+        do {
+            // fetchProviderModels 自身是 async（URLSession 直连上游公开端点），
+            // 无需再经 offMainThrowing 切线程。
+            let ids = try await DesktopCommands.fetchProviderModels(
+                providerId: entry.id, apiKey: draft.apiKey
+            )
+            // 只在模型为空时填首个候选
+            if let first = ids.first, draft.model.trimmingCharacters(in: .whitespaces).isEmpty {
+                draft.model = first
+            }
+        } catch {
+            fetchError = cliFetchErrorMessage(error, i18n: i18n)
         }
     }
 
@@ -1344,6 +1693,10 @@ struct PiProviderForm: View {
     @State private var draft: PiProviderEntry
     @State private var rows: [String]
     @State private var error: String?
+    // 厂商预设 / key 自动派生（对齐 Windows；pi 表单无「拉取模型」）
+    @State private var catalog: [ProviderCatalogEntry] = []
+    @State private var presetId = ""
+    @State private var keyDirty = false
 
     init(
         draft: PiProviderEntry, apis: [PiApiOption], isNew: Bool,
@@ -1366,14 +1719,21 @@ struct PiProviderForm: View {
             error: error, busy: false, onCancel: onCancel, onSave: submit
         ) {
             formNote(i18n.t(.piFormHint))
+            VendorPresetSelect(catalog: catalog, agentId: "pi", selection: $presetId) {
+                applyPreset($0, $1)
+            }
+            formField(i18n.t(.mpName)) {
+                TextField(i18n.t(.ocNamePlaceholder), text: nameBinding)
+                    .cliInput()
+            }
             formField(i18n.t(.ocKey),
                       hint: isNew ? i18n.t(.ocKeyHint) : i18n.t(.piKeyLockedHint)) {
-                TextField(i18n.t(.piKeyPlaceholder), text: $draft.id)
+                TextField(i18n.t(.piKeyPlaceholder), text: keyBinding)
                     .cliInput()
                     .disabled(!isNew)
             }
-            formField(i18n.t(.mpName)) {
-                TextField(i18n.t(.ocNamePlaceholder), text: $draft.name)
+            formField(i18n.t(.mpBaseUrl)) {
+                TextField(i18n.t(.piBaseUrlPlaceholder), text: $draft.baseURL)
                     .cliInput()
             }
             formField(i18n.t(.piApi), hint: i18n.t(.piApiHint)) {
@@ -1384,10 +1744,6 @@ struct PiProviderForm: View {
                 }
                 .labelsHidden()
                 .controlSize(.large)
-            }
-            formField(i18n.t(.mpBaseUrl)) {
-                TextField(i18n.t(.piBaseUrlPlaceholder), text: $draft.baseURL)
-                    .cliInput()
             }
             formField(i18n.t(.mpApiKey), hint: i18n.t(.piApiKeyHint)) {
                 SecureField("sk-…", text: $draft.apiKey)
@@ -1402,6 +1758,57 @@ struct PiProviderForm: View {
             }
             formHint(i18n.t(.piAdvancedHint))
         }
+        .task {
+            if catalog.isEmpty {
+                catalog = await offMainLoad { DesktopCommands.providerCatalog() }
+            }
+        }
+    }
+
+    /// 名称 → key 自动派生（用户手改过 key 就不再覆盖，dirty 标记）。
+    private var nameBinding: Binding<String> {
+        Binding(
+            get: { draft.name },
+            set: { newValue in
+                draft.name = newValue
+                if !keyDirty && isNew, !newValue.trimmingCharacters(in: .whitespaces).isEmpty {
+                    draft.id = PiProviderConfigStore.slugifyProviderKey(newValue)
+                }
+            }
+        )
+    }
+
+    private var keyBinding: Binding<String> {
+        Binding(
+            get: { draft.id },
+            set: { keyDirty = true; draft.id = $0 }
+        )
+    }
+
+    /// 选中预设 → 名称 / baseURL / 首个空模型行**只填空位**；api **无条件覆盖**
+    /// （预设 "openai-completions"）。= Windows pi `applyPreset`。
+    private func applyPreset(_ entry: ProviderCatalogEntry, _ ep: ProviderCatalogEndpoint) {
+        presetId = entry.id
+        let nextName = entry.displayName.isEmpty ? entry.name : entry.displayName
+        let presetModel = entry.models.first ?? ""
+
+        if !presetModel.isEmpty, !rows.contains(where: rowHasModelId) {
+            if rows.isEmpty {
+                rows.append(presetModel + "\u{1}")
+            } else {
+                let parts = rows[0].components(separatedBy: "\u{1}")
+                rows[0] = presetModel + "\u{1}" + (parts.count > 1 ? parts[1] : "")
+            }
+        }
+        if draft.name.trimmingCharacters(in: .whitespaces).isEmpty { draft.name = nextName }
+        if !keyDirty && isNew { draft.id = PiProviderConfigStore.slugifyProviderKey(nextName) }
+        if draft.baseURL.trimmingCharacters(in: .whitespaces).isEmpty { draft.baseURL = ep.baseUrl }
+        draft.api = ep.piApi.isEmpty ? draft.api : ep.piApi
+    }
+
+    private func rowHasModelId(_ row: String) -> Bool {
+        !(row.components(separatedBy: "\u{1}").first ?? "")
+            .trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private func submit() {

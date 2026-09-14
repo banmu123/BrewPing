@@ -67,6 +67,15 @@ struct ModelProviderFormView: View {
                                     .font(LatteFont.xs)
                                     .foregroundStyle(Latte.mutedForeground)
                             }
+                            // 选中预设且该厂商给了申请 Key 的地址 → 给个外链（= Windows）
+                            if let consoleURL = activeCatalog?.consoleUrl, !consoleURL.isEmpty,
+                               let url = URL(string: consoleURL) {
+                                Link(destination: url) {
+                                    Label(i18n.t(.mpGetKey), systemImage: "arrow.up.right.square")
+                                        .font(LatteFont.font10)
+                                        .foregroundStyle(Latte.primary)
+                                }
+                            }
                         }
                     }
                     field(i18n.t(.mpModel)) {
@@ -205,6 +214,11 @@ struct ModelProviderFormView: View {
         return groups
             .map { (category: $0.key, entries: $0.value.sorted { $0.id < $1.id }) }
             .sorted { ProviderCatalog.categoryOrder($0.category) < ProviderCatalog.categoryOrder($1.category) }
+    }
+
+    /// 当前选中的预设条目（供「获取 Key」外链）。
+    private var activeCatalog: ProviderCatalogEntry? {
+        catalog.first { $0.id == selectedPreset }
     }
 
     private func categoryLabel(_ category: String) -> String {
