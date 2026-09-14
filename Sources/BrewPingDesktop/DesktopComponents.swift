@@ -125,8 +125,10 @@ struct LatteBadge: View {
         Text(text)
             .font(LatteFont.font9)
             .foregroundStyle(foreground)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 0)
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            // 原来是 0：胶囊被压成一条线，与周围文字挤在一起。给 1.5pt 让它有体积感。
+            .padding(.vertical, 1.5)
             .background(background)
             .clipShape(Capsule())
     }
