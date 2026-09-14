@@ -23,3 +23,14 @@ ios/BrewPing.xcodeproj/xcuserdata/
 # Node
 node_modules/
 
+# 构建 / 检查日志（临时产物，不入库）
+.build-*.txt
+.cargo-test.txt
+.tsc-out.txt
+.git-*.txt
+.commit*.txt
+Sources/BrewPingwinDesktop/fbr.txt
+
+# 本地运行时日志（dev server 持有，删除会失败）
+.workbuddy/tauri-dev*.log
+
