@@ -41,6 +41,9 @@
 - i18n：`DesktopStrings.swift` 由 locales.ts 机械生成，改文案两端同批；主题/尺寸照 Latte 令牌。
 - 🚨 NSTextView：必须 `scrollableTextView()`；高度钳制在 sizeThatFits；Enter 走 `textView(_:doCommandBy:)`。
 - 改完必 `swift build --disable-sandbox`；本机无 Xcode 完整工具链，验证走 `./tools/verify-cli-config.sh`。
+- CLI 原生厂商面板样式（`CLIProviderPanels.swift`）：三层 = `cliCard`（淡主色底+主色描边，与"自有库"中性卡片刻意区分）/ `cliRowCard`（一条厂商一描边块，当前项主色高亮）+`cliInset` / `cliLabelValue`（标签定宽+等宽值）。间距节奏 **块内 4–6 / 块间 8 / 组间 12**，靠"块间>块内"分组，不靠加线。
+- 🚨 行内截断策略对齐 Windows：**徽章一律 `.fixedSize()`（永不压缩），只有 URL 走 `.truncationMode(.middle)`**。否则 HStack 里的 Spacer 会与文本抢配额 → 「已配 Key」被压成「已配…」。`LatteBadge` 垂直内边距已从 0 调成 1.5（原来胶囊被压成一条线）。
+- 预览截图技巧：debug 实例窗口默认 560×620 而设置页要 780 宽 → **右侧会被裁**；临时把 `DesktopRootView` 的 `minWidth` 改大即可拍全（截完必还原）。`screencapture -l <winID>` 拍的是"点"尺寸 × 屏幕缩放（本机 1.739×）。
 
 ## Windows 桌面端（BrewPingwinDesktop）
 - 🚨 tokio Mutex 不可重入；🚨 HTTP 错误体永远 JSON（query 参数用 Option<String> 手工解析）。
