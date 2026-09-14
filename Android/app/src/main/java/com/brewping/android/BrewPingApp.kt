@@ -54,7 +54,7 @@ class BrewPingApp : Application() {
         pairingStore = PairingStore(this)
         apiClient = DesktopApiClient(pairingStore)
         repository = DesktopRepository(discoveryManager, apiClient)
-        conversationStore = ConversationStore(apiClient)
+        conversationStore = ConversationStore(apiClient, this)
         modelStore = ModelStore(apiClient, CoroutineScope(SupervisorJob() + Dispatchers.Main), this)
     }
 

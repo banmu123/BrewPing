@@ -30,7 +30,9 @@ class ConversationStore(
     }
 
     private fun msg(resId: Int, fallback: String, vararg args: Any?): String =
-        appContext?.getString(resId, *args) ?: fallback
+        // fallback 是格式串：context 缺失时也要把占位符替换掉，
+        // 否则 UI 会直接显示 "Can't reach %1$s" 字面量（曾漏：BrewPingApp 忘传 context）。
+        appContext?.getString(resId, *args) ?: String.format(fallback, *args)
 
     private val _conversations = MutableStateFlow<List<ConversationSummary>>(emptyList())
     val conversations: StateFlow<List<ConversationSummary>> = _conversations.asStateFlow()

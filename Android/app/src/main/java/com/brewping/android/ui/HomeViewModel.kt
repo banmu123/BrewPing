@@ -37,9 +37,9 @@ class HomeViewModel(
     private val appContext: android.content.Context? = null,
 ) : ViewModel() {
 
-    /** 取本地化消息；无 context（单测）时回退英文原文。 */
+    /** 取本地化消息；无 context（单测）时回退英文原文。fallback 是格式串：必须替换占位符，别让 "%1$s" 字面量漏到 UI。 */
     private fun msg(resId: Int, fallback: String, vararg args: Any?): String =
-        appContext?.getString(resId, *args) ?: fallback
+        appContext?.getString(resId, *args) ?: String.format(fallback, *args)
 
     // ─── Device store ─────────────────────────────────────────────────────────
 

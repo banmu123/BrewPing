@@ -278,7 +278,8 @@ class DesktopRepository(
                 pendingApprovalId = null
                 pendingApprovalDevice = null
                 _commandPhase.value = CommandPhase.Failed(
-                    error = response?.error?.ifEmpty { "Send failed" } ?: "Send failed",
+                    // response == null = 网络层失败（桌面端离线/超时）→ 提示连不上，而不是笼统的发送失败
+                    error = response?.error?.ifEmpty { "Send failed" } ?: "Can't reach ${device.name}",
                 )
             }
         }

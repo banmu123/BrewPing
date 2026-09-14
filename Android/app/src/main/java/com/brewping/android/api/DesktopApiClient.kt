@@ -267,6 +267,13 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
                     device, "POST",
                 ).build()
                 val raw = executeRaw(messageClient, request)
+                if (raw.code == 0) {
+                    // 连不上（桌面端离线）：给可读提示，而不是 "HTTP 0"（与 pairWithCode 同风格）
+                    return@withContext ApprovalDecisionResponse(
+                        success = false,
+                        error = "Can't reach ${device.name}",
+                    )
+                }
                 val json = raw.body?.let { runCatching { JSONObject(it) }.getOrNull() }
                 if (raw.code == 200 && json != null) {
                     Log.i(TAG, "[API] POST /api/approvals/$approvalId -> $json")
@@ -430,6 +437,10 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
             val url = baseUrl(device) + "/api/conversations?includeArchived=1"
             val raw = executeRaw(client, signed(Request.Builder().url(url).get(), device, "GET").build())
             when {
+                // code == 0 = 网络层失败（连不上 / 超时，桌面端离线）：返回 null，
+                // 由调用方翻译成 "Can't reach 设备名"——不是服务端错误，
+                // 显示 "Server error 0" 会误导用户。
+                raw.code == 0 -> null
                 // 401 单独归类：不是网络问题，是未配对 / 桌面端重新签发过 token，
                 // 提示要重新配对而不是检查网络（对齐 iOS ConversationStore 语义）。
                 raw.code == 401 -> ConversationsResult(conversations = null, unauthorized = true)
@@ -462,6 +473,8 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
             val url = baseUrl(device) + "/api/conversations/$id"
             val raw = executeRaw(client, signed(Request.Builder().url(url).get(), device, "GET").build())
             when {
+                // code == 0 = 网络层失败（桌面端离线）：返回 null → 调用方显示 "Can't reach"
+                raw.code == 0 -> null
                 raw.code == 401 -> ConversationResult(detail = null, unauthorized = true)
                 raw.code == 404 || raw.code == 501 -> ConversationResult(detail = null, unsupported = true)
                 raw.code != 200 -> ConversationResult(detail = null, error = "Server error ${raw.code}")
@@ -622,8 +635,12 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
             }
         }
 
-    private fun parseConversationMutation(raw: RawResponse): ConversationResult {
+    /** 返回 null = 网络失败（连不上 / 超时），调用方翻译成 "Can't reach 设备名"。 */
+    private fun parseConversationMutation(raw: RawResponse): ConversationResult? {
         return when {
+            // code == 0 = 网络层失败（桌面端离线 / 超时）：返回 null 走既有 cant_reach 分支，
+            // 不是服务端错误 —— 显示 "Server error 0" 会误导用户。
+            raw.code == 0 -> null
             raw.code == 401 -> ConversationResult(detail = null, unauthorized = true)
             raw.code == 404 || raw.code == 501 -> ConversationResult(detail = null, unsupported = true)
             raw.code != 200 -> {
@@ -653,6 +670,9 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
             val url = baseUrl(device) + "/api/agents/$agentId/models"
             val raw = executeRaw(client, signed(Request.Builder().url(url).get(), device, "GET").build())
             when {
+                // code == 0 = 连不上（桌面端离线）：返回 null，调用方显示 "无法加载模型"，
+                // 与其它网络失败同语义（ModelStore.refresh 已处理 null）。
+                raw.code == 0 -> null
                 raw.code == 404 || raw.code == 501 -> AgentModelsResult(unsupported = true)
                 raw.code != 200 -> AgentModelsResult(error = "Server error ${raw.code}")
                 raw.body == null -> AgentModelsResult(error = "Empty response")
