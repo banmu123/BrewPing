@@ -382,10 +382,17 @@ export async function deleteModelProvider(id: string): Promise<ModelProvidersInf
 }
 
 /**
- * 切换当前生效的模型配置（即时生效：转发代理按请求读当前值，CLI 无需重启）。
+ * 切换当前生效的模型配置。agentId 非空 = 写该 Agent 的专属当前（Agent→厂商归属）；
+ * 传 null/undefined = 通用槽（全 Agent 回落，旧版语义）。
  */
-export async function switchModelProvider(id: string): Promise<ModelProvidersInfo> {
-  return invoke<ModelProvidersInfo>("switch_model_provider", { id });
+export async function switchModelProvider(
+  id: string,
+  agentId?: string | null,
+): Promise<ModelProvidersInfo> {
+  return invoke<ModelProvidersInfo>("switch_model_provider", {
+    id,
+    agentId: agentId ?? null,
+  });
 }
 
 /**

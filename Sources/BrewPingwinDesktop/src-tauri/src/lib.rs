@@ -15,6 +15,7 @@ use services::model_proxy::ModelProxyManager;
 use services::pairing_store::PairingStore;
 use services::terminal_state::{AgentTerminalState, TerminalManager};
 use services::workdir_prefs::WorkdirPrefs;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use tokio::sync::RwLock;
@@ -872,6 +873,8 @@ async fn update_agent_cli(
 pub struct ModelProvidersInfo {
     pub providers: Vec<ProviderView>,
     pub current_id: Option<String>,
+    /// Agent 专属当前（key = agent id；前端解析顺序：专属 → current_id → None）。
+    pub current_by_agent: HashMap<String, String>,
     pub proxy_enabled: bool,
     pub proxy_port: u16,
     pub proxy_running: bool,
@@ -887,6 +890,7 @@ async fn model_providers_info(core: &DesktopCore) -> ModelProvidersInfo {
     ModelProvidersInfo {
         providers: snap.providers,
         current_id: snap.current_id,
+        current_by_agent: snap.current_by_agent,
         proxy_enabled: snap.proxy_enabled,
         proxy_port: snap.proxy_port,
         proxy_running: proxy.running,
@@ -924,12 +928,16 @@ async fn delete_model_provider(
 }
 
 /// 切换当前生效的模型配置（即时生效：转发代理按请求读当前值，CLI 无感）。
+/// `agent_id` 非空 = 写该 Agent 的专属当前（Agent→厂商归属）；
+/// 空/缺省 = 通用槽（旧版语义，全 Agent 回落）。
 #[tauri::command]
 async fn switch_model_provider(
     core: tauri::State<'_, DesktopCore>,
     id: String,
+    agent_id: Option<String>,
 ) -> Result<ModelProvidersInfo, String> {
-    core.model_providers.switch_current(&id)?;
+    core.model_providers
+        .switch_current_for(agent_id.as_deref().unwrap_or(""), &id)?;
     Ok(model_providers_info(&core).await)
 }
 

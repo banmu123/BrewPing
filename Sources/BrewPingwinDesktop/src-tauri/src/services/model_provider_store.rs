@@ -11,6 +11,7 @@
 //! CLI 无感的核心体验）。
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -64,6 +65,9 @@ pub enum AuthStyle {
 pub struct ModelProviderConfig {
     /// 稳定 ID（uuid；空串视为新建，由后端生成）。
     pub id: String,
+    /// 归属 Agent（"" = 通用：所有 Agent 可见可用；旧数据缺字段自动归通用）。
+    /// 创建时锁定 —— 编辑更新时后端保留原归属，不允许改（防「编辑厂商」串味）。
+    pub agent_id: String,
     /// 展示名（如 "Kimi" / "DeepSeek"）。
     pub name: String,
     /// 上游接口地址。`is_full_url = false` 时为 base（拼接路径）；
@@ -97,6 +101,7 @@ impl Default for ModelProviderConfig {
     fn default() -> Self {
         Self {
             id: String::new(),
+            agent_id: String::new(),
             name: String::new(),
             base_url: String::new(),
             api_key: String::new(),
@@ -117,9 +122,13 @@ impl Default for ModelProviderConfig {
 struct Stored {
     #[serde(default)]
     providers: Vec<ModelProviderConfig>,
-    /// 当前生效的配置（代理转发目标）。
+    /// 当前生效的配置（代理转发目标）——通用槽：所有 Agent 的回落值。
     #[serde(rename = "currentId", default)]
     current_id: Option<String>,
+    /// 按 Agent 的当前配置（Agent 专属槽，优先于通用 `current_id`；
+    /// key = agent id 如 "claude-code"，缺条目的 Agent 直接用通用槽）。
+    #[serde(rename = "currentByAgent", default)]
+    current_by_agent: HashMap<String, String>,
     /// 转发代理开关（默认关闭：不开 = 与旧版行为零差异）。
     #[serde(rename = "proxyEnabled", default)]
     proxy_enabled: bool,
@@ -196,11 +205,19 @@ impl ModelProviderStore {
     /// 路由链（对齐 cc-switch `ProviderRouter::select_providers`）：
     /// - failover 关 → 仅当前配置；
     /// - failover 开 → 全部配置按 sortIndex 升序（列表顺序即故障转移顺序）。
-    /// 返回 (配置列表, 请求开始时的 currentId)。
+    /// 返回 (配置列表, 请求开始时的 currentId)。通用版 = `route_chain_for("")`。
     pub fn route_chain(&self) -> (Vec<ModelProviderConfig>, Option<String>) {
+        self.route_chain_for("")
+    }
+
+    /// per-Agent 路由链：与 `route_chain` 的唯一差异是「当前」的解析——
+    /// Agent 专属槽（`current_by_agent[agent_id]`）优先，回落通用槽。
+    /// failover 开时全量参与兜底，排序 = 同归属 → 通用 → 异归属（组内按 sortIndex），
+    /// 即「给本 Agent 配的厂商优先扛，其它归属只做最后兜底」。
+    pub fn route_chain_for(&self, agent_id: &str) -> (Vec<ModelProviderConfig>, Option<String>) {
         let stored = self.inner.lock().expect("model provider store poisoned");
-        let current = stored
-            .current_id
+        let start = resolve_current_for(agent_id, &stored);
+        let current = start
             .as_deref()
             .and_then(|id| stored.providers.iter().find(|p| &p.id == id));
         if !stored.failover_enabled {
@@ -210,7 +227,7 @@ impl ModelProviderStore {
             );
         }
         let mut chain: Vec<ModelProviderConfig> = stored.providers.clone();
-        chain.sort_by_key(|p| p.sort_index);
+        chain.sort_by_key(|p| (ownership_rank(&p.agent_id, agent_id), p.sort_index));
         (chain, current.map(|c| c.id.clone()))
     }
 
@@ -219,6 +236,7 @@ impl ModelProviderStore {
     pub fn upsert(&self, mut cfg: ModelProviderConfig) -> Result<ModelProviderConfig, String> {
         cfg.name = cfg.name.trim().to_string();
         cfg.base_url = cfg.base_url.trim().to_string();
+        cfg.agent_id = cfg.agent_id.trim().to_string();
         if cfg.name.is_empty() {
             return Err("name is required".to_string());
         }
@@ -246,6 +264,8 @@ impl ModelProviderStore {
                     if submitted.is_empty() || submitted == mask_api_key(&slot.api_key) {
                         cfg.api_key = slot.api_key.clone();
                     }
+                    // 归属创建时锁定：编辑更新一律保留原归属（防「编辑串味」）。
+                    cfg.agent_id = slot.agent_id.clone();
                     // 保留创建时间与排序（id 是身份，其余字段以提交为准）
                     cfg.created_at_ms = slot.created_at_ms;
                     cfg.sort_index = slot.sort_index;
@@ -277,17 +297,34 @@ impl ModelProviderStore {
         if stored.current_id.as_deref() == Some(id) {
             stored.current_id = None;
         }
+        // 清理指向被删配置的 Agent 专属槽（下个请求回落通用槽）
+        stored.current_by_agent.retain(|_, v| v != id);
         save(&self.path, &stored);
         Ok(())
     }
 
-    /// 切换当前配置（即时生效：代理每请求读 current）。
+    /// 切换当前配置（即时生效：代理每请求读 current）。通用槽版 = `switch_current_for("")`。
     pub fn switch_current(&self, id: &str) -> Result<(), String> {
+        self.switch_current_for("", id)
+    }
+
+    /// 切换某个 Agent 的当前配置。`agent_id` 为空 = 通用槽（全 Agent 回落）；
+    /// 非空 = 该 Agent 的专属槽（优先于通用槽生效）。
+    /// 归属防串味：目标配置明确归属**其他** Agent 时不落 current（failover 允许
+    /// 跨归属临时兜底，但不得改写归属语义）——返回 Ok 且状态不变。
+    pub fn switch_current_for(&self, agent_id: &str, id: &str) -> Result<(), String> {
         let mut stored = self.inner.lock().expect("model provider store poisoned");
-        if !stored.providers.iter().any(|p| p.id == id) {
+        let Some(cfg) = stored.providers.iter().find(|p| p.id == id) else {
             return Err(format!("unknown provider id: {id}"));
+        };
+        if agent_id.is_empty() {
+            stored.current_id = Some(id.to_string());
+        } else if cfg.agent_id.is_empty() || cfg.agent_id == agent_id {
+            stored
+                .current_by_agent
+                .insert(agent_id.to_string(), id.to_string());
         }
-        stored.current_id = Some(id.to_string());
+        // cfg.agent_id 与 agent_id 都非空且不等：防串味，不写 current。
         save(&self.path, &stored);
         Ok(())
     }
@@ -305,6 +342,33 @@ impl ModelProviderStore {
 impl Default for ModelProviderStore {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// 某 Agent 的当前配置解析：专属槽 → 通用槽 → None（指向已删除项视为 None）。
+/// `agent_id` 为空 = 通用请求，只看通用槽。
+fn resolve_current_for(agent_id: &str, stored: &Stored) -> Option<String> {
+    let candidate = if agent_id.is_empty() {
+        stored.current_id.clone()
+    } else {
+        stored
+            .current_by_agent
+            .get(agent_id)
+            .cloned()
+            .or_else(|| stored.current_id.clone())
+    };
+    candidate.filter(|id| stored.providers.iter().any(|p| &p.id == id))
+}
+
+/// failover 兜底排序秩：同归属最优先 → 通用次之 → 异归属最后（组内按 sortIndex）。
+/// 异归属仍参与兜底（最大化可用性），只是排到最后。
+fn ownership_rank(owner: &str, agent_id: &str) -> u8 {
+    if owner.is_empty() {
+        1
+    } else if owner == agent_id {
+        0
+    } else {
+        2
     }
 }
 
@@ -336,6 +400,8 @@ pub fn mask_api_key(key: &str) -> String {
 #[serde(rename_all = "camelCase")]
 pub struct ProviderView {
     pub id: String,
+    /// 归属 Agent（"" = 通用；camelCase 序列化为 agentId）。
+    pub agent_id: String,
     pub name: String,
     #[serde(rename = "baseUrl")]
     pub base_url: String,
@@ -359,6 +425,7 @@ impl From<&ModelProviderConfig> for ProviderView {
     fn from(p: &ModelProviderConfig) -> Self {
         Self {
             id: p.id.clone(),
+            agent_id: p.agent_id.clone(),
             name: p.name.clone(),
             base_url: p.base_url.clone(),
             api_key_masked: mask_api_key(&p.api_key),
@@ -380,6 +447,8 @@ impl From<&ModelProviderConfig> for ProviderView {
 pub struct StoredSnapshot {
     pub providers: Vec<ProviderView>,
     pub current_id: Option<String>,
+    /// Agent 专属当前（key = agent id；前端解析顺序：专属 → current_id → None）。
+    pub current_by_agent: HashMap<String, String>,
     pub proxy_enabled: bool,
     pub proxy_port: u16,
     pub failover_enabled: bool,
@@ -390,6 +459,7 @@ impl From<&Stored> for StoredSnapshot {
         Self {
             providers: s.providers.iter().map(ProviderView::from).collect(),
             current_id: s.current_id.clone(),
+            current_by_agent: s.current_by_agent.clone(),
             proxy_enabled: s.proxy_enabled,
             proxy_port: s.proxy_port,
             failover_enabled: s.failover_enabled,
@@ -690,5 +760,130 @@ mod tests {
         let empty = ProviderView::from(&ModelProviderConfig::default());
         assert!(!empty.has_key);
         assert_eq!(empty.api_key_masked, "");
+    }
+
+    // TC-MPS-13  归属与 per-agent current：专属 → 通用回落；Agent 之间互不影响
+    #[test]
+    fn per_agent_current_resolution() {
+        let path = temp_path("peragent");
+        let store = ModelProviderStore::with_path(path.clone());
+
+        let universal = store.upsert(sample("U")).unwrap(); // 通用（agent_id=""）
+        let mut owned = sample("O");
+        owned.agent_id = "claude-code".to_string();
+        let owned = store.upsert(owned).unwrap();
+
+        // 无专属槽时回落通用槽
+        assert_eq!(
+            store.snapshot().current_id.as_deref(),
+            Some(universal.id.as_str()),
+            "首条自动成为通用当前"
+        );
+        // 给 claude-code 设专属当前
+        store.switch_current_for("claude-code", &owned.id).unwrap();
+        // codex 没有专属条目 → 仍回落通用（currentByAgent 不含 codex）
+        let snap = store.snapshot();
+        assert_eq!(snap.current_by_agent.get("claude-code").map(String::as_str), Some(owned.id.as_str()));
+        assert!(!snap.current_by_agent.contains_key("codex"), "未设置的 Agent 不得有条目");
+        // 通用槽不受 per-agent 切换影响
+        assert_eq!(snap.current_id.as_deref(), Some(universal.id.as_str()));
+
+        // 落盘可复用
+        let again = ModelProviderStore::with_path(path.clone());
+        assert_eq!(
+            again.snapshot().current_by_agent.get("claude-code").map(String::as_str),
+            Some(owned.id.as_str()),
+            "per-agent current 必须落盘"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    // TC-MPS-14  route_chain_for：failover 开时 同归属 → 通用 → 异归属（组内按 sortIndex）
+    #[test]
+    fn route_chain_for_orders_by_ownership() {
+        let path = temp_path("chain");
+        let store = ModelProviderStore::with_path(path.clone());
+
+        // 通用（sort 0）→ claude-code 专属（sort 1、3）→ codex 专属（sort 2）
+        let mut a1 = sample("A1");
+        a1.sort_index = 0;
+        let mut m1 = sample("M1");
+        m1.agent_id = "claude-code".to_string();
+        m1.sort_index = 1;
+        let mut x1 = sample("X1");
+        x1.agent_id = "codex".to_string();
+        x1.sort_index = 2;
+        let mut m2 = sample("M2");
+        m2.agent_id = "claude-code".to_string();
+        m2.sort_index = 3;
+        store.upsert(a1).unwrap();
+        store.upsert(m1).unwrap();
+        store.upsert(x1).unwrap();
+        store.upsert(m2).unwrap();
+        store.set_failover(true);
+
+        let (chain, _) = store.route_chain_for("claude-code");
+        let names: Vec<&str> = chain.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["M1", "M2", "A1", "X1"],
+            "同归属 → 通用 → 异归属（组内按 sortIndex）"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    // TC-MPS-15  switch_current_for 跨归属防护：归属他人的配置不落 current
+    #[test]
+    fn switch_current_for_rejects_cross_ownership() {
+        let path = temp_path("cross");
+        let store = ModelProviderStore::with_path(path.clone());
+        let mut theirs = sample("T");
+        theirs.agent_id = "codex".to_string();
+        let theirs = store.upsert(theirs).unwrap();
+        let universal = store.upsert(sample("U")).unwrap();
+
+        // claude-code 想把 codex 专属配置设为自己的当前 → Ok 但不落槽
+        store.switch_current_for("claude-code", &theirs.id).unwrap();
+        let snap = store.snapshot();
+        assert!(
+            !snap.current_by_agent.contains_key("claude-code"),
+            "跨归属配置不得写入本 Agent 专属槽"
+        );
+
+        // 通用配置可以被任意 Agent 设为专属当前
+        store.switch_current_for("claude-code", &universal.id).unwrap();
+        assert_eq!(
+            store.snapshot().current_by_agent.get("claude-code").map(String::as_str),
+            Some(universal.id.as_str())
+        );
+        // 未知 id 仍报错
+        assert!(store.switch_current_for("claude-code", "nope").is_err());
+        let _ = std::fs::remove_file(path);
+    }
+
+    // TC-MPS-16  删除清理专属槽 + 旧版文件（无 currentByAgent）容错加载
+    #[test]
+    fn delete_cleans_agent_slots_and_legacy_load() {
+        let path = temp_path("cleanup");
+
+        // 旧版 JSON（没有 currentByAgent 字段）能加载
+        std::fs::write(&path, r#"{"providers":[],"currentId":null}"#).unwrap();
+        let legacy = ModelProviderStore::with_path(path.clone());
+        assert!(legacy.snapshot().current_by_agent.is_empty());
+        drop(legacy);
+
+        let store = ModelProviderStore::with_path(path.clone());
+        let mut owned = sample("O");
+        owned.agent_id = "claude-code".to_string();
+        let created = store.upsert(owned).unwrap();
+        store.switch_current_for("claude-code", &created.id).unwrap();
+        assert!(store.snapshot().current_by_agent.contains_key("claude-code"));
+
+        store.delete(&created.id).unwrap();
+        assert!(
+            !store.snapshot().current_by_agent.contains_key("claude-code"),
+            "删除配置必须清理指向它的专属槽"
+        );
+        let _ = std::fs::remove_file(path);
     }
 }

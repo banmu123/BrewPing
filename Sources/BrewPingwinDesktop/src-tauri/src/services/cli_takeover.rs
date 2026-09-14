@@ -51,7 +51,9 @@ pub const ALL_KINDS: &[CliKind] = &[
 impl CliKind {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
-            "claude_code" | "claudeCode" => Some(Self::ClaudeCode),
+            // "claude-code"（连字符，agent 命名空间权威形态）与 "claude_code"
+            // （历史前端值）都认——过渡期双兼容，见 M3 统一约定。
+            "claude-code" | "claude_code" | "claudeCode" => Some(Self::ClaudeCode),
             "codex" => Some(Self::Codex),
             "opencode" => Some(Self::OpenCode),
             "aider" => Some(Self::Aider),
@@ -150,12 +152,15 @@ impl CliTakeover {
         Self { home }
     }
 
+    /// 接入地址带 Agent 别名后缀（/claude /codex）：代理据此识别请求来源，
+    /// 实现「Agent→厂商」per-Agent 路由（strip_proxy_alias 侧已支持）。
+    /// 旧版裸地址仍能工作（走通用路由，软降级），但需重新接管才能获得归属路由。
     fn claude_base_url(&self, port: u16) -> String {
-        format!("http://127.0.0.1:{port}")
+        format!("http://127.0.0.1:{port}/claude")
     }
 
     fn codex_base_url(&self, port: u16) -> String {
-        format!("http://127.0.0.1:{port}")
+        format!("http://127.0.0.1:{port}/codex")
     }
 
     /// 查询全部 CLI 的接管状态（动态列表，顺序 = ALL_KINDS）。
@@ -425,7 +430,7 @@ mod tests {
 
         take.enable(CliKind::ClaudeCode, 15721).unwrap();
         let v: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-        assert_eq!(v.pointer("/env/ANTHROPIC_BASE_URL").unwrap(), "http://127.0.0.1:15721");
+        assert_eq!(v.pointer("/env/ANTHROPIC_BASE_URL").unwrap(), "http://127.0.0.1:15721/claude");
         assert_eq!(v.pointer("/env/ANTHROPIC_AUTH_TOKEN").unwrap(), PLACEHOLDER_KEY);
         // 既有内容保留
         assert_eq!(v.pointer("/env/ANTHROPIC_API_KEY").unwrap(), "user-key");
@@ -478,7 +483,7 @@ mod tests {
         assert!(text.contains("# my config"), "注释必须保留（toml_edit）");
         assert!(text.contains("model_provider = \"brewping\""));
         assert!(text.contains("[model_providers.brewping]"));
-        assert!(text.contains("base_url = \"http://127.0.0.1:15721\""));
+        assert!(text.contains("base_url = \"http://127.0.0.1:15721/codex\""));
         assert!(text.contains("wire_api = \"chat\""));
         assert!(text.contains("model = \"gpt-5\""), "既有键必须保留");
 

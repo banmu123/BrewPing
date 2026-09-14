@@ -194,7 +194,11 @@ async fn proxy_fallback(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let (chain, start_id) = ctx.store.route_chain();
+    // 别名前缀 = 请求来源 Agent 的身份钥匙（接管写入 /claude /codex 后缀后生效；
+    // 裸地址请求无身份 → 走通用路由，行为与旧版一致）。
+    let (agent_id, _) = parse_proxy_alias(uri.path());
+    let agent_key = agent_id.unwrap_or("");
+    let (chain, start_id) = ctx.store.route_chain_for(agent_key);
     if chain.is_empty() {
         return json_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -220,8 +224,10 @@ async fn proxy_fallback(
                 }
                 // 对齐 FailoverSwitchManager：故障转移成功后把 current 切到
                 // 实际生效的配置，并通知前端（"provider-switched" 同款语义）。
+                // per-Agent：切的是**本请求来源 Agent** 的专属槽（store 内部
+                // 有跨归属防护：归属他人的配置不会被写成 current）。
                 if start_id.as_deref() != Some(cfg.id.as_str())
-                    && ctx.store.switch_current(&cfg.id).is_ok()
+                    && ctx.store.switch_current_for(agent_key, &cfg.id).is_ok()
                 {
                     if let Some(sink) = &ctx.sink {
                         sink(
@@ -229,6 +235,7 @@ async fn proxy_fallback(
                             serde_json::json!({
                                 "providerId": cfg.id,
                                 "providerName": cfg.name,
+                                "agentId": agent_key,
                                 "source": "failover",
                             }),
                         );
@@ -423,14 +430,27 @@ fn json_response(status: StatusCode, value: serde_json::Value) -> Response {
     }
 }
 
-/// 剥掉 cc-switch 风格的别名前缀：`/claude/v1/messages` → `/v1/messages`。
-fn strip_proxy_alias(path: &str) -> &str {
-    for prefix in ["/claude", "/codex", "/gemini"] {
+/// 识别 cc-switch 风格的别名前缀，返回 (agent 身份, 剥离后路径)：
+/// `/claude/v1/messages` → `(Some("claude-code"), "/v1/messages")`。
+/// agent 身份用于 per-Agent 路由（Agent→厂商归属，见 model_provider_store）；
+/// 未知别名（/gemini）只剥前缀不携带身份。
+fn parse_proxy_alias(path: &str) -> (Option<&'static str>, &str) {
+    for (prefix, agent) in [
+        ("/claude", Some("claude-code")),
+        ("/codex", Some("codex")),
+        ("/pi", Some("pi")),
+        ("/opencode", Some("opencode")),
+        ("/gemini", None),
+    ] {
         if let Some(rest) = path.strip_prefix(prefix) {
-            return if rest.is_empty() { "/" } else { rest };
+            return (agent, if rest.is_empty() { "/" } else { rest });
         }
     }
-    path
+    (None, path)
+}
+
+fn strip_proxy_alias(path: &str) -> &str {
+    parse_proxy_alias(path).1
 }
 
 /// base + path 拼接（base 去尾斜杠；保留 base 自带路径段，如 `.../anthropic`）。
@@ -639,16 +659,25 @@ mod tests {
         headers.get(name)
     }
 
-    // TC-MPX-01  别名前缀剥除（cc-switch 端点习惯）
+    // TC-MPX-01  别名前缀剥除（cc-switch 端点习惯）+ agent 身份解析（per-Agent 路由钥匙）
     #[test]
     fn strips_alias_prefixes() {
         assert_eq!(strip_proxy_alias("/v1/messages"), "/v1/messages");
         assert_eq!(strip_proxy_alias("/claude/v1/messages"), "/v1/messages");
         assert_eq!(strip_proxy_alias("/codex/v1/responses"), "/v1/responses");
+        assert_eq!(strip_proxy_alias("/pi/v1/messages"), "/v1/messages");
+        assert_eq!(strip_proxy_alias("/opencode/v1/messages"), "/v1/messages");
         assert_eq!(strip_proxy_alias("/gemini/v1beta/models"), "/v1beta/models");
         assert_eq!(strip_proxy_alias("/claude"), "/");
         assert_eq!(strip_proxy_alias("/chat/completions"), "/chat/completions");
         assert_eq!(strip_proxy_alias("/v1beta/other"), "/v1beta/other");
+
+        assert_eq!(parse_proxy_alias("/claude/v1/messages").0, Some("claude-code"));
+        assert_eq!(parse_proxy_alias("/codex/v1/responses").0, Some("codex"));
+        assert_eq!(parse_proxy_alias("/pi/v1/messages").0, Some("pi"));
+        assert_eq!(parse_proxy_alias("/opencode/x").0, Some("opencode"));
+        assert_eq!(parse_proxy_alias("/gemini/v1beta/models").0, None, "gemini 无 Agent 身份");
+        assert_eq!(parse_proxy_alias("/v1/messages").0, None, "裸路径无身份");
     }
 
     // TC-MPX-02  URL 拼接（保留 base 自带路径段；去尾斜杠；query 由调用方追加）

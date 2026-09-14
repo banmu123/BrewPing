@@ -272,6 +272,8 @@ export type AuthStyle = "auto" | "bearer" | "x-api-key";
 export interface ModelProviderConfig {
   /// 稳定 ID；空串 = 新建（后端生成）。
   id: string;
+  /// 归属 Agent（"" = 通用：所有 Agent 可见可用；创建时锁定，编辑不可改）。
+  agentId: string;
   name: string;
   /// 上游接口地址；isFullUrl=false 时为 base（转发时拼接路径）。
   baseUrl: string;
@@ -322,6 +324,9 @@ export interface CatalogEntry {
 export interface ModelProvidersInfo {
   providers: ModelProviderConfig[];
   currentId: string | null;
+  /// Agent 专属当前（key = agent id）。某 Agent 的生效厂商解析顺序：
+  /// currentByAgent[agentId] → currentId（通用）→ null。
+  currentByAgent: Record<string, string>;
   proxyEnabled: boolean;
   proxyPort: number;
   proxyRunning: boolean;
