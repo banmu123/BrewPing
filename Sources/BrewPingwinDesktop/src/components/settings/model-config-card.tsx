@@ -1,23 +1,41 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   Copy,
   ExternalLink,
+  FileCode2,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
+  Trash2,
   X,
 } from "lucide-react";
 import {
+  activateCodexProvider,
+  activatePiProvider,
+  deleteClaudeProvider,
+  deleteCodexProvider,
   deleteModelProvider,
+  deleteOpenCodeProvider,
+  deletePiProvider,
   fetchProviderModels,
   getAgentModels,
   getAgents,
+  getClaudeProvider,
   getCliTakeover,
+  getCodexProviders,
   getModelProviders,
+  getOpenCodeProviders,
+  getPiProviders,
   getProviderCatalog,
+  saveClaudeProvider,
+  saveCodexProvider,
   saveModelProvider,
+  saveOpenCodeProvider,
+  savePiProvider,
   setCliTakeover,
   setDefaultModel,
   setModelFailover,
@@ -31,12 +49,35 @@ import type {
   AuthStyle,
   CatalogCategory,
   CatalogEntry,
+  ClaudeProviderEntry,
+  ClaudeProvidersInfo,
   CliTakeoverInfo,
+  CodexProviderEntry,
+  CodexProvidersInfo,
   ModelProviderConfig,
   ModelProvidersInfo,
+  OpenCodeProviderEntry,
+  OpenCodeProvidersInfo,
+  PiProviderEntry,
+  PiProvidersInfo,
 } from "../../api/types";
 import { AgentModelTabs, type AgentTabItem } from "./agent-model-tabs";
 import { AgentProviderPanel } from "./agent-provider-panel";
+import {
+  ClaudeProviderEmpty,
+  ClaudeProviderForm,
+  emptyClaudeProvider,
+  normalizeClaudeTiers,
+} from "./claude-provider-form";
+import {
+  CodexProviderForm,
+  emptyCodexProvider,
+} from "./codex-provider-form";
+import { CodexProviderPanel } from "./codex-provider-panel";
+import { OpenCodeProviderForm, emptyOpenCodeProvider } from "./opencode-provider-form";
+import { OpenCodeProviderPanel } from "./opencode-provider-panel";
+import { PiProviderForm, emptyPiProvider } from "./pi-provider-form";
+import { PiProviderPanel } from "./pi-provider-panel";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { useI18n } from "../../i18n";
@@ -176,6 +217,59 @@ export function ModelConfigCard() {
   /** 从上游拉到的真实模型清单（null = 未拉取，回落目录静态候选）。 */
   const [fetchedModels, setFetchedModels] = useState<string[] | null>(null);
   const [fetchErr, setFetchErr] = useState<string | null>(null);
+
+  // ── OpenCode 厂商（直接读写本机 opencode.json，对标 cc-switch）──────────────
+  /** opencode 已配置厂商（唯一真相 = opencode.json）。 */
+  const [ocInfo, setOcInfo] = useState<OpenCodeProvidersInfo | null>(null);
+  const [ocLoading, setOcLoading] = useState(false);
+  const [ocError, setOcError] = useState<string | null>(null);
+  const [ocBusy, setOcBusy] = useState(false);
+  /** 正在编辑的 opencode 厂商（null = 表单关闭；isEdit=false 时是新建）。 */
+  const [ocEditing, setOcEditing] = useState<OpenCodeProviderEntry | null>(null);
+  const [ocIsEdit, setOcIsEdit] = useState(false);
+  /** 拉取 opencode 厂商模型清单状态。 */
+  const [ocFetching, setOcFetching] = useState(false);
+  const [ocFetchErr, setOcFetchErr] = useState<string | null>(null);
+  /** 两步删除确认：待确认的 opencode 厂商 key。 */
+  const [ocConfirmId, setOcConfirmId] = useState<string | null>(null);
+
+  /** opencode 表单默认 npm 包（取后端清单首项；无清单时回落兼容模式）。 */
+  const defaultOpenCodeNpm =
+    ocInfo?.npmPackages[0]?.value ?? "@ai-sdk/openai-compatible";
+
+  // ── Claude Code 厂商（整体覆盖本机 ~/.claude/settings.json，对标 cc-switch）──
+  // 与 opencode 不同：Claude Code 只有「一份」配置，所以是编辑单例而不是列表。
+  const [clInfo, setClInfo] = useState<ClaudeProvidersInfo | null>(null);
+  const [clLoading, setClLoading] = useState(false);
+  const [clError, setClError] = useState<string | null>(null);
+  const [clBusy, setClBusy] = useState(false);
+  /** 是否展开编辑表单（null 语义不需要：草稿从 clInfo.provider 复制而来）。 */
+  const [clEditing, setClEditing] = useState<ClaudeProviderEntry | null>(null);
+  const [clConfirmDelete, setClConfirmDelete] = useState(false);
+
+  // ── Codex 厂商（写本机 ~/.codex/config.toml，对标 cc-switch）────────────────
+  const [cxInfo, setCxInfo] = useState<CodexProvidersInfo | null>(null);
+  const [cxLoading, setCxLoading] = useState(false);
+  const [cxError, setCxError] = useState<string | null>(null);
+  const [cxBusy, setCxBusy] = useState(false);
+  const [cxEditing, setCxEditing] = useState<CodexProviderEntry | null>(null);
+  const [cxIsEdit, setCxIsEdit] = useState(false);
+  const [cxConfirmId, setCxConfirmId] = useState<string | null>(null);
+  /** 正在切换生效项的 Codex key。 */
+  const [cxBusyId, setCxBusyId] = useState<string | null>(null);
+  const [cxFetching, setCxFetching] = useState(false);
+  const [cxFetchErr, setCxFetchErr] = useState<string | null>(null);
+
+  // ── pi 厂商（写本机 ~/.pi/agent/models.json，对标 cc-switch）────────────────
+  const [piInfo, setPiInfo] = useState<PiProvidersInfo | null>(null);
+  const [piLoading, setPiLoading] = useState(false);
+  const [piError, setPiError] = useState<string | null>(null);
+  const [piBusy, setPiBusy] = useState(false);
+  const [piEditing, setPiEditing] = useState<PiProviderEntry | null>(null);
+  const [piIsEdit, setPiIsEdit] = useState(false);
+  const [piConfirmId, setPiConfirmId] = useState<string | null>(null);
+  /** 正在切换默认项 / 删除中的 pi key。 */
+  const [piBusyId, setPiBusyId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -423,6 +517,313 @@ export function ModelConfigCard() {
     void run(() => deleteModelProvider(id));
   };
 
+  // ── OpenCode 厂商：读（本机 opencode.json）──────────────────────────────────
+  const refreshOpenCode = useCallback(async () => {
+    setOcLoading(true);
+    try {
+      setOcInfo(await getOpenCodeProviders());
+      setOcError(null);
+    } catch (e) {
+      setOcError(String(e));
+    } finally {
+      setOcLoading(false);
+    }
+  }, []);
+
+  // 挂载时拉一次；切到 opencode tab 时再刷（用户可能刚在别处改过文件）
+  useEffect(() => {
+    void refreshOpenCode();
+  }, [refreshOpenCode]);
+
+  useEffect(() => {
+    if (activeTab === "opencode") void refreshOpenCode();
+  }, [activeTab, refreshOpenCode]);
+
+  /** 保存 opencode 厂商（写 opencode.json）。 */
+  const handleOpenCodeSave = () => {
+    if (!ocEditing) return;
+    setOcBusy(true);
+    setOcError(null);
+    saveOpenCodeProvider({
+      ...ocEditing,
+      id: ocEditing.id.trim(),
+      name: ocEditing.name.trim(),
+      baseURL: ocEditing.baseURL.trim(),
+      apiKey: ocEditing.apiKey.trim(),
+      models: ocEditing.models.filter((m) => m.id.trim()),
+    })
+      .then((next) => {
+        setOcInfo(next);
+        setOcEditing(null);
+      })
+      .catch((e) => setOcError(String(e)))
+      .finally(() => setOcBusy(false));
+  };
+
+  /** 删除 opencode 厂商（写 opencode.json）。 */
+  const handleOpenCodeDelete = (id: string) => {
+    setOcBusy(true);
+    setOcError(null);
+    deleteOpenCodeProvider(id)
+      .then(setOcInfo)
+      .catch((e) => setOcError(String(e)))
+      .finally(() => setOcBusy(false));
+  };
+
+  /**
+   * 拉取该厂商上游模型清单（OpenAI `/models` 端点）。
+   * 复用 provider_catalog 的静态目录：先按 baseURL 匹配已知厂商拿 models_url；
+   * 匹配不到（自定义地址）则提示手动填写 —— 不猜端点，不硬拼路径。
+   */
+  const handleOpenCodeFetchModels = () => {
+    if (!ocEditing) return;
+    const base = ocEditing.baseURL.trim().replace(/\/+$/, "");
+    const entry = catalog.find(
+      (c) => c.baseUrl.replace(/\/+$/, "") === base && c.modelsUrl,
+    );
+    if (!entry) {
+      setOcFetchErr(t("oc.fetchUnsupported"));
+      return;
+    }
+    setOcFetching(true);
+    setOcFetchErr(null);
+    fetchProviderModels(entry.id, ocEditing.apiKey || null)
+      .then((list) => {
+        // 合并进现有模型清单（保留用户已填的显示名）
+        const known = new Map(ocEditing.models.map((m) => [m.id, m]));
+        const merged = list.map((id) => known.get(id) ?? { id, name: "" });
+        setOcEditing({ ...ocEditing, models: merged });
+      })
+      .catch((e) => {
+        const msg = String(e);
+        if (msg.includes("401") || msg.includes("403")) {
+          setOcFetchErr(t("mp.invalidKey"));
+        } else if (msg.includes("missing api key")) {
+          setOcFetchErr(t("mp.fetchNeedKey"));
+        } else {
+          setOcFetchErr(`${t("mp.fetchFailed")}: ${msg}`);
+        }
+      })
+      .finally(() => setOcFetching(false));
+  };
+
+  // ── Claude Code 厂商：读 / 存 / 删（本机 ~/.claude/settings.json）──────────
+  const refreshClaude = useCallback(async () => {
+    setClLoading(true);
+    try {
+      setClInfo(await getClaudeProvider());
+      setClError(null);
+    } catch (e) {
+      setClError(String(e));
+    } finally {
+      setClLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshClaude();
+  }, [refreshClaude]);
+
+  useEffect(() => {
+    if (activeTab === "claude-code") void refreshClaude();
+  }, [activeTab, refreshClaude]);
+
+  /** 打开编辑：从当前配置复制一份草稿（补齐三档）。 */
+  const handleClaudeEdit = () => {
+    setClConfirmDelete(false);
+    setClError(null);
+    setClEditing(normalizeClaudeTiers(clInfo?.provider ?? emptyClaudeProvider()));
+  };
+
+  const handleClaudeSave = () => {
+    if (!clEditing) return;
+    setClBusy(true);
+    setClError(null);
+    saveClaudeProvider({
+      ...clEditing,
+      name: clEditing.name.trim(),
+      baseURL: clEditing.baseURL.trim(),
+      apiKey: clEditing.apiKey.trim(),
+      tiers: clEditing.tiers.map((t) => ({
+        ...t,
+        model: t.model.trim(),
+        name: t.name.trim(),
+      })),
+    })
+      .then((next) => {
+        setClInfo(next);
+        setClEditing(null);
+      })
+      .catch((e) => setClError(String(e)))
+      .finally(() => setClBusy(false));
+  };
+
+  const handleClaudeDelete = () => {
+    setClBusy(true);
+    setClError(null);
+    deleteClaudeProvider()
+      .then((next) => {
+        setClInfo(next);
+        setClEditing(null);
+        setClConfirmDelete(false);
+      })
+      .catch((e) => setClError(String(e)))
+      .finally(() => setClBusy(false));
+  };
+
+  // ── Codex 厂商：读 / 存 / 删 / 切生效（本机 ~/.codex/config.toml）────────
+  const refreshCodex = useCallback(async () => {
+    setCxLoading(true);
+    try {
+      setCxInfo(await getCodexProviders());
+      setCxError(null);
+    } catch (e) {
+      setCxError(String(e));
+    } finally {
+      setCxLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshCodex();
+  }, [refreshCodex]);
+
+  useEffect(() => {
+    if (activeTab === "codex") void refreshCodex();
+  }, [activeTab, refreshCodex]);
+
+  const handleCodexSave = () => {
+    if (!cxEditing) return;
+    setCxBusy(true);
+    setCxError(null);
+    saveCodexProvider({
+      ...cxEditing,
+      id: cxEditing.id.trim(),
+      name: cxEditing.name.trim(),
+      baseURL: cxEditing.baseURL.trim(),
+      apiKey: cxEditing.apiKey.trim(),
+      model: cxEditing.model.trim(),
+    })
+      .then((next) => {
+        setCxInfo(next);
+        setCxEditing(null);
+      })
+      .catch((e) => setCxError(String(e)))
+      .finally(() => setCxBusy(false));
+  };
+
+  const handleCodexDelete = (id: string) => {
+    setCxBusy(true);
+    setCxError(null);
+    deleteCodexProvider(id)
+      .then(setCxInfo)
+      .catch((e) => setCxError(String(e)))
+      .finally(() => setCxBusy(false));
+  };
+
+  const handleCodexActivate = (id: string) => {
+    setCxBusyId(id);
+    setCxError(null);
+    activateCodexProvider(id)
+      .then(setCxInfo)
+      .catch((e) => setCxError(String(e)))
+      .finally(() => setCxBusyId(null));
+  };
+
+  /** 复用 provider_catalog 的静态目录按 baseURL 匹配来拉模型（同 opencode）。 */
+  const handleCodexFetchModels = () => {
+    if (!cxEditing) return;
+    const base = cxEditing.baseURL.trim().replace(/\/+$/, "");
+    const entry = catalog.find(
+      (c) => c.baseUrl.replace(/\/+$/, "") === base && c.modelsUrl,
+    );
+    if (!entry) {
+      setCxFetchErr(t("oc.fetchUnsupported"));
+      return;
+    }
+    setCxFetching(true);
+    setCxFetchErr(null);
+    fetchProviderModels(entry.id, cxEditing.apiKey || null)
+      .then((list) => {
+        // Codex 的 config.toml 顶层 model 只存一条 → 取首个候选填进去
+        if (list.length > 0 && !cxEditing.model.trim()) {
+          setCxEditing({ ...cxEditing, model: list[0] });
+        }
+      })
+      .catch((e) => {
+        const msg = String(e);
+        if (msg.includes("401") || msg.includes("403")) {
+          setCxFetchErr(t("mp.invalidKey"));
+        } else if (msg.includes("missing api key")) {
+          setCxFetchErr(t("mp.fetchNeedKey"));
+        } else {
+          setCxFetchErr(`${t("mp.fetchFailed")}: ${msg}`);
+        }
+      })
+      .finally(() => setCxFetching(false));
+  };
+
+  // ── pi 厂商：读 / 存 / 删 / 切默认（本机 ~/.pi/agent/models.json）─────────
+  const refreshPi = useCallback(async () => {
+    setPiLoading(true);
+    try {
+      setPiInfo(await getPiProviders());
+      setPiError(null);
+    } catch (e) {
+      setPiError(String(e));
+    } finally {
+      setPiLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshPi();
+  }, [refreshPi]);
+
+  useEffect(() => {
+    if (activeTab === "pi") void refreshPi();
+  }, [activeTab, refreshPi]);
+
+  const handlePiSave = () => {
+    if (!piEditing) return;
+    setPiBusy(true);
+    setPiError(null);
+    savePiProvider({
+      ...piEditing,
+      id: piEditing.id.trim(),
+      name: piEditing.name.trim(),
+      baseURL: piEditing.baseURL.trim(),
+      apiKey: piEditing.apiKey.trim(),
+      models: piEditing.models
+        .filter((m) => m.id.trim())
+        .map((m) => ({ id: m.id.trim(), name: m.name.trim() })),
+    })
+      .then((next) => {
+        setPiInfo(next);
+        setPiEditing(null);
+      })
+      .catch((e) => setPiError(String(e)))
+      .finally(() => setPiBusy(false));
+  };
+
+  const handlePiDelete = (id: string) => {
+    setPiBusy(true);
+    setPiError(null);
+    deletePiProvider(id)
+      .then(setPiInfo)
+      .catch((e) => setPiError(String(e)))
+      .finally(() => setPiBusy(false));
+  };
+
+  const handlePiActivate = (id: string) => {
+    setPiBusyId(id);
+    setPiError(null);
+    activatePiProvider(id)
+      .then(setPiInfo)
+      .catch((e) => setPiError(String(e)))
+      .finally(() => setPiBusyId(null));
+  };
+
   const copyEndpoint = () => {
     if (!info) return;
     void navigator.clipboard
@@ -571,8 +972,7 @@ export function ModelConfigCard() {
 
       {/* ── 厂商面板（按 tab 过滤） / 配置表单（编辑时替代面板）── */}
       {editing ? (
-        <div className="flex flex-col gap-2.5 rounded-md border border-border p-2.5">
-          <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-2.5 rounded-md border border-border p-2.5">          <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-foreground">
               {editing.id ? t("mp.edit") : t("mp.add")}
             </span>
@@ -900,6 +1300,344 @@ export function ModelConfigCard() {
             setEditing(emptyDraft(activeTab));
           }}
         />
+      )}
+
+      {/* ── OpenCode 专属：厂商写入本机 opencode.json（对标 cc-switch）──
+          仅在 opencode tab 下出现 —— 这是「给 opencode CLI 加厂商」的入口，
+          与上面的转发链路配置是两套东西，刻意分开放避免混淆。 */}
+      {activeTab === "opencode" && (
+        <div className="mt-2 rounded-md border border-primary/25 bg-primary/[0.03] p-2.5">
+          <div className="mb-1 flex items-center gap-1.5">
+            <span className="text-xs font-medium text-foreground">
+              {t("oc.title")}
+            </span>
+            <Badge variant="secondary" className="px-1.5 py-0 text-[9px]">
+              opencode.json
+            </Badge>
+          </div>
+          {ocEditing ? (
+            <OpenCodeProviderForm
+              value={ocEditing}
+              npmPackages={ocInfo?.npmPackages ?? []}
+              existingIds={(ocInfo?.providers ?? []).map((p) => p.id)}
+              busy={ocBusy}
+              isEdit={ocIsEdit}
+              onChange={setOcEditing}
+              onCancel={() => {
+                setOcEditing(null);
+                setOcFetchErr(null);
+              }}
+              onSave={handleOpenCodeSave}
+              onFetchModels={handleOpenCodeFetchModels}
+              fetchingModels={ocFetching}
+              fetchErr={ocFetchErr}
+            />
+          ) : (
+            <OpenCodeProviderPanel
+              info={ocInfo}
+              loading={ocLoading}
+              confirmId={ocConfirmId}
+              onAdd={() => {
+                setOcConfirmId(null);
+                setOcIsEdit(false);
+                setOcFetchErr(null);
+                setOcEditing(emptyOpenCodeProvider(defaultOpenCodeNpm));
+              }}
+              onEdit={(p) => {
+                setOcConfirmId(null);
+                setOcIsEdit(true);
+                setOcFetchErr(null);
+                setOcEditing({
+                  ...p,
+                  models: p.models.length
+                    ? p.models.map((m) => ({ ...m }))
+                    : [{ id: "", name: "" }],
+                });
+              }}
+              onDelete={(id) => {
+                if (ocConfirmId !== id) {
+                  setOcConfirmId(id);
+                  return;
+                }
+                setOcConfirmId(null);
+                handleOpenCodeDelete(id);
+              }}
+            />
+          )}
+          {ocError && (
+            <div className="mt-1.5 break-all text-[10px] leading-relaxed text-destructive">
+              {ocError}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Claude Code 专属：整体覆盖写入本机 ~/.claude/settings.json ──
+          与 opencode 的多厂商列表不同：Claude Code 只有一份配置，故为「单例编辑」。 */}
+      {activeTab === "claude-code" && (
+        <div className="mt-2 rounded-md border border-primary/25 bg-primary/[0.03] p-2.5">
+          <div className="mb-1 flex items-center gap-1.5">
+            <span className="text-xs font-medium text-foreground">
+              {t("cl.title")}
+            </span>
+            <Badge variant="secondary" className="px-1.5 py-0 text-[9px]">
+              settings.json
+            </Badge>
+          </div>
+
+          {clInfo?.configFile && (
+            <div
+              className="mb-1.5 flex items-center gap-1 truncate font-mono text-[10px] text-muted-foreground/70"
+              title={clInfo.configFile}
+            >
+              <FileCode2 size={10} className="shrink-0" />
+              <span className="truncate">{clInfo.configFile}</span>
+              {!clInfo.exists && (
+                <Badge
+                  variant="secondary"
+                  className="shrink-0 px-1.5 py-0 text-[9px]"
+                >
+                  {t("oc.notCreated")}
+                </Badge>
+              )}
+            </div>
+          )}
+
+          {clEditing ? (
+            <ClaudeProviderForm
+              value={clEditing}
+              busy={clBusy}
+              error={clError}
+              onChange={setClEditing}
+              onCancel={() => {
+                setClEditing(null);
+                setClError(null);
+              }}
+              onSave={handleClaudeSave}
+            />
+          ) : clLoading ? (
+            <div className="flex items-center justify-center py-4 text-muted-foreground">
+              <Loader2 size={14} className="animate-spin" />
+            </div>
+          ) : clInfo?.configured ? (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5">
+                <Check size={13} className="shrink-0 text-primary" />
+                <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+                  {clInfo.provider.name || t("cl.title")}
+                </span>
+                <Badge
+                  variant={clInfo.provider.apiKey ? "success" : "secondary"}
+                  className={cn(
+                    "shrink-0 px-1.5 py-0 text-[9px]",
+                    !clInfo.provider.apiKey && "opacity-70",
+                  )}
+                >
+                  {clInfo.provider.apiKey ? t("mp.keySet") : t("mp.keyMissing")}
+                </Badge>
+                <div className="flex shrink-0 items-center gap-0.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    title={t("mp.edit")}
+                    onClick={handleClaudeEdit}
+                  >
+                    <Pencil size={11} />
+                  </Button>
+                  <Button
+                    variant={clConfirmDelete ? "destructive" : "ghost"}
+                    size="sm"
+                    className={cn(
+                      "h-6 p-0",
+                      clConfirmDelete ? "w-auto px-2 text-[10px]" : "w-6",
+                    )}
+                    title={t("mp.delete")}
+                    disabled={clBusy}
+                    onClick={() => {
+                      if (!clConfirmDelete) {
+                        setClConfirmDelete(true);
+                        return;
+                      }
+                      handleClaudeDelete();
+                    }}
+                  >
+                    <Trash2 size={11} />
+                    {clConfirmDelete && t("mp.confirmDelete")}
+                  </Button>
+                </div>
+              </div>
+              <div
+                className="truncate font-mono text-[10px] text-muted-foreground"
+                title={clInfo.provider.baseURL}
+              >
+                {clInfo.provider.baseURL || "—"}
+              </div>
+              {clInfo.provider.tiers.some((x) => x.model) && (
+                <div className="flex flex-wrap gap-1">
+                  {clInfo.provider.tiers
+                    .filter((x) => x.model)
+                    .map((x) => (
+                      <Badge
+                        key={x.tier}
+                        variant="secondary"
+                        className="px-1.5 py-0 font-mono text-[9px]"
+                      >
+                        {x.tier}: {x.model}
+                      </Badge>
+                    ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <ClaudeProviderEmpty onAdd={handleClaudeEdit} loading={clLoading} />
+          )}
+
+          {clError && !clEditing && (
+            <div className="mt-1.5 break-all text-[10px] leading-relaxed text-destructive">
+              {clError}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Codex 专属：厂商写入本机 ~/.codex/config.toml ── */}
+      {activeTab === "codex" && (
+        <div className="mt-2 rounded-md border border-primary/25 bg-primary/[0.03] p-2.5">
+          <div className="mb-1 flex items-center gap-1.5">
+            <span className="text-xs font-medium text-foreground">
+              {t("cx.title")}
+            </span>
+            <Badge variant="secondary" className="px-1.5 py-0 text-[9px]">
+              config.toml
+            </Badge>
+          </div>
+          {cxEditing ? (
+            <CodexProviderForm
+              value={cxEditing}
+              wireApis={cxInfo?.wireApis ?? []}
+              existingIds={(cxInfo?.providers ?? []).map((p) => p.id)}
+              busy={cxBusy}
+              isEdit={cxIsEdit}
+              onChange={setCxEditing}
+              onCancel={() => {
+                setCxEditing(null);
+                setCxFetchErr(null);
+              }}
+              onSave={handleCodexSave}
+              onFetchModels={handleCodexFetchModels}
+              fetchingModels={cxFetching}
+              fetchErr={cxFetchErr}
+            />
+          ) : (
+            <CodexProviderPanel
+              info={cxInfo}
+              loading={cxLoading}
+              confirmId={cxConfirmId}
+              busyId={cxBusyId}
+              onAdd={() => {
+                setCxConfirmId(null);
+                setCxIsEdit(false);
+                setCxFetchErr(null);
+                setCxEditing(
+                  emptyCodexProvider(
+                    cxInfo?.wireApis[0]?.value ?? "chat",
+                  ),
+                );
+              }}
+              onEdit={(p) => {
+                setCxConfirmId(null);
+                setCxIsEdit(true);
+                setCxFetchErr(null);
+                setCxEditing({ ...p });
+              }}
+              onDelete={(id) => {
+                if (cxConfirmId !== id) {
+                  setCxConfirmId(id);
+                  return;
+                }
+                setCxConfirmId(null);
+                handleCodexDelete(id);
+              }}
+              onActivate={handleCodexActivate}
+            />
+          )}
+          {cxError && (
+            <div className="mt-1.5 break-all text-[10px] leading-relaxed text-destructive">
+              {cxError}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── pi 专属：厂商写入本机 ~/.pi/agent/models.json ── */}
+      {activeTab === "pi" && (
+        <div className="mt-2 rounded-md border border-primary/25 bg-primary/[0.03] p-2.5">
+          <div className="mb-1 flex items-center gap-1.5">
+            <span className="text-xs font-medium text-foreground">
+              {t("pi.title")}
+            </span>
+            <Badge variant="secondary" className="px-1.5 py-0 text-[9px]">
+              models.json
+            </Badge>
+          </div>
+          {piEditing ? (
+            <PiProviderForm
+              value={piEditing}
+              apis={piInfo?.apis ?? []}
+              existingIds={(piInfo?.providers ?? []).map((p) => p.id)}
+              busy={piBusy}
+              isEdit={piIsEdit}
+              error={piError}
+              onChange={setPiEditing}
+              onCancel={() => {
+                setPiEditing(null);
+                setPiError(null);
+              }}
+              onSave={handlePiSave}
+            />
+          ) : (
+            <PiProviderPanel
+              info={piInfo}
+              loading={piLoading}
+              confirmId={piConfirmId}
+              busyId={piBusyId}
+              onAdd={() => {
+                setPiConfirmId(null);
+                setPiIsEdit(false);
+                setPiError(null);
+                setPiEditing(
+                  emptyPiProvider(piInfo?.apis[0]?.value ?? "anthropic-messages"),
+                );
+              }}
+              onEdit={(p) => {
+                setPiConfirmId(null);
+                setPiIsEdit(true);
+                setPiError(null);
+                setPiEditing({
+                  ...p,
+                  models: p.models.length
+                    ? p.models.map((m) => ({ ...m }))
+                    : [{ id: "", name: "" }],
+                });
+              }}
+              onDelete={(id) => {
+                if (piConfirmId !== id) {
+                  setPiConfirmId(id);
+                  return;
+                }
+                setPiConfirmId(null);
+                handlePiDelete(id);
+              }}
+              onActivate={handlePiActivate}
+            />
+          )}
+          {piError && !piEditing && (
+            <div className="mt-1.5 break-all text-[10px] leading-relaxed text-destructive">
+              {piError}
+            </div>
+          )}
+        </div>
       )}
 
       {/* ── 折叠收纳：CLI 接入（完整列表；单个 Agent 的快捷接入在面板黄条里）── */}

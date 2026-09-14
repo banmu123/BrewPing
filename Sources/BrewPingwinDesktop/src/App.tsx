@@ -471,6 +471,37 @@ export default function App() {
     void refreshModels(effectiveAgentId);
   }, [effectiveAgentId, refreshModels]);
 
+  // 🔴 配置指纹变化 → 重拉模型列表。
+  //
+  // 覆盖的实际路径：用户在设置里「添加厂商」保存 → 关掉设置 → 新建对话。
+  // 这条路径上 `effectiveAgentId` 自始至终是 "opencode"，上面的 effect 不会
+  // 触发，界面就一直用旧列表 —— 表现就是"我加的厂商模型在列表里看不到"。
+  //
+  // 后端每次 `get_agent_models` 都会带上 configVersion（所读配置文件的
+  // mtime:size）。这里只关心"它和上次不一样了"，不关心具体值。
+  const lastConfigVersion = useRef<string | null>(null);
+  const modelsConfigVersion = models?.configVersion ?? null;
+  useEffect(() => {
+    // models 为 null（首次加载 / 出错）时不记，交给上面那条 effect 处理。
+    if (modelsConfigVersion == null) return;
+    const previous = lastConfigVersion.current;
+    lastConfigVersion.current = modelsConfigVersion;
+    // 与上次相同 → 无需重拉（避免"拉取→写入→再拉取"的自激循环）。
+    if (previous === null || previous === modelsConfigVersion) return;
+    void refreshModels(effectiveAgentId);
+  }, [modelsConfigVersion, effectiveAgentId, refreshModels]);
+
+  // 设置页关闭时刷新一次：用户可能刚在里面改过厂商 / 模型 / 代理配置。
+  // 与上面的指纹机制是两道保险 —— 指纹负责"配置真的变了"，这里负责
+  // "用户刚从设置回来"，即便指纹因文件系统时间精度等问题没变也能兜住。
+  const settingsWasOpen = useRef(false);
+  useEffect(() => {
+    if (settingsWasOpen.current && !settingsOpen) {
+      void refreshModels(effectiveAgentId);
+    }
+    settingsWasOpen.current = settingsOpen;
+  }, [settingsOpen, effectiveAgentId, refreshModels]);
+
   // ─── Workdir（目录上下文；三态）────────────────────────────────────────────
   // - 已有对话：绑定目录 = conv.workdirOverride（权威，侧栏分组同源），
   //   未绑定时展示回落（agent 偏好 agentWorkdir → CLI 默认）。

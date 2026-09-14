@@ -105,6 +105,11 @@ export interface AgentModelsInfo {
   preferredProviderId?: string | null;
   /// 偏好是否仍指向某个已发现的 provider（换厂商后旧绑定悬空时为 false）。
   preferredStillValid?: boolean;
+  /// 配置指纹（后端所读配置文件的 mtime:size）。
+  ///
+  /// composer 把它并进"要不要重拉模型"的依赖里 —— 用户在设置里加了厂商后，
+  /// agent 没变但配置变了，靠这个值触发刷新，否则列表会停在旧值。
+  configVersion?: string;
 }
 
 // ─── Folder browse（composer 目录条；对齐 folder_browser.rs 的 serde 契约）──
@@ -359,4 +364,189 @@ export interface CliTakeoverInfo {
   /// 全部已知 CLI（数量随支持面扩展，顺序由后端固定）。
   items: CliTakeoverItem[];
   proxyPort: number;
+}
+
+// ─── OpenCode 厂商（写入 opencode.json）─────────────────────────────────────
+// 对标 cc-switch：用户在界面添加厂商 → 后端直接写本机 opencode 配置文件。
+// 数据归属 = opencode.json 唯一真相（厂商列表直接读该文件，无二次存储）。
+
+/// 一个模型条目（opencode `provider.<id>.models.<modelId>`）。
+export interface OpenCodeModelEntry {
+  /// 模型 id（即 models 对象的 key）。
+  id: string;
+  /// 展示名（空则 opencode 回落 id）。
+  name: string;
+}
+
+/// 一个 opencode 厂商的完整配置。
+/// 🔴 字段名是 opencode 磁盘格式，`baseURL` / `apiKey` 的大小写不可改。
+export interface OpenCodeProviderEntry {
+  /// provider key（`provider` 对象的 key），形如 `my-deepseek`。
+  id: string;
+  /// 展示名（opencode `provider.<id>.name`）。
+  name: string;
+  /// npm 接口包（空则后端回落 `@ai-sdk/openai-compatible`）。
+  npm: string;
+  /// API 基址（opencode `options.baseURL`）。
+  baseURL: string;
+  /// API Key（opencode `options.apiKey`）。
+  apiKey: string;
+  /// 附加请求头。
+  headers?: Record<string, unknown>;
+  /// 模型清单。
+  models: OpenCodeModelEntry[];
+}
+
+/// npm 接口包选项。
+export interface NpmPackageOption {
+  value: string;
+  label: string;
+}
+
+/// `get_opencode_providers` 等的返回。
+export interface OpenCodeProvidersInfo {
+  /// 配置文件绝对路径（展示用）。
+  configFile: string;
+  /// 配置文件当前是否存在。
+  exists: boolean;
+  /// 已配置的厂商（按 id 排序）。
+  providers: OpenCodeProviderEntry[];
+  /// 可选 npm 接口包清单（值 + 标签）。
+  npmPackages: NpmPackageOption[];
+}
+
+// ─── Claude Code 厂商（写入 ~/.claude/settings.json）────────────────────────
+// 对标 cc-switch：整体覆盖 settings.json，厂商信息落在 env 段。
+// Claude Code 的 settings.json 只有一份，所以这里是「当前这一份」而非列表。
+
+/// 一个模型档位（Claude Code 的 sonnet / opus / haiku 三档映射）。
+export interface ClaudeTierEntry {
+  /// 档位名（`sonnet` / `opus` / `haiku`）。
+  tier: string;
+  /// 映射到的真实模型 id。
+  model: string;
+  /// 展示名（可空）。
+  name: string;
+}
+
+/// Claude Code 的一份厂商配置（settings.json 的 env 段）。
+export interface ClaudeProviderEntry {
+  /// 展示名（仅 UI 用；settings.json 里没有厂商名字段）。
+  name: string;
+  /// API 基址（`env.ANTHROPIC_BASE_URL`）。
+  baseURL: string;
+  /// API Key（`env.ANTHROPIC_AUTH_TOKEN`）。
+  apiKey: string;
+  /// 三档模型映射（可空 = 不写这三组键）。
+  tiers: ClaudeTierEntry[];
+  /// 除 env 之外被保留的顶层键（只读，让用户知道哪些配置被一起带上了）。
+  otherKeys: string[];
+}
+
+/// `get_claude_provider` 等的返回。
+export interface ClaudeProvidersInfo {
+  /// 配置文件绝对路径（展示用）。
+  configFile: string;
+  /// 配置文件当前是否存在。
+  exists: boolean;
+  /// 是否已配置厂商（baseURL 非空）。
+  configured: boolean;
+  /// 当前配置。
+  provider: ClaudeProviderEntry;
+}
+
+// ─── Codex 厂商（写入 ~/.codex/config.toml）────────────────────────────────
+// 对标 cc-switch：写 [model_providers.<key>]，Key 走 experimental_bearer_token，
+// **不碰 auth.json**（用户 ChatGPT 登录缓存）。
+
+/// 一个 Codex 厂商配置。
+export interface CodexProviderEntry {
+  /// provider key（`[model_providers.<key>]` 的表名）。
+  id: string;
+  /// 展示名（`name`，必填非空 —— Codex 拒载无名表）。
+  name: string;
+  /// API 基址（`base_url`）。
+  baseURL: string;
+  /// 协议（`wire_api`）：`chat` / `responses`。
+  wireApi: string;
+  /// API Key（写 `experimental_bearer_token`）。
+  apiKey: string;
+  /// 默认模型（顶层 `model`，可空）。
+  model: string;
+  /// 是否为当前生效的 provider。
+  active: boolean;
+}
+
+/// `wire_api` 选项。
+export interface WireApiOption {
+  value: string;
+  label: string;
+}
+
+/// `get_codex_providers` 等的返回。
+export interface CodexProvidersInfo {
+  /// 配置文件绝对路径（展示用）。
+  configFile: string;
+  /// 配置文件当前是否存在。
+  exists: boolean;
+  /// 当前生效的 provider key。
+  activeId: string;
+  /// 已配置的厂商（按 key 排序）。
+  providers: CodexProviderEntry[];
+  /// 可选 wire_api 清单。
+  wireApis: WireApiOption[];
+}
+
+// ─── pi 厂商（写入 ~/.pi/agent/models.json）────────────────────────────────
+// 对标 cc-switch：增量模式，只动 providers.<key>；Key 不可改名。
+// **不碰 auth.json**（pi 自己的 /login 凭据）。
+
+/// 一个模型条目（pi `providers.<key>.models[]` 的元素）。
+export interface PiModelEntry {
+  /// 模型 id。
+  id: string;
+  /// 展示名（可空 = 回落 id）。
+  name: string;
+}
+
+/// 一个 pi 厂商配置。
+export interface PiProviderEntry {
+  /// provider key（`providers` 对象的 key）。**不可改名**。
+  id: string;
+  /// 展示名（可空）。
+  name: string;
+  /// API 基址（`baseUrl`，注意不是 `baseURL`）。
+  baseURL: string;
+  /// API Key（`apiKey`）。
+  apiKey: string;
+  /// 协议（`api`）：`anthropic-messages` / `openai-completions` / `openai-responses`。
+  api: string;
+  /// 模型清单。
+  models: PiModelEntry[];
+  /// 是否为当前默认 provider。
+  isDefault: boolean;
+}
+
+/// `api` 选项。
+export interface PiApiOption {
+  value: string;
+  label: string;
+}
+
+/// `get_pi_providers` 等的返回。
+export interface PiProvidersInfo {
+  /// models.json 绝对路径（展示用）。
+  configFile: string;
+  /// models.json 当前是否存在。
+  exists: boolean;
+  /// settings.json 绝对路径（默认项写这里）。
+  settingsFile: string;
+  /// 当前默认 provider。
+  defaultProvider: string;
+  /// 当前默认模型。
+  defaultModel: string;
+  /// 已配置的厂商（按 key 排序）。
+  providers: PiProviderEntry[];
+  /// 可选 api 清单。
+  apis: PiApiOption[];
 }

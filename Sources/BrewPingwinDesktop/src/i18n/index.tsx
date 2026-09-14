@@ -8,6 +8,9 @@ import {
 } from "react";
 import { zh, en as en_dict, type DictKey } from "./locales";
 
+/** 文案键（供组件在 props 里约束键名，如三档映射的 labelKey）。 */
+export type { DictKey };
+
 // ─── 轻量 i18n（React Context 方案）──────────────────────────────────────────
 // - langMode：用户选择（system / zh / en），持久化到 localStorage，刷新后保持；
 // - locale：解析后的实际语言（system → navigator.language 探测，不在支持

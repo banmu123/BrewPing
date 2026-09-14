@@ -501,6 +501,9 @@ async fn get_agent_models(
         "preferredModelId": preferred,
         "preferredProviderId": preferred_provider,
         "preferredStillValid": preferred_still_valid,
+        // 配置指纹：前端把它并进"要不要重拉"的依赖里，配置一变就自动刷新
+        // （否则用户在设置里加完厂商回到主界面，模型列表还是旧的）。
+        "configVersion": config.config_version,
     }))
 }
 
@@ -1003,6 +1006,127 @@ async fn get_provider_catalog() -> Result<Vec<services::provider_catalog::Catalo
     Ok(services::provider_catalog::CATALOG.to_vec())
 }
 
+// ─── OpenCode 厂商（写 opencode.json）────────────────────────────────────────
+// 对标 cc-switch：「添加厂商」表单保存后直接写本机 opencode 的配置文件，
+// 用户免手改。数据归属 = opencode.json 唯一真相（不做二次存储）。
+
+/// 列出本机 opencode 已配置的厂商（含配置文件路径与可选 npm 接口包）。
+#[tauri::command]
+async fn get_opencode_providers() -> Result<services::opencode_config::OpenCodeProvidersInfo, String>
+{
+    Ok(services::opencode_config::list_providers())
+}
+
+/// 新增 / 更新一个 opencode 厂商（写 `provider.<id>`，保留用户其他配置）。
+#[tauri::command]
+async fn save_opencode_provider(
+    entry: services::opencode_config::OpenCodeProviderEntry,
+) -> Result<services::opencode_config::OpenCodeProvidersInfo, String> {
+    services::opencode_config::save_provider(&entry)
+}
+
+/// 删除一个 opencode 厂商（按 id；幂等）。
+#[tauri::command]
+async fn delete_opencode_provider(
+    id: String,
+) -> Result<services::opencode_config::OpenCodeProvidersInfo, String> {
+    services::opencode_config::delete_provider(&id)
+}
+
+// ─── Claude Code 厂商（写 ~/.claude/settings.json）──────────────────────────
+// 对标 cc-switch 的 Claude 分支：**整体覆盖** settings.json，厂商信息落在
+// env.ANTHROPIC_BASE_URL / env.ANTHROPIC_AUTH_TOKEN，写前剥离内部元字段。
+
+/// 读取本机 Claude Code 的厂商配置（env 段）。
+#[tauri::command]
+async fn get_claude_provider() -> Result<services::claude_config::ClaudeProvidersInfo, String> {
+    Ok(services::claude_config::get_provider())
+}
+
+/// 写入 Claude Code 厂商配置（整体覆盖 settings.json，用户其他键保留）。
+#[tauri::command]
+async fn save_claude_provider(
+    entry: services::claude_config::ClaudeProviderEntry,
+) -> Result<services::claude_config::ClaudeProvidersInfo, String> {
+    services::claude_config::save_provider(&entry)
+}
+
+/// 清除 Claude Code 厂商配置（摘掉 env 里的 ANTHROPIC_* 键，其余保留）。
+#[tauri::command]
+async fn delete_claude_provider() -> Result<services::claude_config::ClaudeProvidersInfo, String> {
+    services::claude_config::delete_provider()
+}
+
+// ─── Codex 厂商（写 ~/.codex/config.toml）──────────────────────────────────
+// 对标 cc-switch 的 Codex 分支：写 [model_providers.<key>] + 顶层 model_provider，
+// Key 走 provider 作用域的 experimental_bearer_token。**绝不触碰 auth.json**
+// （那是用户 ChatGPT 登录缓存）。
+
+/// 列出本机 Codex 已配置的全部厂商（读 config.toml）。
+#[tauri::command]
+async fn get_codex_providers() -> Result<services::codex_provider_config::CodexProvidersInfo, String>
+{
+    Ok(services::codex_provider_config::list_providers())
+}
+
+/// 新增 / 更新一个 Codex 厂商（写 [model_providers.<key>]，保留注释与其他表）。
+#[tauri::command]
+async fn save_codex_provider(
+    entry: services::codex_provider_config::CodexProviderEntry,
+) -> Result<services::codex_provider_config::CodexProvidersInfo, String> {
+    services::codex_provider_config::save_provider(&entry)
+}
+
+/// 删除一个 Codex 厂商（按 key；幂等；若是当前生效则一并清 model_provider）。
+#[tauri::command]
+async fn delete_codex_provider(
+    id: String,
+) -> Result<services::codex_provider_config::CodexProvidersInfo, String> {
+    services::codex_provider_config::delete_provider(&id)
+}
+
+/// 切换当前生效的 Codex 厂商（只改顶层 model_provider）。
+#[tauri::command]
+async fn activate_codex_provider(
+    id: String,
+) -> Result<services::codex_provider_config::CodexProvidersInfo, String> {
+    services::codex_provider_config::activate_provider(&id)
+}
+
+// ─── pi 厂商（写 ~/.pi/agent/models.json）──────────────────────────────────
+// 对标 cc-switch 的 pi 分支：**增量模式**，只动 providers.<key>，其余键保留。
+// Key 不可改名；Key 走 provider 节点内的 apiKey。**绝不触碰 auth.json**
+// （那是 pi 自己的 /login 凭据）。
+
+/// 列出本机 pi 已配置的全部厂商（含默认 provider / model）。
+#[tauri::command]
+async fn get_pi_providers() -> Result<services::pi_config::PiProvidersInfo, String> {
+    Ok(services::pi_config::list_providers())
+}
+
+/// 新增 / 更新一个 pi 厂商（写 providers.<key>，保留用户其他配置）。
+#[tauri::command]
+async fn save_pi_provider(
+    entry: services::pi_config::PiProviderEntry,
+) -> Result<services::pi_config::PiProvidersInfo, String> {
+    services::pi_config::save_provider(&entry)
+}
+
+/// 删除一个 pi 厂商（按 key；幂等；若为默认则默认项一并清）。
+#[tauri::command]
+async fn delete_pi_provider(id: String) -> Result<services::pi_config::PiProvidersInfo, String> {
+    services::pi_config::delete_provider(&id)
+}
+
+/// 把某家 pi 厂商设为默认（settings.defaultProvider + defaultModel 成对写）。
+#[tauri::command]
+async fn activate_pi_provider(
+    id: String,
+    model: Option<String>,
+) -> Result<services::pi_config::PiProvidersInfo, String> {
+    services::pi_config::activate_provider(&id, model.as_deref())
+}
+
 /// 拉取某厂商的真实可用模型清单（走目录里的 OpenAI 端点 `models_url`；
 /// 转发用的 Anthropic 端点没有 GET /models，二者地址不同）。
 ///
@@ -1351,6 +1475,20 @@ pub fn run() {
             set_cli_takeover,
             get_provider_catalog,
             fetch_provider_models,
+            get_opencode_providers,
+            save_opencode_provider,
+            delete_opencode_provider,
+            get_claude_provider,
+            save_claude_provider,
+            delete_claude_provider,
+            get_codex_providers,
+            save_codex_provider,
+            delete_codex_provider,
+            activate_codex_provider,
+            get_pi_providers,
+            save_pi_provider,
+            delete_pi_provider,
+            activate_pi_provider,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -17,6 +17,14 @@ import type {
   ModelProvidersInfo,
   CliTakeoverInfo,
   CatalogEntry,
+  OpenCodeProvidersInfo,
+  OpenCodeProviderEntry,
+  ClaudeProvidersInfo,
+  ClaudeProviderEntry,
+  CodexProvidersInfo,
+  CodexProviderEntry,
+  PiProvidersInfo,
+  PiProviderEntry,
 } from "./types";
 
 /**
@@ -450,5 +458,114 @@ export async function fetchProviderModels(
   return invoke<string[]>("fetch_provider_models", {
     providerId,
     apiKey: apiKey || null,
+  });
+}
+
+/**
+ * 列出本机 opencode 已配置的厂商（直接读 opencode.json，非二次存储）。
+ */
+export async function getOpenCodeProviders(): Promise<OpenCodeProvidersInfo> {
+  return invoke<OpenCodeProvidersInfo>("get_opencode_providers");
+}
+
+/**
+ * 新增 / 更新一个 opencode 厂商（写进 opencode.json 的 `provider.<id>`，
+ * 用户配置里的其他键原样保留）。
+ */
+export async function saveOpenCodeProvider(
+  entry: OpenCodeProviderEntry,
+): Promise<OpenCodeProvidersInfo> {
+  return invoke<OpenCodeProvidersInfo>("save_opencode_provider", { entry });
+}
+
+/**
+ * 删除一个 opencode 厂商（按 id；不存在视为成功）。
+ */
+export async function deleteOpenCodeProvider(
+  id: string,
+): Promise<OpenCodeProvidersInfo> {
+  return invoke<OpenCodeProvidersInfo>("delete_opencode_provider", { id });
+}
+
+// ─── Claude Code 厂商 ───────────────────────────────────────────────────────
+
+/**
+ * 读取本机 Claude Code 的厂商配置（`~/.claude/settings.json` 的 env 段）。
+ */
+export async function getClaudeProvider(): Promise<ClaudeProvidersInfo> {
+  return invoke<ClaudeProvidersInfo>("get_claude_provider");
+}
+
+/**
+ * 写入 Claude Code 厂商配置（整体覆盖 settings.json，用户其他键保留）。
+ */
+export async function saveClaudeProvider(
+  entry: ClaudeProviderEntry,
+): Promise<ClaudeProvidersInfo> {
+  return invoke<ClaudeProvidersInfo>("save_claude_provider", { entry });
+}
+
+/**
+ * 清除 Claude Code 厂商配置（摘掉 env 里的 ANTHROPIC_* 键，其余保留）。
+ */
+export async function deleteClaudeProvider(): Promise<ClaudeProvidersInfo> {
+  return invoke<ClaudeProvidersInfo>("delete_claude_provider");
+}
+
+// ─── Codex 厂商 ─────────────────────────────────────────────────────────────
+
+/** 列出本机 Codex 已配置的全部厂商（读 `~/.codex/config.toml`）。 */
+export async function getCodexProviders(): Promise<CodexProvidersInfo> {
+  return invoke<CodexProvidersInfo>("get_codex_providers");
+}
+
+/** 新增 / 更新一个 Codex 厂商（写 `[model_providers.<key>]`，保留注释）。 */
+export async function saveCodexProvider(
+  entry: CodexProviderEntry,
+): Promise<CodexProvidersInfo> {
+  return invoke<CodexProvidersInfo>("save_codex_provider", { entry });
+}
+
+/** 删除一个 Codex 厂商（按 key；若是当前生效则一并清 model_provider）。 */
+export async function deleteCodexProvider(
+  id: string,
+): Promise<CodexProvidersInfo> {
+  return invoke<CodexProvidersInfo>("delete_codex_provider", { id });
+}
+
+/** 切换当前生效的 Codex 厂商（只改顶层 model_provider）。 */
+export async function activateCodexProvider(
+  id: string,
+): Promise<CodexProvidersInfo> {
+  return invoke<CodexProvidersInfo>("activate_codex_provider", { id });
+}
+
+// ─── pi 厂商 ────────────────────────────────────────────────────────────────
+
+/** 列出本机 pi 已配置的全部厂商（读 `~/.pi/agent/models.json`）。 */
+export async function getPiProviders(): Promise<PiProvidersInfo> {
+  return invoke<PiProvidersInfo>("get_pi_providers");
+}
+
+/** 新增 / 更新一个 pi 厂商（写 `providers.<key>`，保留用户其他配置）。 */
+export async function savePiProvider(
+  entry: PiProviderEntry,
+): Promise<PiProvidersInfo> {
+  return invoke<PiProvidersInfo>("save_pi_provider", { entry });
+}
+
+/** 删除一个 pi 厂商（按 key；若为默认则默认项一并清）。 */
+export async function deletePiProvider(id: string): Promise<PiProvidersInfo> {
+  return invoke<PiProvidersInfo>("delete_pi_provider", { id });
+}
+
+/** 把某家 pi 厂商设为默认（defaultProvider + defaultModel 成对写）。 */
+export async function activatePiProvider(
+  id: string,
+  model?: string | null,
+): Promise<PiProvidersInfo> {
+  return invoke<PiProvidersInfo>("activate_pi_provider", {
+    id,
+    model: model || null,
   });
 }

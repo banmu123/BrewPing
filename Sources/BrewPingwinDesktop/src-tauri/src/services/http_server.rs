@@ -502,6 +502,8 @@ async fn handle_agent_models(
             "activeModelId": config.active_model_id,
             "preferredModelId": preferred,
             "preferredProviderId": preferred_provider,
+            // 配置指纹：移动端把它并进缓存键，Mac 配置一变就自动重拉。
+            "configVersion": config.config_version,
         }),
     )
 }
