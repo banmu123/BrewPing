@@ -74,8 +74,14 @@ pub struct PiProviderEntry {
     /// 展示名（pi `providers.<key>.name`，可空）。
     #[serde(default)]
     pub name: String,
-    /// API 基址（pi `baseUrl`）。注意是 `baseUrl` 不是 `baseURL`。
-    #[serde(default)]
+    /// API 基址（pi 配置文件里是 `baseUrl`）。注意磁盘键与 DTO 键不同名。
+    ///
+    /// 🚨 必须显式 `rename = "baseURL"`（DTO 侧）：
+    /// - `rename_all = "camelCase"` 会派生 `baseUrl`，而前端 DTO 用 `baseURL`；
+    /// - 缺这一行会让前端读到 undefined → 点「配置厂商」进表单时
+    ///   `value.baseURL.trim()` 抛 TypeError → 白屏（Claude 模块同款问题）。
+    /// 磁盘上的 `baseUrl` 由 `apply_entry` 单独负责映射，与此无关。
+    #[serde(rename = "baseURL", default)]
     pub base_url: String,
     /// API Key（pi `apiKey`）。
     /// 读出时**不脱敏**——这是用户自己的配置文件，界面按需自行掩码显示。

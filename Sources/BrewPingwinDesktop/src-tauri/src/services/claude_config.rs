@@ -75,7 +75,13 @@ pub struct ClaudeProviderEntry {
     #[serde(default)]
     pub name: String,
     /// API 基址（`env.ANTHROPIC_BASE_URL`）。
-    #[serde(default)]
+    ///
+    /// 🚨 必须显式 `rename = "baseURL"`：`rename_all = "camelCase"` 会把
+    /// `base_url` 序列化成 `baseUrl`（小写 url），而前端 DTO（api/types.ts）
+    /// 与其它三个模块（opencode / agent_config）统一用 `baseURL`。
+    /// 缺这一行曾导致：前端读到 `undefined` → 点「配置厂商」进表单时
+    /// `value.baseURL.trim()` 抛 TypeError → 整棵树卸载 = 白屏。
+    #[serde(rename = "baseURL", default)]
     pub base_url: String,
     /// API Key（`env.ANTHROPIC_AUTH_TOKEN`）。
     /// 读出时**不脱敏**——这是用户自己的配置文件，界面按需自行掩码显示。
@@ -773,5 +779,51 @@ mod tests {
         save_provider_at(&path, &sample_entry()).unwrap();
         let second = std::fs::read_to_string(&path).unwrap();
         assert_eq!(first, second);
+    }
+
+    // TC-CL-15  🚨 回归：DTO 的线上格式必须是 `baseURL`（不是 camelCase 派生的
+    // `baseUrl`）。前端 api/types.ts 与其它三个 CLI 模块统一用 baseURL；
+    // 一旦漂移，前端会读到 undefined，点「配置厂商」进表单直接白屏。
+    #[test]
+    fn wire_format_uses_base_url_key() {
+        let info = ClaudeProvidersInfo {
+            config_file: "/tmp/settings.json".into(),
+            exists: true,
+            configured: true,
+            provider: sample_entry(),
+        };
+        let v = serde_json::to_value(&info).unwrap();
+        let p = &v["provider"];
+
+        assert!(
+            p.get("baseURL").is_some(),
+            "必须下发 baseURL（前端 DTO 约定），实际 provider={p}"
+        );
+        assert!(
+            p.get("baseUrl").is_none(),
+            "不得下发 camelCase 派生出的 baseUrl（会导致前端读不到 → 白屏）"
+        );
+        assert_eq!(
+            p.get("baseURL").and_then(Value::as_str),
+            Some("https://api.deepseek.com/anthropic")
+        );
+    }
+
+    // TC-CL-16  🚨 回归：反序列化必须接受前端发来的 `baseURL`。
+    // 曾因字段名不符，前端保存时 base_url 被解析成空串 → 后端报
+    // "ANTHROPIC_BASE_URL must not be empty"，功能整体不可用。
+    #[test]
+    fn deserialize_accepts_base_url_key() {
+        let raw = serde_json::json!({
+            "name": "DeepSeek",
+            "baseURL": "https://api.deepseek.com/anthropic",
+            "apiKey": "sk-test",
+            "tiers": [{ "tier": "sonnet", "model": "deepseek-v4-pro[1m]", "name": "" }],
+            "otherKeys": []
+        });
+        let entry: ClaudeProviderEntry = serde_json::from_value(raw).unwrap();
+        assert_eq!(entry.base_url, "https://api.deepseek.com/anthropic");
+        assert_eq!(entry.api_key, "sk-test");
+        assert_eq!(entry.tiers.len(), 1);
     }
 }

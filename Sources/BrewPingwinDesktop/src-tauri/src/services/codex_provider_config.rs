@@ -61,7 +61,12 @@ pub struct CodexProviderEntry {
     #[serde(default)]
     pub name: String,
     /// API 基址（Codex `base_url`）。
-    #[serde(default)]
+    ///
+    /// 🚨 必须显式 `rename = "baseURL"`：`rename_all = "camelCase"` 会派生
+    /// `baseUrl`，而前端 DTO（api/types.ts）与其它模块统一用 `baseURL`。
+    /// 缺这一行会让前端读到 undefined → 点「配置厂商」进表单时
+    /// `value.baseURL.trim()` 抛 TypeError → 白屏（Claude 模块同款问题）。
+    #[serde(rename = "baseURL", default)]
     pub base_url: String,
     /// 协议（Codex `wire_api`）：`chat` / `responses`。空则回落 `chat`。
     #[serde(default)]
