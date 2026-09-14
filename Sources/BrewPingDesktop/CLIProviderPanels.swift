@@ -220,17 +220,16 @@ private func rowMark(_ active: Bool) -> some View {
     }
 }
 
-/// 行内图标按钮（ghost，统一 22×22 命中区）。
+/// 行内图标按钮（ghost + icon 尺寸：按钮样式自带 6/6 内边距，不再是"光秃秃的图标"）。
 private func rowIconButton(
     _ systemName: String, help: String, disabled: Bool, action: @escaping () -> Void
 ) -> some View {
     Button(action: action) {
         Image(systemName: systemName).font(.system(size: 11))
     }
-    .buttonStyle(LatteButtonStyle(variant: .ghost))
+    .buttonStyle(LatteButtonStyle(variant: .ghost, size: .icon))
     .help(help)
     .disabled(disabled)
-    .frame(width: 22, height: 22)
 }
 
 /// 两步删除：未确认 = 垃圾桶图标；已确认 = 实心「确认删除」。

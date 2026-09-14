@@ -77,26 +77,43 @@ struct ThinkingDot: View {
 
 // MARK: - 按钮
 
-/// shadcn/ui 的 Button 变体（default / outline / ghost）与 size（sm）。
+/// shadcn/ui 的 Button 变体（default / outline / ghost）与尺寸（regular / icon）。
+///
+/// 🚨 2026-09-15 重做：原来 makeBody **没有任何内边距**，文字直接贴着背景/描边，
+/// 所有按钮看起来像"字塞在里面"。现在：
+/// - `regular`（默认）＝文本按钮：水平 12 / 垂直 5；
+/// - `icon` ＝纯图标方形按钮（行内铅笔/垃圾桶这类）：6/6，调用处不要再套
+///   `.frame(width:height:)`；
+/// - 字号**尊重调用处**（绝大多数显式 `.font(LatteFont.xs)`）—— 不再在此强制
+///   `LatteFont.sm` 盖掉。
 struct LatteButtonStyle: ButtonStyle {
     enum Variant { case primary, outline, ghost }
+    enum Size { case regular, icon }
 
     var variant: Variant = .primary
+    var size: Size = .regular
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(LatteFont.sm)
             .foregroundStyle(foreground(configuration))
+            .padding(.horizontal, hPadding)
+            .padding(.vertical, vPadding)
             .background(background(configuration))
             .overlay {
                 if variant == .outline {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .strokeBorder(Latte.border, lineWidth: 1)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            // 整块（含内边距）都是可点区，不再只有文字那一条
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .opacity(configuration.isPressed && variant == .primary ? 0.9 : 1)
     }
+
+    private var hPadding: CGFloat { size == .regular ? 12 : 6 }
+    private var vPadding: CGFloat { size == .regular ? 5 : 6 }
+    private var cornerRadius: CGFloat { size == .regular ? 8 : 7 }
 
     private func foreground(_ config: Configuration) -> Color {
         switch variant {

@@ -366,22 +366,26 @@ struct LandingGreeting: View {
     var agentName: String
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 20) {
-                Text("☕").font(.system(size: 30))
-                Text(i18n.t(.chatStandby, ["agent": agentName]))
-                    .font(LatteFont.landing)
-                    .foregroundStyle(Latte.foreground)
-                    .multilineTextAlignment(.center)
-                Text(i18n.t(.chatLandingHint))
-                    .font(LatteFont.sm)
-                    .foregroundStyle(Latte.mutedForeground)
-                    .multilineTextAlignment(.center)
+        GeometryReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 20) {
+                    Text("☕").font(.system(size: 30))
+                    Text(i18n.t(.chatStandby, ["agent": agentName]))
+                        .font(LatteFont.landing)
+                        .foregroundStyle(Latte.foreground)
+                        .multilineTextAlignment(.center)
+                    Text(i18n.t(.chatLandingHint))
+                        .font(LatteFont.sm)
+                        .foregroundStyle(Latte.mutedForeground)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                // 🚨 垂直居中的关键：内容区至少撑满视口高（不足一屏时居中，
+                // 超长时仍可滚动）。原来直接放进 ScrollView → 内容顶在页首。
+                .frame(minHeight: proxy.size.height)
+                .padding(.horizontal, 16)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 16)
         }
-        .frame(maxHeight: .infinity)
     }
 }
 

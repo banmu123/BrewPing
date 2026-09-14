@@ -105,11 +105,14 @@ struct ModelProvidersView: View {
                     text: (info?.proxyRunning ?? false) ? i18n.t(.mpStateRunning) : i18n.t(.mpStateStopped)
                 )
                 Spacer(minLength: 0)
-                Button(proxyOpen ? i18n.t(.mpProxyDetails) : i18n.t(.mpProxy)) {
+                Button {
                     proxyOpen.toggle()
+                } label: {
+                    Label(i18n.t(.mpProxyDetails),
+                          systemImage: proxyOpen ? "chevron.up" : "chevron.down")
+                        .font(LatteFont.xs)
                 }
                 .buttonStyle(LatteButtonStyle(variant: .ghost))
-                .font(LatteFont.xs)
             }
             HStack(spacing: 6) {
                 Text(verbatim: endpointText)
@@ -295,7 +298,7 @@ struct ModelProvidersView: View {
                         Image(systemName: "pencil")
                             .font(.system(size: 11))
                     }
-                    .buttonStyle(LatteButtonStyle(variant: .ghost))
+                    .buttonStyle(LatteButtonStyle(variant: .ghost, size: .icon))
                     .help(i18n.t(.mpEdit))
                     .disabled(busy)
 
@@ -313,7 +316,7 @@ struct ModelProvidersView: View {
                             Image(systemName: "trash")
                                 .font(.system(size: 11))
                         }
-                        .buttonStyle(LatteButtonStyle(variant: .ghost))
+                        .buttonStyle(LatteButtonStyle(variant: .ghost, size: .icon))
                         .help(i18n.t(.mpDelete))
                         .disabled(busy)
                     }
