@@ -213,6 +213,17 @@ public enum LKey: String, CaseIterable {
     case mpAgentModelInvalid = "mp.agentModelInvalid"
     case mpAgentModelClear = "mp.agentModelClear"
     case mpAgentModelsEmpty = "mp.agentModelsEmpty"
+    case mpTabGeneral = "mp.tabGeneral"
+    case mpGenericBadge = "mp.genericBadge"
+    case mpKeySet = "mp.keySet"
+    case mpKeyMissing = "mp.keyMissing"
+    case mpTabEmpty = "mp.tabEmpty"
+    case mpTabEmptyHint = "mp.tabEmptyHint"
+    case mpNotTakenOver = "mp.notTakenOver"
+    case mpConnectNow = "mp.connectNow"
+    case mpOwnerHint = "mp.ownerHint"
+    case mpOwnerGeneral = "mp.ownerGeneral"
+    case mpProxyDetails = "mp.proxyDetails"
     case mpVendor = "mp.vendor"
     case mpVendorPick = "mp.vendorPick"
     case mpGetKey = "mp.getKey"
@@ -443,6 +454,17 @@ public enum DesktopStrings {
         .mpAgentModelInvalid: "绑定已失效",
         .mpAgentModelClear: "清除默认",
         .mpAgentModelsEmpty: "该 Agent 未发现可用模型",
+        .mpTabGeneral: "通用",
+        .mpGenericBadge: "通用",
+        .mpKeySet: "已配 Key",
+        .mpKeyMissing: "未配 Key",
+        .mpTabEmpty: "该归属下还没有可用厂商",
+        .mpTabEmptyHint: "添加一个专属厂商，或把「通用」厂商设为当前。",
+        .mpNotTakenOver: "{name} 尚未接入转发代理，厂商配置不会生效。",
+        .mpConnectNow: "一键接入",
+        .mpOwnerHint: "归属：{name}（创建后不可更改）",
+        .mpOwnerGeneral: "通用（所有 Agent 可用）",
+        .mpProxyDetails: "代理设置",
         .mpVendor: "厂商",
         .mpVendorPick: "选择厂商（自动预填）",
         .mpGetKey: "获取 API Key",
@@ -671,6 +693,17 @@ public enum DesktopStrings {
         .mpAgentModelInvalid: "Stale binding",
         .mpAgentModelClear: "Clear default",
         .mpAgentModelsEmpty: "No models discovered for this agent",
+        .mpTabGeneral: "General",
+        .mpGenericBadge: "Shared",
+        .mpKeySet: "Key set",
+        .mpKeyMissing: "No key",
+        .mpTabEmpty: "No providers under this owner yet",
+        .mpTabEmptyHint: "Add a dedicated provider, or set a \"General\" one as current.",
+        .mpNotTakenOver: "{name} is not connected to the proxy — provider settings won't take effect.",
+        .mpConnectNow: "Connect",
+        .mpOwnerHint: "Owner: {name} (locked after creation)",
+        .mpOwnerGeneral: "General (available to all agents)",
+        .mpProxyDetails: "Proxy settings",
         .mpVendor: "Provider",
         .mpVendorPick: "Pick a provider (auto-fills)",
         .mpGetKey: "Get API Key",

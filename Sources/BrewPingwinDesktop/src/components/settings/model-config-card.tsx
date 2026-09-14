@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Check,
   ChevronDown,
   ChevronRight,
   Copy,
   ExternalLink,
   Loader2,
-  Pencil,
   Plus,
   RefreshCw,
-  Trash2,
   X,
 } from "lucide-react";
 import {
@@ -38,6 +35,8 @@ import type {
   ModelProviderConfig,
   ModelProvidersInfo,
 } from "../../api/types";
+import { AgentModelTabs, type AgentTabItem } from "./agent-model-tabs";
+import { AgentProviderPanel } from "./agent-provider-panel";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { useI18n } from "../../i18n";
@@ -47,16 +46,22 @@ import { cn } from "../../lib/utils";
 //
 // 自包含数据源（挂载时 get_model_providers），与 EnvironmentCard 同款模式。
 // 代理启停 / 配置增删改切全部即时返回最新快照，本地无需推导状态。
+//
+// P2 骨架：状态摘要行（代理）→ Agent 归属 Tab 栏 → 厂商面板（专属 + 通用带徽章）
+// → 折叠收纳（CLI 接入 / Agent 模型偏好）。当前厂商与设为当前都按 tab 归属路由。
 
 const FORMAT_OPTIONS: ApiFormat[] = ["anthropic", "openai_chat", "openai_responses"];
 const AUTH_OPTIONS: AuthStyle[] = ["auto", "bearer", "x-api-key"];
+
+/** 记忆上次的 Agent tab（localStorage；失效自动回落「通用」）。 */
+const TAB_STORAGE_KEY = "brewping.modelTab";
 
 const inputCls =
   "h-7 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-primary/40";
 const fieldLabelCls =
   "mb-0.5 block text-[10px] text-muted-foreground";
 
-function emptyDraft(): ModelProviderConfig {
+function emptyDraft(agentId: string): ModelProviderConfig {
   return {
     id: "",
     name: "",
@@ -70,12 +75,8 @@ function emptyDraft(): ModelProviderConfig {
     notes: null,
     createdAtMs: 0,
     sortIndex: 0,
+    agentId,
   };
-}
-
-/** base_url 去协议前缀后展示（列表副标题）。 */
-function hostOf(baseUrl: string): string {
-  return baseUrl.replace(/^https?:\/\//i, "");
 }
 
 /** category 分组排序权重（custom 恒最后；未识别分类居中）。 */
@@ -129,6 +130,30 @@ export function ModelConfigCard() {
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   /** 表单当前选中的厂商（用于预填与 console 链接）。 */
   const [selectedVendor, setSelectedVendor] = useState("");
+
+  // ── P2：Agent 归属 tab ──
+  /** 当前 tab 的归属 id（"" = 通用；其余为 agent id）。 */
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      return localStorage.getItem(TAB_STORAGE_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  /** 折叠收纳区（默认全部收起，主视图只留 摘要行 + tab + 面板）。 */
+  const [proxyOpen, setProxyOpen] = useState(false);
+  const [cliOpen, setCliOpen] = useState(false);
+  const [prefsOpen, setPrefsOpen] = useState(false);
+
+  const selectTab = useCallback((id: string) => {
+    setActiveTab(id);
+    setConfirmId(null);
+    try {
+      localStorage.setItem(TAB_STORAGE_KEY, id);
+    } catch {
+      /* 隐私模式等场景写不进就算了，仅不记忆 */
+    }
+  }, []);
 
   /** 目录按 category 分组（custom 恒最后），供厂商下拉的 optgroup。 */
   const groupedCatalog = useMemo(() => {
@@ -219,6 +244,44 @@ export function ModelConfigCard() {
       cancelled = true;
     };
   }, [refreshAgentModels]);
+
+  // 记忆的 tab 指向已消失的 agent（如配置变更）→ 回落「通用」
+  useEffect(() => {
+    if (activeTab !== "" && !agents.some((a) => a.id === activeTab)) {
+      setActiveTab("");
+    }
+  }, [agents, activeTab]);
+
+  // ── P2 派生：tab 列表 / 当前 tab 的厂商与生效当前 / 对应 CLI 接入项 ──
+  const tabs: AgentTabItem[] = useMemo(
+    () => [
+      { id: "", name: t("mp.tabGeneral") },
+      ...agents.map((a) => ({ id: a.id, name: a.name })),
+    ],
+    [agents, t],
+  );
+
+  /** 当前 tab 的厂商：专属 + （专属 tab 时）通用。顺序 = 专属在前。 */
+  const tabProviders = useMemo(() => {
+    const all = info?.providers ?? [];
+    const own = all.filter((p) => p.agentId === activeTab);
+    if (activeTab === "") return own;
+    return [...own, ...all.filter((p) => p.agentId === "")];
+  }, [info, activeTab]);
+
+  /** 当前 tab 的生效当前厂商（专属槽 → 通用槽 → null，镜像后端 resolve_current_for）。 */
+  const tabCurrentId = useMemo(() => {
+    if (!info) return null;
+    if (activeTab === "") return info.currentId ?? null;
+    return info.currentByAgent?.[activeTab] ?? info.currentId ?? null;
+  }, [info, activeTab]);
+
+  /** tab 归属对应的 CLI 接入项（claude-code→claude_code；无对应 CLI = null 不提示）。 */
+  const cliForTab = useMemo(() => {
+    if (activeTab === "") return null;
+    const cliId = activeTab.replace(/-/g, "_");
+    return cliInfo?.items.find((i) => i.id === cliId) ?? null;
+  }, [activeTab, cliInfo]);
 
   /** 选模型 = 记住该 Agent 的用户默认（后端持久化，启动 Agent 时以参数传入）。 */
   const pickAgentModel = (agentId: string, modelId: string, providerId: string | null) => {
@@ -367,12 +430,18 @@ export function ModelConfigCard() {
       .catch(() => {});
   };
 
-  const providers = info?.providers ?? [];
   const endpoint = info ? `http://127.0.0.1:${info.proxyPort}` : "";
+
+  /** 表单顶部的归属提示文案（新建 = 当前 tab；编辑 = 后端锁定的原归属）。 */
+  const editingOwnerName = editing
+    ? editing.agentId === ""
+      ? t("mp.ownerGeneral")
+      : (agents.find((a) => a.id === editing.agentId)?.name ?? editing.agentId)
+    : "";
 
   return (
     <section className="rounded-lg border border-border bg-card p-3">
-      {/* 标题行：右侧添加配置 */}
+      {/* 标题行：右侧添加配置（带当前 tab 归属） */}
       <div className="mb-2 flex items-center justify-between">
         <div className="text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
           {t("mp.title")}
@@ -385,7 +454,7 @@ export function ModelConfigCard() {
             disabled={busy}
             onClick={() => {
               setConfirmId(null);
-              setEditing(emptyDraft());
+              setEditing(emptyDraft(activeTab));
             }}
           >
             <Plus size={11} />
@@ -397,170 +466,110 @@ export function ModelConfigCard() {
         {t("mp.hint")}
       </div>
 
-      {/* ── 转发代理（开关 + 接入地址 + 运行状态）── */}
-      <div className="mb-3 rounded-md border border-border/70 bg-background/60 p-2.5">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-foreground">
+      {/* ── 状态摘要行（转发代理）：常显一行，端口/故障转移收进展开区 ── */}
+      <div className="mb-2 rounded-md border border-border/70 bg-background/60 px-2.5 py-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="shrink-0 text-xs font-medium text-foreground">
             {t("mp.proxy")}
           </span>
-          <Button
-            variant={info?.proxyEnabled ? "default" : "outline"}
-            size="sm"
-            className="h-6 px-2.5 text-[10px]"
-            disabled={busy || loading || !info}
-            onClick={() => toggleProxy(!info?.proxyEnabled)}
-          >
-            {busy && <Loader2 size={10} className="mr-1 animate-spin" />}
-            {info?.proxyEnabled ? t("mp.disable") : t("mp.enable")}
-          </Button>
-        </div>
-
-        <dl className="mt-2 grid grid-cols-[72px_1fr] items-center gap-y-1.5 text-xs">
-          <dt className="text-muted-foreground">{t("mp.endpoint")}</dt>
-          <dd className="flex min-w-0 items-center gap-1.5">
-            <span className="min-w-0 select-text truncate font-mono text-foreground">
-              {endpoint || "—"}
-            </span>
-            {endpoint && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-5 w-5 shrink-0 p-0"
-                onClick={copyEndpoint}
-                title={t("common.copy")}
-              >
-                <Copy size={11} />
-              </Button>
-            )}
-            {info?.proxyRunning ? (
-              <Badge variant="success" className="px-1.5 py-0 text-[9px]">
-                {t("mp.stateRunning")}
-              </Badge>
-            ) : info?.proxyError ? (
-              <Badge variant="warning" className="px-1.5 py-0 text-[9px]">
-                {t("mp.stateError")}
-              </Badge>
-            ) : (
-              <Badge variant="secondary" className="px-1.5 py-0 text-[9px]">
-                {t("mp.stateStopped")}
-              </Badge>
-            )}
-          </dd>
-          <dt className="text-muted-foreground">{t("mp.port")}</dt>
-          <dd>
-            <input
-              className={cn(inputCls, "h-6 w-20 font-mono")}
-              inputMode="numeric"
-              value={portDraft}
-              onChange={(e) => setPortDraft(e.target.value.replace(/[^\d]/g, ""))}
-              onBlur={applyPort}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") applyPort();
-              }}
-            />
-          </dd>
-          <dt className="text-muted-foreground">{t("mp.failover")}</dt>
-          <dd className="flex items-center gap-1.5">
-            <Button
-              variant={info?.failoverEnabled ? "default" : "outline"}
-              size="sm"
-              className="h-6 px-2.5 text-[10px]"
-              disabled={busy || loading || !info}
-              onClick={() => toggleFailover(!info?.failoverEnabled)}
-            >
-              {info?.failoverEnabled ? t("mp.disable") : t("mp.enable")}
-            </Button>
-            <span className="text-[10px] text-muted-foreground/70">
-              {t("mp.failoverHint")}
-            </span>
-          </dd>
-        </dl>
-
-        <div className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground/70">
-          {t("mp.endpointHint", { port: info?.proxyPort ?? 15721 })}
-        </div>
-        {info?.proxyError && (
-          <div className="mt-1 break-all text-[10px] leading-relaxed text-destructive">
-            {info.proxyError}
-          </div>
-        )}
-      </div>
-
-      {/* ── CLI 接入（把本机 CLI 指向本地代理；列表随支持面动态扩展）── */}
-      <div className="mb-3 rounded-md border border-border/70 bg-background/60 p-2.5">
-        <div className="text-xs font-medium text-foreground">
-          {t("mp.takeover")}
-        </div>
-        <div className="mt-1 text-[10px] leading-relaxed text-muted-foreground/70">
-          {t("mp.takeoverHint", { port: info?.proxyPort ?? 15721 })}
-        </div>
-
-        <div className="mt-2 flex flex-col gap-1.5">
-          {(cliInfo?.items ?? []).map((item) => (
-            <div
-              key={item.id}
-              className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-foreground">
-                    {item.name}
-                  </span>
-                  {item.active && (
-                    <Badge
-                      variant="success"
-                      className="px-1.5 py-0 text-[9px]"
-                    >
-                      {t("mp.takeoverActive")}
-                    </Badge>
-                  )}
-                  {!item.installed && (
-                    <Badge variant="secondary" className="px-1.5 py-0 text-[9px]">
-                      {t("mp.cliNotInstalled")}
-                    </Badge>
-                  )}
-                </div>
-                <div
-                  className="truncate font-mono text-[10px] text-muted-foreground"
-                  title={item.configFile}
-                >
-                  {item.configFile || "—"}
-                </div>
-              </div>
-              <Button
-                variant={item.active ? "outline" : "default"}
-                size="sm"
-                className="h-6 shrink-0 px-2.5 text-[10px]"
-                /* 未安装 / 不支持置灰；代理未运行不拦——首次接入会自动拉起 */
-                disabled={busy || !item.installed || !item.supported}
-                title={
-                  !item.installed
-                    ? t("mp.cliNotInstalled")
-                    : !item.supported
-                      ? t("mp.takeoverUnsupported")
-                      : undefined
-                }
-                onClick={() => toggleTakeover(item.id, !item.active)}
-              >
-                {busy && <Loader2 size={10} className="mr-1 animate-spin" />}
-                {item.active ? t("mp.takeoverOff") : t("mp.takeoverOn")}
-              </Button>
-            </div>
-          ))}
-          {cliInfo !== null && (cliInfo.items?.length ?? 0) === 0 && (
-            <div className="py-2 text-center text-[10px] text-muted-foreground">
-              {t("mp.takeoverEmpty")}
-            </div>
+          {info?.proxyRunning ? (
+            <Badge variant="success" className="shrink-0 px-1.5 py-0 text-[9px]">
+              {t("mp.stateRunning")}
+            </Badge>
+          ) : info?.proxyError ? (
+            <Badge variant="warning" className="shrink-0 px-1.5 py-0 text-[9px]">
+              {t("mp.stateError")}
+            </Badge>
+          ) : (
+            <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[9px]">
+              {t("mp.stateStopped")}
+            </Badge>
           )}
+          <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
+            {endpoint || "—"}
+          </span>
+          {endpoint && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-5 w-5 shrink-0 p-0"
+              onClick={copyEndpoint}
+              title={t("common.copy")}
+            >
+              <Copy size={11} />
+            </Button>
+          )}
+          <button
+            type="button"
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={() => setProxyOpen((v) => !v)}
+            title={t("mp.proxyDetails")}
+          >
+            {proxyOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          </button>
         </div>
-        {!info?.proxyRunning && (
-          <div className="mt-1.5 text-[10px] leading-relaxed text-warning">
-            {t("mp.takeoverNeedsProxy")}
-          </div>
+
+        {proxyOpen && (
+          <>
+            <dl className="mt-2 grid grid-cols-[72px_1fr] items-center gap-y-1.5 text-xs">
+              <dt className="text-muted-foreground">{t("mp.enable")}</dt>
+              <dd>
+                <Button
+                  variant={info?.proxyEnabled ? "default" : "outline"}
+                  size="sm"
+                  className="h-6 px-2.5 text-[10px]"
+                  disabled={busy || loading || !info}
+                  onClick={() => toggleProxy(!info?.proxyEnabled)}
+                >
+                  {busy && <Loader2 size={10} className="mr-1 animate-spin" />}
+                  {info?.proxyEnabled ? t("mp.disable") : t("mp.enable")}
+                </Button>
+              </dd>
+              <dt className="text-muted-foreground">{t("mp.port")}</dt>
+              <dd>
+                <input
+                  className={cn(inputCls, "h-6 w-20 font-mono")}
+                  inputMode="numeric"
+                  value={portDraft}
+                  onChange={(e) => setPortDraft(e.target.value.replace(/[^\d]/g, ""))}
+                  onBlur={applyPort}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") applyPort();
+                  }}
+                />
+              </dd>
+              <dt className="text-muted-foreground">{t("mp.failover")}</dt>
+              <dd className="flex items-center gap-1.5">
+                <Button
+                  variant={info?.failoverEnabled ? "default" : "outline"}
+                  size="sm"
+                  className="h-6 px-2.5 text-[10px]"
+                  disabled={busy || loading || !info}
+                  onClick={() => toggleFailover(!info?.failoverEnabled)}
+                >
+                  {info?.failoverEnabled ? t("mp.disable") : t("mp.enable")}
+                </Button>
+                <span className="text-[10px] text-muted-foreground/70">
+                  {t("mp.failoverHint")}
+                </span>
+              </dd>
+            </dl>
+            <div className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground/70">
+              {t("mp.endpointHint", { port: info?.proxyPort ?? 15721 })}
+            </div>
+            {info?.proxyError && (
+              <div className="mt-1 break-all text-[10px] leading-relaxed text-destructive">
+                {info.proxyError}
+              </div>
+            )}
+          </>
         )}
       </div>
 
-      {/* ── 配置表单（编辑时替代列表）── */}
+      {/* ── Agent 归属 Tab 栏（通用 + 各已发现 Agent）── */}
+      <AgentModelTabs tabs={tabs} activeId={activeTab} onSelect={selectTab} />
+
+      {/* ── 厂商面板（按 tab 过滤） / 配置表单（编辑时替代面板）── */}
       {editing ? (
         <div className="flex flex-col gap-2.5 rounded-md border border-border p-2.5">
           <div className="flex items-center justify-between">
@@ -575,6 +584,11 @@ export function ModelConfigCard() {
             >
               <X size={13} />
             </button>
+          </div>
+
+          {/* 归属提示：新建跟随当前 tab；编辑时后端强制保留原归属 */}
+          <div className="rounded-md bg-muted/60 px-2 py-1 text-[10px] text-muted-foreground">
+            {t("mp.ownerHint", { name: editingOwnerName })}
           </div>
 
           {/* 厂商选择：预填模板（非校验白名单），custom/手改随意；按分类分组，custom 恒最后 */}
@@ -858,227 +872,256 @@ export function ModelConfigCard() {
             </Button>
           </div>
         </div>
-      ) : (
-        /* ── 配置列表 ── */
-        <div className="flex flex-col gap-1.5">
-          {loading ? (
-            <div className="flex items-center justify-center py-4 text-muted-foreground">
-              <Loader2 size={14} className="animate-spin" />
-            </div>
-          ) : providers.length === 0 ? (
-            <div className="py-3 text-center">
-              <div className="text-xs text-muted-foreground">{t("mp.empty")}</div>
-              <div className="mt-1 text-[10px] leading-relaxed text-muted-foreground/70">
-                {t("mp.emptyHint")}
-              </div>
-            </div>
-          ) : (
-            providers.map((p) => {
-              const isCurrent = info?.currentId === p.id;
-              return (
-                <div
-                  key={p.id}
-                  className={cn(
-                    "flex items-center gap-2 rounded-md border px-2.5 py-1.5 transition-colors",
-                    isCurrent
-                      ? "border-primary/30 bg-primary/5"
-                      : "border-border hover:bg-accent/50",
-                  )}
-                >
-                  {isCurrent && (
-                    <Check size={13} className="shrink-0 text-primary" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="truncate text-xs font-medium text-foreground">
-                        {p.name}
-                      </span>
-                      {isCurrent && (
-                        <Badge
-                          variant="success"
-                          className="shrink-0 px-1.5 py-0 text-[9px]"
-                        >
-                          {t("mp.current")}
-                        </Badge>
-                      )}
-                      {p.model && (
-                        <span className="shrink-0 truncate text-[9px] text-muted-foreground/70">
-                          {p.model}
-                        </span>
-                      )}
-                    </div>
-                    <div className="truncate font-mono text-[10px] text-muted-foreground">
-                      {hostOf(p.baseUrl)}
-                    </div>
-                  </div>
-                  <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[9px]">
-                    {t(`mp.format.${p.apiFormat}`)}
-                  </Badge>
-                  <div className="flex shrink-0 items-center gap-0.5">
-                    {!isCurrent && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-[10px]"
-                        disabled={busy}
-                        onClick={() => void run(() => switchModelProvider(p.id))}
-                      >
-                        {t("mp.setCurrent")}
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      disabled={busy}
-                      title={t("mp.edit")}
-                      onClick={() => {
-                        setConfirmId(null);
-                        setEditing({ ...p });
-                      }}
-                    >
-                      <Pencil size={11} />
-                    </Button>
-                    <Button
-                      variant={confirmId === p.id ? "destructive" : "ghost"}
-                      size="sm"
-                      className={cn(
-                        "h-6 p-0",
-                        confirmId === p.id ? "w-auto px-2 text-[10px]" : "w-6",
-                      )}
-                      disabled={busy}
-                      title={t("mp.delete")}
-                      onClick={() => handleDelete(p.id)}
-                    >
-                      <Trash2 size={11} />
-                      {confirmId === p.id && t("mp.confirmDelete")}
-                    </Button>
-                  </div>
-                </div>
-              );
-            })
-          )}
+      ) : loading ? (
+        <div className="flex items-center justify-center py-4 text-muted-foreground">
+          <Loader2 size={14} className="animate-spin" />
         </div>
+      ) : (
+        <AgentProviderPanel
+          agentId={activeTab}
+          providers={tabProviders}
+          currentId={tabCurrentId}
+          busy={busy}
+          confirmId={confirmId}
+          takeoverItem={cliForTab}
+          onSetCurrent={(id) =>
+            void run(() => switchModelProvider(id, activeTab))
+          }
+          onEdit={(p) => {
+            setConfirmId(null);
+            setEditing({ ...p });
+          }}
+          onDelete={handleDelete}
+          onConnectCli={() => {
+            if (cliForTab) toggleTakeover(cliForTab.id, true);
+          }}
+          onAdd={() => {
+            setConfirmId(null);
+            setEditing(emptyDraft(activeTab));
+          }}
+        />
       )}
 
-      {/* ── Agent 模型（各 Agent 当前生效模型 + 完整可选列表）── */}
+      {/* ── 折叠收纳：CLI 接入（完整列表；单个 Agent 的快捷接入在面板黄条里）── */}
       <div className="mt-3 rounded-md border border-border/70 bg-background/60 p-2.5">
-        <div className="text-xs font-medium text-foreground">
-          {t("mp.agentModels")}
-        </div>
-        <div className="mt-1 text-[10px] leading-relaxed text-muted-foreground/70">
-          {t("mp.agentModelsHint")}
-        </div>
+        <button
+          type="button"
+          className="flex w-full items-center gap-1 text-xs font-medium text-foreground"
+          onClick={() => setCliOpen((v) => !v)}
+        >
+          {cliOpen ? (
+            <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight size={12} className="shrink-0 text-muted-foreground" />
+          )}
+          {t("mp.takeover")}
+        </button>
 
-        <div className="mt-2 flex flex-col gap-1.5">
-          {agents.map((a) => {
-            const info = agentModels[a.id] ?? null;
-            const expanded = expandedAgent === a.id;
-            const preferred = info?.preferredModelId ?? null;
-            const effective = preferred ?? info?.activeModelId ?? null;
-            const modelCount =
-              info?.providers.reduce((n, p) => n + p.models.length, 0) ?? 0;
-            return (
-              <div key={a.id} className="rounded-md border border-border">
-                {/* 摘要行：Agent 名 + 当前生效模型（点击展开完整列表） */}
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-left hover:bg-accent/50"
-                  onClick={() => setExpandedAgent(expanded ? null : a.id)}
+        {cliOpen && (
+          <>
+            <div className="mt-1 text-[10px] leading-relaxed text-muted-foreground/70">
+              {t("mp.takeoverHint", { port: info?.proxyPort ?? 15721 })}
+            </div>
+
+            <div className="mt-2 flex flex-col gap-1.5">
+              {(cliInfo?.items ?? []).map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5"
                 >
-                  {expanded ? (
-                    <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
-                  ) : (
-                    <ChevronRight size={12} className="shrink-0 text-muted-foreground" />
-                  )}
-                  <span className="shrink-0 text-xs font-medium text-foreground">
-                    {a.name}
-                  </span>
-                  {agentBusy === a.id && (
-                    <Loader2 size={10} className="shrink-0 animate-spin text-muted-foreground" />
-                  )}
-                  {info?.preferredStillValid === false && (
-                    <Badge variant="warning" className="shrink-0 px-1.5 py-0 text-[9px]">
-                      {t("mp.agentModelInvalid")}
-                    </Badge>
-                  )}
-                  <span className="ml-auto min-w-0 truncate font-mono text-[10px] text-muted-foreground">
-                    {effective ?? "—"}
-                  </span>
-                  {effective && (
-                    <Badge
-                      variant={preferred ? "success" : "secondary"}
-                      className="shrink-0 px-1.5 py-0 text-[9px]"
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium text-foreground">
+                        {item.name}
+                      </span>
+                      {item.active && (
+                        <Badge
+                          variant="success"
+                          className="px-1.5 py-0 text-[9px]"
+                        >
+                          {t("mp.takeoverActive")}
+                        </Badge>
+                      )}
+                      {!item.installed && (
+                        <Badge variant="secondary" className="px-1.5 py-0 text-[9px]">
+                          {t("mp.cliNotInstalled")}
+                        </Badge>
+                      )}
+                    </div>
+                    <div
+                      className="truncate font-mono text-[10px] text-muted-foreground"
+                      title={item.configFile}
                     >
-                      {preferred ? t("mp.agentPrefBadge") : t("mp.agentFollowBadge")}
-                    </Badge>
-                  )}
-                </button>
+                      {item.configFile || "—"}
+                    </div>
+                  </div>
+                  <Button
+                    variant={item.active ? "outline" : "default"}
+                    size="sm"
+                    className="h-6 shrink-0 px-2.5 text-[10px]"
+                    /* 未安装 / 不支持置灰；代理未运行不拦——首次接入会自动拉起 */
+                    disabled={busy || !item.installed || !item.supported}
+                    title={
+                      !item.installed
+                        ? t("mp.cliNotInstalled")
+                        : !item.supported
+                          ? t("mp.takeoverUnsupported")
+                          : undefined
+                    }
+                    onClick={() => toggleTakeover(item.id, !item.active)}
+                  >
+                    {busy && <Loader2 size={10} className="mr-1 animate-spin" />}
+                    {item.active ? t("mp.takeoverOff") : t("mp.takeoverOn")}
+                  </Button>
+                </div>
+              ))}
+              {cliInfo !== null && (cliInfo.items?.length ?? 0) === 0 && (
+                <div className="py-2 text-center text-[10px] text-muted-foreground">
+                  {t("mp.takeoverEmpty")}
+                </div>
+              )}
+            </div>
+            {!info?.proxyRunning && (
+              <div className="mt-1.5 text-[10px] leading-relaxed text-warning">
+                {t("mp.takeoverNeedsProxy")}
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
-                {/* 展开区：按 provider 分组的完整模型列表 */}
-                {expanded && (
-                  <div className="border-t border-border/70 px-2.5 py-2">
-                    {!info || modelCount === 0 ? (
-                      <div className="py-1 text-[10px] text-muted-foreground">
-                        {t("mp.agentModelsEmpty")}
-                      </div>
-                    ) : (
-                      <>
-                        {info.providers.map((p) => (
-                          <div key={p.id} className="mb-2 last:mb-0">
-                            <div className="mb-1 text-[10px] text-muted-foreground">
-                              {p.name}
-                            </div>
-                            <div className="flex flex-wrap gap-1">
-                              {p.models.map((m) => {
-                                const selected = m.isDefault;
-                                return (
-                                  <button
-                                    key={m.id}
-                                    type="button"
-                                    title={m.id}
-                                    className={cn(
-                                      "h-6 max-w-full truncate rounded-md border px-2 text-[10px] transition-colors",
-                                      selected
-                                        ? "border-primary bg-primary text-primary-foreground"
-                                        : "border-border bg-background text-foreground hover:bg-accent/60",
-                                      !m.available && !selected && "opacity-50",
-                                    )}
-                                    onClick={() => pickAgentModel(a.id, m.id, p.id)}
-                                  >
-                                    {m.name}
-                                  </button>
-                                );
-                              })}
-                            </div>
+      {/* ── 折叠收纳：Agent 模型偏好（各 Agent 当前生效模型 + 完整可选列表）── */}
+      <div className="mt-2 rounded-md border border-border/70 bg-background/60 p-2.5">
+        <button
+          type="button"
+          className="flex w-full items-center gap-1 text-xs font-medium text-foreground"
+          onClick={() => setPrefsOpen((v) => !v)}
+        >
+          {prefsOpen ? (
+            <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight size={12} className="shrink-0 text-muted-foreground" />
+          )}
+          {t("mp.agentModels")}
+        </button>
+
+        {prefsOpen && (
+          <>
+            <div className="mt-1 text-[10px] leading-relaxed text-muted-foreground/70">
+              {t("mp.agentModelsHint")}
+            </div>
+
+            <div className="mt-2 flex flex-col gap-1.5">
+              {agents.map((a) => {
+                const info = agentModels[a.id] ?? null;
+                const expanded = expandedAgent === a.id;
+                const preferred = info?.preferredModelId ?? null;
+                const effective = preferred ?? info?.activeModelId ?? null;
+                const modelCount =
+                  info?.providers.reduce((n, p) => n + p.models.length, 0) ?? 0;
+                return (
+                  <div key={a.id} className="rounded-md border border-border">
+                    {/* 摘要行：Agent 名 + 当前生效模型（点击展开完整列表） */}
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-left hover:bg-accent/50"
+                      onClick={() => setExpandedAgent(expanded ? null : a.id)}
+                    >
+                      {expanded ? (
+                        <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight size={12} className="shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="shrink-0 text-xs font-medium text-foreground">
+                        {a.name}
+                      </span>
+                      {agentBusy === a.id && (
+                        <Loader2 size={10} className="shrink-0 animate-spin text-muted-foreground" />
+                      )}
+                      {info?.preferredStillValid === false && (
+                        <Badge variant="warning" className="shrink-0 px-1.5 py-0 text-[9px]">
+                          {t("mp.agentModelInvalid")}
+                        </Badge>
+                      )}
+                      <span className="ml-auto min-w-0 truncate font-mono text-[10px] text-muted-foreground">
+                        {effective ?? "—"}
+                      </span>
+                      {effective && (
+                        <Badge
+                          variant={preferred ? "success" : "secondary"}
+                          className="shrink-0 px-1.5 py-0 text-[9px]"
+                        >
+                          {preferred ? t("mp.agentPrefBadge") : t("mp.agentFollowBadge")}
+                        </Badge>
+                      )}
+                    </button>
+
+                    {/* 展开区：按 provider 分组的完整模型列表 */}
+                    {expanded && (
+                      <div className="border-t border-border/70 px-2.5 py-2">
+                        {!info || modelCount === 0 ? (
+                          <div className="py-1 text-[10px] text-muted-foreground">
+                            {t("mp.agentModelsEmpty")}
                           </div>
-                        ))}
-                        {preferred && (
-                          <div className="mt-2 flex justify-end">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 px-2 text-[10px]"
-                              disabled={agentBusy === a.id}
-                              onClick={() => clearAgentModel(a.id)}
-                            >
-                              {t("mp.agentModelClear")}
-                            </Button>
-                          </div>
+                        ) : (
+                          <>
+                            {info.providers.map((p) => (
+                              <div key={p.id} className="mb-2 last:mb-0">
+                                <div className="mb-1 text-[10px] text-muted-foreground">
+                                  {p.name}
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                  {p.models.map((m) => {
+                                    const selected = m.isDefault;
+                                    return (
+                                      <button
+                                        key={m.id}
+                                        type="button"
+                                        title={m.id}
+                                        className={cn(
+                                          "h-6 max-w-full truncate rounded-md border px-2 text-[10px] transition-colors",
+                                          selected
+                                            ? "border-primary bg-primary text-primary-foreground"
+                                            : "border-border bg-background text-foreground hover:bg-accent/60",
+                                          !m.available && !selected && "opacity-50",
+                                        )}
+                                        onClick={() => pickAgentModel(a.id, m.id, p.id)}
+                                      >
+                                        {m.name}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                            {preferred && (
+                              <div className="mt-2 flex justify-end">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-[10px]"
+                                  disabled={agentBusy === a.id}
+                                  onClick={() => clearAgentModel(a.id)}
+                                >
+                                  {t("mp.agentModelClear")}
+                                </Button>
+                              </div>
+                            )}
+                          </>
                         )}
-                      </>
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
-            );
-          })}
-          {agents.length === 0 && (
-            <div className="py-2 text-center text-[10px] text-muted-foreground">
-              {t("mp.agentModelsEmpty")}
+                );
+              })}
+              {agents.length === 0 && (
+                <div className="py-2 text-center text-[10px] text-muted-foreground">
+                  {t("mp.agentModelsEmpty")}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
 
       {error && (
