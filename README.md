@@ -67,7 +67,7 @@
        │ WatchConnectivity                   │ PTY / CLI
 ┌──────┴───────┐                  ┌──────────┴─────────────┐
 │ Apple Watch  │                  │  opencode · claude     │
-│  (watchOS)   │                  │  codex · aider         │
+│  (watchOS)   │                  │  codex · pi            │
 └──────────────┘                  └────────────────────────┘
 ```
 
@@ -169,7 +169,7 @@ BrewPing drives the CLI agents already installed on your computer. Product names
 | OpenCode | Session (interactive PTY) | `opencode` | `~/.config/opencode/opencode.json` |
 | Claude Code | Headless (one-shot) | `claude` | `~/.claude/settings.json` |
 | Codex CLI | Headless (one-shot) | `codex` | `~/.codex/config.toml` |
-| Aider | Headless (one-shot) | `aider` | Aider configuration |
+| pi | Headless (one-shot) | `pi` | `~/.pi/agent/settings.json` + `~/.pi/agent/models.json` |
 
 Install the ones you want to use:
 
@@ -183,8 +183,8 @@ npm install -g @anthropic-ai/claude-code
 # Codex CLI
 npm install -g @openai/codex
 
-# Aider
-python3 -m pip install -U aider-install && aider-install
+# pi
+npm install -g @earendil-works/pi-coding-agent
 ```
 
 ## HTTP API
@@ -276,7 +276,7 @@ open ios/BrewPing.xcodeproj
 
 ## Trademarks
 
-OpenCode, Claude, Claude Code, Codex, and Aider are trademarks of their respective owners. BrewPing is not affiliated with, endorsed by, or sponsored by them; these names appear only to describe compatibility.
+OpenCode, Claude, Claude Code, Codex, and pi are trademarks of their respective owners. BrewPing is not affiliated with, endorsed by, or sponsored by them; these names appear only to describe compatibility.
 
 BrewPing connects only to devices **you configured**, on your own local network. It does not connect to third-party devices and does not provide a public relay.
 

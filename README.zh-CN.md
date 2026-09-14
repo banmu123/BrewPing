@@ -67,7 +67,7 @@
        │ WatchConnectivity                   │ PTY / CLI
 ┌──────┴───────┐                  ┌──────────┴─────────────┐
 │ Apple Watch  │                  │  opencode · claude     │
-│  (watchOS)   │                  │  codex · aider         │
+│  (watchOS)   │                  │  codex · pi            │
 └──────────────┘                  └────────────────────────┘
 ```
 
@@ -169,7 +169,7 @@ BrewPing 驱动的是你电脑上已安装的命令行 Agent。产品名称与�
 | OpenCode | 会话（交互式 PTY） | `opencode` | `~/.config/opencode/opencode.json` |
 | Claude Code | Headless（一次性） | `claude` | `~/.claude/settings.json` |
 | Codex CLI | Headless（一次性） | `codex` | `~/.codex/config.toml` |
-| Aider | Headless（一次性） | `aider` | Aider 配置 |
+| pi | Headless（一次性） | `pi` | `~/.pi/agent/settings.json` + `~/.pi/agent/models.json` |
 
 按需安装：
 
@@ -183,8 +183,8 @@ npm install -g @anthropic-ai/claude-code
 # Codex CLI
 npm install -g @openai/codex
 
-# Aider
-python3 -m pip install -U aider-install && aider-install
+# pi
+npm install -g @earendil-works/pi-coding-agent
 ```
 
 ## HTTP API
@@ -276,7 +276,7 @@ open ios/BrewPing.xcodeproj
 
 ## 商标声明
 
-OpenCode、Claude、Claude Code、Codex、Aider 等名称是其各自所有者的商标。BrewPing 与这些厂商**没有任何隶属、赞助或背书关系**；文中提及这些名称仅用于说明兼容性。
+OpenCode、Claude、Claude Code、Codex、pi 等名称是其各自所有者的商标。BrewPing 与这些厂商**没有任何隶属、赞助或背书关系**；文中提及这些名称仅用于说明兼容性。
 
 BrewPing 只连接**你自己配置**的、位于同一局域网的设备，不会连接第三方设备，也不提供公网中继。
 

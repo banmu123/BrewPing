@@ -129,7 +129,7 @@ public final class AgentManager {
         switch id {
         case "claude-code": return ClaudeCodeAgent(modelId: resolved)
         case "codex": return CodexAgent(modelId: resolved)
-        case "aider": return AiderAgent(modelId: resolved)
+        case "pi": return PiAgent(modelId: resolved)
         default: return nil
         }
     }

@@ -15,7 +15,7 @@ enum AgentConfigDiscovery {
         case "opencode":       return discoverOpenCode()
         case "claude-code":    return discoverClaudeCode()
         case "codex":          return discoverCodex()
-        case "aider":          return discoverAider()
+        case "pi":             return discoverPi()
         default:               return AgentProviders(agentId: agentId, providers: [], activeModelId: nil, error: nil)
         }
     }
@@ -69,12 +69,10 @@ enum AgentConfigDiscovery {
             return [home.appendingPathComponent(".claude/settings.json")]
         case "codex":
             return [home.appendingPathComponent(".codex/config.toml")]
-        case "aider":
-            // 与 discoverAider 的两条候选顺序一致：先 ~/.aider.conf.yml，再 ~/.config/aider/config.yml。
-            return [
-                home.appendingPathComponent(".aider.conf.yml"),
-                home.appendingPathComponent(".config/aider/config.yml"),
-            ]
+        case "pi":
+            // pi 是「settings + models」两份，任一变化都要重拉（顺序与 Windows
+            // `config_version_for` 的 "pi" 分支一致：settings 在前、models 在后）。
+            return piSettingsPaths() + piModelsPaths()
         default:
             return []
         }
@@ -233,41 +231,70 @@ enum AgentConfigDiscovery {
         return AgentProviders(agentId: "codex", providers: [provider], activeModelId: activeModelId, error: nil)
     }
 
-    // MARK: - Aider
-    // 配置：~/.aider.conf.yml 或 ~/.config/aider/config.yml
-    // 当前本机未安装/未配置 → 返回空
+    // MARK: - pi
+    // 配置：~/.pi/agent/settings.json（defaultProvider / defaultModel，成对生效）
+    //      + ~/.pi/agent/models.json（providers.<id>.baseUrl / .models[].id|name）
+    // 代理接管时 settings.defaultProvider = "brewping"（cli_takeover 写入），
+    // 这里只读不改，把真实默认如实暴露给移动端。
+    // 与 Windows `agent_config::read_pi` / `parse_pi` 逐分支对齐。
 
-    private static func discoverAider() -> AgentProviders {
-        let paths = [
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".aider.conf.yml"),
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/aider/config.yml"),
-        ]
-        for path in paths {
-            if FileManager.default.fileExists(atPath: path.path) {
-                // 简单提取 model 字段（Aider 的 yaml 配置通常有 model: xxx）
-                // 走 readText：YAML 同样按行解析，行首 BOM 会让 `hasPrefix("model:")` 判否。
-                if let content = readText(at: path) {
-                    for line in content.components(separatedBy: "\n") {
-                        let trimmed = line.trimmingCharacters(in: .whitespaces)
-                        if trimmed.hasPrefix("model:") {
-                            let modelId = trimmed.replacingOccurrences(of: "model:", with: "")
-                                .trimmingCharacters(in: .whitespaces)
-                                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-                            if !modelId.isEmpty {
-                                let model = BrewPingProtocol.Model(
-                                    id: modelId, name: modelId, providerId: "aider-default", available: true, isActive: true
-                                )
-                                let provider = BrewPingProtocol.Provider(
-                                    id: "aider-default", name: "Aider Default", models: [model]
-                                )
-                                return AgentProviders(agentId: "aider", providers: [provider], activeModelId: modelId, error: nil)
-                            }
-                        }
-                    }
-                }
-                return AgentProviders(agentId: "aider", providers: [], activeModelId: nil, error: nil)
-            }
+    private static func discoverPi() -> AgentProviders {
+        guard let settingsText = readText(at: piSettingsPaths()[0]),
+              let settingsData = settingsText.data(using: .utf8),
+              let settings = try? JSONSerialization.jsonObject(with: settingsData) as? [String: Any] else {
+            return AgentProviders(agentId: "pi", providers: [], activeModelId: nil, error: "config not found")
         }
-        return AgentProviders(agentId: "aider", providers: [], activeModelId: nil, error: "config not found")
+        // 当前正在用的模型 = settings.defaultModel（未设置则 None）。
+        // defaultProvider 只作定位用，不进返回结构（与 Windows 一致）。
+        let activeModelId = settings["defaultModel"] as? String
+
+        guard let modelsText = readText(at: piModelsPaths()[0]),
+              let modelsData = modelsText.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: modelsData) as? [String: Any],
+              let providersDict = root["providers"] as? [String: Any] else {
+            return AgentProviders(agentId: "pi", providers: [], activeModelId: nil, error: "config not found")
+        }
+
+        var providers: [BrewPingProtocol.Provider] = []
+        for (providerId, providerValue) in providersDict {
+            guard let providerDict = providerValue as? [String: Any] else { continue }
+            // pi 的字段名是 `baseUrl`（小写 u），不是 `baseURL`。
+            let baseURL = providerDict["baseUrl"] as? String
+
+            var models: [BrewPingProtocol.Model] = []
+            if let modelsArray = providerDict["models"] as? [[String: Any]] {
+                for modelValue in modelsArray {
+                    guard let modelId = modelValue["id"] as? String else { continue }
+                    // 无 id 的条目直接跳过（与 Windows 的 `continue` 一致）。
+                    let modelName = modelValue["name"] as? String ?? modelId
+                    models.append(BrewPingProtocol.Model(
+                        id: modelId,
+                        name: modelName,
+                        providerId: providerId,
+                        available: true,
+                        isActive: activeModelId == modelId
+                    ))
+                }
+            }
+            providers.append(BrewPingProtocol.Provider(
+                // provider 展示名 = key 本身（pi 的 providers.<key> 没有独立 name）。
+                id: providerId, name: providerId, baseURL: baseURL,
+                models: models.sorted { $0.id < $1.id }
+            ))
+        }
+        return AgentProviders(
+            agentId: "pi",
+            providers: providers.sorted { $0.id < $1.id },
+            activeModelId: activeModelId,
+            error: nil
+        )
+    }
+
+    private static func piSettingsPaths() -> [URL] {
+        [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/settings.json")]
+    }
+
+    private static func piModelsPaths() -> [URL] {
+        [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi/agent/models.json")]
     }
 }

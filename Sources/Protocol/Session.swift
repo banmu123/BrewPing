@@ -22,7 +22,7 @@ extension BrewPingProtocol {
         case interactive
         /// 挂载到常驻会话观察（brewping attach）
         case attach
-        /// 一次性无头执行（Claude Code / Codex / Aider）
+        /// 一次性无头执行（Claude Code / Codex / pi）
         case headless
     }
 

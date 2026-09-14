@@ -210,8 +210,10 @@ public enum EnvironmentSetup {
             raw = [("npm", true, 16, false, "npm install -g opencode-ai", true)]
         case "codex":
             raw = [("npm", true, 16, false, "npm install -g @openai/codex", true)]
-        case "aider":
-            raw = [("pip", false, 0, true, "python3 -m pip install aider-install && aider-install", true)]
+        case "pi":
+            // 与 Windows `env_setup::install_methods_for` 的 "pi" 分支对齐
+            // （同为 npm 全局包，Node 主版本要求一致）。
+            raw = [("npm", true, 20, false, "npm install -g @earendil-works/pi-coding-agent", true)]
         default:
             raw = []
         }
@@ -304,7 +306,7 @@ public enum EnvironmentSetup {
         case ("claude-code", "npm"): return "npm install -g @anthropic-ai/claude-code"
         case ("opencode", "npm"): return "npm install -g opencode-ai"
         case ("codex", "npm"): return "npm install -g @openai/codex"
-        case ("aider", "pip"): return "python3 -m pip install aider-install && aider-install"
+        case ("pi", "npm"): return "npm install -g @earendil-works/pi-coding-agent"
         default: return nil
         }
     }
@@ -314,7 +316,7 @@ public enum EnvironmentSetup {
         case "claude-code": return "claude update"
         case "opencode": return "npm install -g opencode-ai@latest"
         case "codex": return "npm install -g @openai/codex@latest"
-        case "aider": return "python3 -m pip install -U aider-install && aider-install"
+        case "pi": return "npm install -g @earendil-works/pi-coding-agent@latest"
         default: return nil
         }
     }

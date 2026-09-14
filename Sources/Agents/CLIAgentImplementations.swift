@@ -24,13 +24,15 @@ final class CodexAgent: HeadlessCLIAgent {
     }
 }
 
-final class AiderAgent: HeadlessCLIAgent {
+final class PiAgent: HeadlessCLIAgent {
     init(modelId: String? = nil) {
-        super.init(id: "aider", name: "Aider", modelId: modelId)
+        super.init(id: "pi", name: "pi", modelId: modelId)
     }
 
+    /// 与 Windows `command_runner::headless_args` 的 `"pi"` 分支逐字对齐：
+    /// `pi -p <text>`（print 模式：响应打印后退出），用户选过模型再追加 `--model <id>`。
     override func executionArguments(_ command: String) -> [String] {
-        var args = ["--message", command, "--yes-always", "--no-auto-commits"]
+        var args = ["-p", command]
         if let modelId { args += ["--model", modelId] }
         return args
     }

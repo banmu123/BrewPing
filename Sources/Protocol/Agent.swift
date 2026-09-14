@@ -23,7 +23,7 @@ extension BrewPingProtocol {
         case unavailable
     }
 
-    /// 一个 AI Coding Agent（OpenCode / Claude Code / Codex / Aider / …）。
+    /// 一个 AI Coding Agent（OpenCode / Claude Code / Codex / pi / …）。
     ///
     /// 迁移映射：
     /// - `DetectedAgent`（AgentDiscovery）→ 本模型的静态发现视图

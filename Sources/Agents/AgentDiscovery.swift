@@ -116,9 +116,10 @@ public final class AgentDiscovery {
             versionArguments: ["--version"]
         ),
         AgentDefinition(
-            id: "aider",
-            name: "Aider",
-            command: "aider",
+            // 与 Windows `agent_discovery::CATALOG` 逐字段对齐（name 就是小写 "pi"）。
+            id: "pi",
+            name: "pi",
+            command: "pi",
             versionArguments: ["--version"]
         )
     ]
