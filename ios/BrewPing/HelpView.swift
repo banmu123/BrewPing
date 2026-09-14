@@ -3,7 +3,7 @@ import SwiftUI
 /// Help / About 页。
 ///
 /// 审核侧要求每个 App 都能在**站内**找到：
-///   - 使用说明（尤其是"需要配套 Mac 端"这件事）
+///   - 使用说明（"需要配套电脑端"——Mac / Windows 都支持）
 ///   - 隐私政策入口
 ///   - 支持联系方式
 ///   - 第三方商标免责声明
@@ -11,7 +11,6 @@ import SwiftUI
 struct HelpView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var language = LanguageManager.shared
-    @StateObject private var approvalMode = ApprovalModeStore.shared
     @StateObject private var deviceStore = DeviceStore.shared
 
     var body: some View {
@@ -31,34 +30,15 @@ struct HelpView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if deviceStore.activeDevice != nil {
-                    Section("Approval") {
-                        Picker("Approval Mode", selection: Binding(
-                            get: { approvalMode.mode },
-                            set: { newMode in Task { await approvalMode.setMode(newMode) } }
-                        )) {
-                            ForEach(ApprovalModeStore.Mode.allCases) { option in
-                                Text(option.displayName).tag(option)
-                            }
-                        }
-                        Text(approvalMode.mode.summary)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        Text("Decides when BrewPing asks you to confirm before running a risky command on your Mac.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
                 Section("How BrewPing works") {
-                    Text("BrewPing lets you monitor and control coding-agent sessions running on **your own Mac** — from your iPhone and Apple Watch, over your local network.")
+                    Text("BrewPing lets you monitor and control coding-agent sessions running on **your own computer (Mac or Windows PC)** — from your iPhone and Apple Watch, over your local network.")
                     Label("The iPhone app is the remote control.", systemImage: "iphone")
-                    Label("A Mac running \(BrewPingConfig.macAppName) does the actual work.", systemImage: "desktopcomputer")
+                    Label("A Mac or Windows PC running \(BrewPingConfig.macAppName) does the actual work.", systemImage: "desktopcomputer")
                 }
 
-                Section("Set up your Mac") {
-                    numberedStep(1, "Install and open \(BrewPingConfig.macAppName) on your Mac.")
-                    numberedStep(2, "Keep the Mac and this iPhone on the same Wi-Fi network.")
+                Section("Set up your computer") {
+                    numberedStep(1, "Install and open \(BrewPingConfig.macAppName) on your Mac or Windows PC.")
+                    numberedStep(2, "Keep the computer and this iPhone on the same Wi-Fi network.")
                     numberedStep(3, "In \(BrewPingConfig.macAppName), tap “Pairing Code” to reveal a 6-digit code.")
                     numberedStep(4, "In this app, tap + in the device bar, enter the code, and save.")
                     Text("No account is required. The pairing code is exchanged once for a key that is stored in the iOS Keychain.")
@@ -66,8 +46,8 @@ struct HelpView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Section("Try it without a Mac") {
-                    Text("Add a Demo device to walk through the whole flow — no Mac and no hardware needed. The Demo device simulates status, agents, session control and command results locally.")
+                Section("Try it without a computer") {
+                    Text("Add a Demo device to walk through the whole flow — no computer and no hardware needed. The Demo device simulates status, agents, session control and command results locally.")
                     Button {
                         DeviceStore.shared.addDemoDevice()
                         dismiss()
@@ -82,7 +62,7 @@ struct HelpView: View {
                             Label("Privacy Policy", systemImage: "hand.raised")
                         }
                     }
-                    Text("BrewPing has no account, no analytics, and no third-party SDKs. Commands, agent output and voice audio stay on your iPhone and your own Mac. They are sent only to the Mac you configured, on your local network.")
+                    Text("BrewPing has no account, no analytics, and no third-party SDKs. Commands, agent output and voice audio stay on your iPhone and your own computer. They are sent only to the Mac or Windows PC you configured, on your local network.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -107,9 +87,6 @@ struct HelpView: View {
             }
             .navigationTitle("Help & About")
             .navigationBarTitleDisplayMode(.inline)
-            .task {
-                await approvalMode.refresh()
-            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }

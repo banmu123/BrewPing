@@ -110,20 +110,21 @@
 "Help and About" = "Help and About";
 "Help & About" = "Help & About";
 "How BrewPing works" = "How BrewPing works";
-"BrewPing lets you monitor and control coding-agent sessions running on **your own Mac** — from your iPhone and Apple Watch, over your local network." = "BrewPing lets you monitor and control coding-agent sessions running on **your own Mac** — from your iPhone and Apple Watch, over your local network.";
+"BrewPing lets you monitor and control coding-agent sessions running on **your own computer (Mac or Windows PC)** — from your iPhone and Apple Watch, over your local network." = "BrewPing lets you monitor and control coding-agent sessions running on **your own computer (Mac or Windows PC)** — from your iPhone and Apple Watch, over your local network.";
 "The iPhone app is the remote control." = "The iPhone app is the remote control.";
-"A Mac running %@ does the actual work." = "A Mac running %@ does the actual work.";
-"Set up your Mac" = "Set up your Mac";
-"Keep the Mac and this iPhone on the same Wi-Fi network." = "Keep the Mac and this iPhone on the same Wi-Fi network.";
+"A Mac or Windows PC running %@ does the actual work." = "A Mac or Windows PC running %@ does the actual work.";
+"Set up your computer" = "Set up your computer";
+"Install and open %@ on your Mac or Windows PC." = "Install and open %@ on your Mac or Windows PC.";
+"Keep the computer and this iPhone on the same Wi-Fi network." = "Keep the computer and this iPhone on the same Wi-Fi network.";
 "In %@, tap “Pairing Code” to reveal a 6-digit code." = "In %@, tap “Pairing Code” to reveal a 6-digit code.";
 "In this app, tap + in the device bar, enter the code, and save." = "In this app, tap + in the device bar, enter the code, and save.";
 "No account is required. The pairing code is exchanged once for a key that is stored in the iOS Keychain." = "No account is required. The pairing code is exchanged once for a key that is stored in the iOS Keychain.";
-"Try it without a Mac" = "Try it without a Mac";
-"Add a Demo device to walk through the whole flow — no Mac and no hardware needed. The Demo device simulates status, agents, session control and command results locally." = "Add a Demo device to walk through the whole flow — no Mac and no hardware needed. The Demo device simulates status, agents, session control and command results locally.";
+"Try it without a computer" = "Try it without a computer";
+"Add a Demo device to walk through the whole flow — no computer and no hardware needed. The Demo device simulates status, agents, session control and command results locally." = "Add a Demo device to walk through the whole flow — no computer and no hardware needed. The Demo device simulates status, agents, session control and command results locally.";
 "Add Demo Device" = "Add Demo Device";
 "Privacy" = "Privacy";
 "Privacy Policy" = "Privacy Policy";
-"BrewPing has no account, no analytics, and no third-party SDKs. Commands, agent output and voice audio stay on your iPhone and your own Mac. They are sent only to the Mac you configured, on your local network." = "BrewPing has no account, no analytics, and no third-party SDKs. Commands, agent output and voice audio stay on your iPhone and your own Mac. They are sent only to the Mac you configured, on your local network.";
+"BrewPing has no account, no analytics, and no third-party SDKs. Commands, agent output and voice audio stay on your iPhone and your own computer. They are sent only to the Mac or Windows PC you configured, on your local network." = "BrewPing has no account, no analytics, and no third-party SDKs. Commands, agent output and voice audio stay on your iPhone and your own computer. They are sent only to the Mac or Windows PC you configured, on your local network.";
 "Support" = "Support";
 "Legal" = "Legal";
 "About" = "About";
@@ -189,7 +190,6 @@
 
 "Approval" = "Approval";
 "Approval Mode" = "Approval Mode";
-"Decides when BrewPing asks you to confirm before running a risky command on your Mac." = "Decides when BrewPing asks you to confirm before running a risky command on your Mac.";
 "Couldn't switch approval mode: %@" = "Couldn't switch approval mode: %@";
 
 /* MARK: - Conversation settings（对话级 Agent / 模型 / 授权） */
