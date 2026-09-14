@@ -43,15 +43,33 @@
 
 ## 端口拓扑（🚨 易排查错）
 `8787`=`http_server`（绑 `0.0.0.0`）← **排查入口**；`15721`=`model_proxy`（绑 `127.0.0.1`，得 503 属正常）。`start_server` 有 +1/+2/+3 回落。
+- 🚨 **15721 与 cc-switch 冲突**（本机实测）：`cc-switch` 默认也 LISTEN `127.0.0.1:15721`，且它把 `ANTHROPIC_BASE_URL` 写成该地址。两者**不能同时启用自有代理** → 启用前必须查占用（`lsof -nP -iTCP:15721 -sTCP:LISTEN`），要么换端口要么显式互斥提示。Phase 1 的 UI 只显示"启用"、绑不上不报错。
+
+## 本机 cc-switch（排查模型配置时的重要参照）
+- 目录 `~/.cc-switch/`：`cc-switch.db`(SQLite, ~7MB, 持续在写)、`settings.json`(含 `currentProviderClaude`/`currentProviderCodex`)、`backups/`、`logs/`。
+- `providers` 表**复合主键 `(id, app_type)`**；关键列 `app_type`/`name`/`settings_config`/`category`/`is_current`/`in_failover_queue`/`provider_type`。`app_type` 实测取值：`claude`/`claude-desktop`/`codex`/`gemini`/`opencode`。
+- 🚨 **`settings_config` 含明文 API Key** → 排查只 `select` 非敏感列，绝不 dump 整表。
+- **cc-switch 只在"激活"时把配置投影进 CLI 文件**（`~/.claude/settings.json` / `~/.codex/config.toml` / `~/.config/opencode/opencode.json`）。所以「CLI 文件里有 = 当前生效的厂商」，**库里有但未激活的厂商在 CLI 文件里看不到**（例：本机 codex 存了 OpenCode Go / Xiaomi MiMo，但 `currentProviderCodex=codex-official` → config.toml 里没有 `[model_providers]`）。
+- 只读打开方式：`sqlite3 "file:$HOME/.cc-switch/cc-switch.db?mode=ro" "select ..."`。
 
 ## 模型配置代理（cc-switch 迁移）
 - 链路 `model_provider_store` → `model_proxy(:15721)`+`model_transform`(Anthropic⇄OpenAI+SSE)+`cli_takeover`+`provider_catalog`。
 - Key 安全：明文 Key 绝不回传（掩码；upsert 空/掩码=保留旧）；CLI 只写占位 `brewping-proxy`。接管支持 claude_code/codex/pi。
 - 归属路由 provider 带 `agent_id`，`current_by_agent` 分槽（专属→通用→None），base_url 加 `/claude` `/codex` `/pi` 别名。预设目录 kimi/deepseek/zhipu/xiaomi/minimax+custom。i18n `mp.*` 与 DesktopStrings 同批。
 
-## 厂商原生配置写入（三模块同构，对标 cc-switch）
+## 厂商原生配置写入（四模块同构，对标 cc-switch）✅ 两端已实现（macOS 2026-09-14 补齐）
 > 与 `cli_takeover`（指本地代理的占位配置）**并存**：这套写用户自定义厂商真地址真 Key。cc-switch 是 `match app_type` 分派+每 CLI 专属模块，**非通用实现**。
-> **通用模板**：每 agent 一 service+双入口（真路径／`*_at(path)` 测试隔离）+key 校验+Tauri 命令+前端表单（i18n `cl.*`/`cx.*`/`pi.*`），面板只在对应 tab 渲染。命令面 `get/save/delete_(claude|codex|pi|opencode)_provider`。
+> **通用模板**：每 agent 一 service+双入口（真路径／`*_at(path)` 测试隔离）+key 校验+Tauri 命令+前端表单（i18n `cl.*`/`cx.*`/`pi.*`/`oc.*`），面板只在对应 tab 渲染。命令面 `get/save/delete_(claude|codex|pi|opencode)_provider`（codex/pi 另有 `activate_*`）。
+> UI 上就是各 tab 里那个「**xxx 厂商 · <文件名>**」区块，**只在对应 Agent tab 下渲染**。
+
+- 🚨 **macOS 侧文件对照（Sources/App/）**：`CLIConfigSupport.swift`（BOM/JSON 读写/锁）→ `MiniTOML.swift` → `ClaudeProviderConfig.swift` / `CodexProviderConfig.swift` / `PiProviderConfig.swift` / `OpenCodeProviderConfig.swift`；命令面 `DesktopCLIProviderCommands.swift`；UI `Sources/BrewPingDesktop/CLIProviderPanels.swift`（4 面板 + 4 表单）。
+- 🚨 **Claude 必须 `env` 段就地合并、绝不重建** —— 重建会清掉 `DISABLE_TELEMETRY` / `API_TIMEOUT_MS` / `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`。写前剥 cc-switch 元字段（`api_format`/`apiFormat`/`openrouter_compat_mode`/`openrouterCompatMode`）。**三档语义：空串 = 删除该键**，所以 UI 必须把三档都提交（未用的传空串）。删除 = 摘 `ANTHROPIC_*` 键（含三档 ±`_NAME`），env 摘空则移除整个 `env` 键。
+- 🚨 **Swift 没有 `toml_edit` 等价库** → codex 的 `config.toml` 用自写的 `MiniTOML`（**按行编辑**：解析出顶层标量 + 各 `[table]` 块行号，只替换/插入/删除目标行，注释/空行/其它表/`[[array]]` 原样保留）。**有意差异**：不额外输出显式的 `[model_providers]` 父表头（语义等价，输出更干净）。
+- 🚨 **macOS 侧读 provider id 必须剥 `model_providers.` 前缀**（踩过：只取前缀匹配的表名会让 id 变成 `model_providers.my-deepseek`，后续按 id 查表全落空）。
+- ⚠️ **本端修好的两处 Windows 疏漏**：① pi 的 temp+rename 会重置文件权限 → 先对齐临时文件权限再替换；② opencode 保存时"替换整个节点"会丢掉前端不编辑的 `options.headers` → 显式保留。
+- ⚠️ **Windows 存量 bug（本端未复刻）**：`CodexProviderEntry` / `PiProviderEntry` 的 `base_url` 走 serde camelCase 出 `baseUrl`，而前端 TS 读 `baseURL` → Codex/pi 面板的 baseURL 显示为空（opencode 因有显式 `rename` 无此问题）。用户截图里 Codex 卡片那行的 `–` 就是它。
+- ⚠️ **Windows 存量 bug（两端同源）**：codex 解析器无 `model_provider` 时伪造名为 `custom` 的厂商（`AgentConfigDiscovery.swift:215` / `agent_config.rs:348`）。**尚未修**。
+- 验证：`./tools/verify-cli-config.sh`（99 项断言，**本机可跑** —— 只有 CLT 时 XCTest/swift-testing 都不可用，故用独立 swiftc harness）；`Tests/BrewPingCoreTests` 留待有 Xcode 的机器跑 `swift test`。
 
 - 🚨 **Claude** `claude_config.rs`→`~/.claude/settings.json`：只覆盖 `env` 段且必须**就地合并而非重建**（重建会清掉用户 `DISABLE_TELEMETRY` 等）；三档 `ANTHROPIC_DEFAULT_{SONNET,OPUS,HAIKU}_MODEL`(+`_NAME`) 留空不写。单例。
 - 🚨 **Codex** `codex_provider_config.rs`→`~/.codex/config.toml`：`[model_providers.<key>]` 的 `name` **必填**；保留 id `openai`/`ollama`/`lmstudio` 不可覆盖（大小写精确）。**绝不碰 auth.json**。
