@@ -39,6 +39,7 @@ struct ModelProvidersView: View {
             if proxyOpen { proxySettings }
             tabBar
             providerPanel
+            cliProviderSection
             cliSection
             agentPrefsSection
 
@@ -341,6 +342,25 @@ struct ModelProvidersView: View {
             isFullUrl: view.isFullUrl, model: view.model, notes: view.notes,
             createdAtMs: view.createdAtMs, sortIndex: view.sortIndex
         )
+    }
+
+    // MARK: - CLI 原生厂商面板（对齐 Windows 各 `*-provider-panel.tsx`）
+    //
+    // 与上方「厂商面板」的**根本区别**：那个只读写 BrewPing 自有的供应商库
+    // （服务转发链路）；这里是**直接读写用户真实的 CLI 配置文件**
+    // （`~/.claude/settings.json` / `~/.codex/config.toml` / `~/.pi/agent/*` /
+    // `~/.config/opencode/opencode.json`），让 CLI 自己就能用上你的中转站。
+    // 与 Windows 相同：**只在对应 Agent tab 下渲染**。
+
+    @ViewBuilder
+    private var cliProviderSection: some View {
+        switch activeTab {
+        case "claude-code": ClaudeProviderPanel()
+        case "codex":       CodexProviderPanel()
+        case "pi":          PiProviderPanel()
+        case "opencode":    OpenCodeProviderPanel()
+        default:            EmptyView()
+        }
     }
 
     // MARK: - CLI 接入（Phase 2）

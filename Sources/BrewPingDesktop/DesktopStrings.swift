@@ -246,6 +246,92 @@ public enum LKey: String, CaseIterable {
     case mpPresetCategoryCustom = "mp.presetCategory.custom"
     case envUpdate = "env.update"
     case envUpdateTitle = "env.updateTitle"
+    case clBaseUrlPlaceholder = "cl.baseUrlPlaceholder"
+    case clConfigure = "cl.configure"
+    case clDeleteHint = "cl.deleteHint"
+    case clEditTitle = "cl.editTitle"
+    case clEmpty = "cl.empty"
+    case clEmptyHint = "cl.emptyHint"
+    case clFormHint = "cl.formHint"
+    case clHaiku = "cl.haiku"
+    case clOpus = "cl.opus"
+    case clOtherKeysHint = "cl.otherKeysHint"
+    case clOtherKeysNone = "cl.otherKeysNone"
+    case clProviderName = "cl.providerName"
+    case clSonnet = "cl.sonnet"
+    case clSubtitle = "cl.subtitle"
+    case clTiers = "cl.tiers"
+    case clTiersHint = "cl.tiersHint"
+    case clTitle = "cl.title"
+    case cxActivate = "cx.activate"
+    case cxActive = "cx.active"
+    case cxAddTitle = "cx.addTitle"
+    case cxAdvancedHint = "cx.advancedHint"
+    case cxApiKeyHint = "cx.apiKeyHint"
+    case cxBaseUrlPlaceholder = "cx.baseUrlPlaceholder"
+    case cxDeleteHint = "cx.deleteHint"
+    case cxEditTitle = "cx.editTitle"
+    case cxEmptyHint = "cx.emptyHint"
+    case cxErrKeyReserved = "cx.errKeyReserved"
+    case cxFormHint = "cx.formHint"
+    case cxKeyPlaceholder = "cx.keyPlaceholder"
+    case cxModel = "cx.model"
+    case cxModelHint = "cx.modelHint"
+    case cxModelPlaceholder = "cx.modelPlaceholder"
+    case cxSubtitle = "cx.subtitle"
+    case cxTitle = "cx.title"
+    case cxWireApi = "cx.wireApi"
+    case cxWireApiHint = "cx.wireApiHint"
+    case ocAdd = "oc.add"
+    case ocAddModel = "oc.addModel"
+    case ocAddTitle = "oc.addTitle"
+    case ocEditTitle = "oc.editTitle"
+    case ocEmpty = "oc.empty"
+    case ocEmptyHint = "oc.emptyHint"
+    case ocErrBaseRequired = "oc.errBaseRequired"
+    case ocErrBaseScheme = "oc.errBaseScheme"
+    case ocErrKeyFormat = "oc.errKeyFormat"
+    case ocErrKeyRequired = "oc.errKeyRequired"
+    case ocErrKeyTaken = "oc.errKeyTaken"
+    case ocErrModelsRequired = "oc.errModelsRequired"
+    case ocFetchModels = "oc.fetchModels"
+    case ocFetchUnsupported = "oc.fetchUnsupported"
+    case ocFormHint = "oc.formHint"
+    case ocHeadersHint = "oc.headersHint"
+    case ocKey = "oc.key"
+    case ocKeyHint = "oc.keyHint"
+    case ocKeyPlaceholder = "oc.keyPlaceholder"
+    case ocModelCount = "oc.modelCount"
+    case ocModelIdPlaceholder = "oc.modelIdPlaceholder"
+    case ocModelNamePlaceholder = "oc.modelNamePlaceholder"
+    case ocModels = "oc.models"
+    case ocNamePlaceholder = "oc.namePlaceholder"
+    case ocNotCreated = "oc.notCreated"
+    case ocNpm = "oc.npm"
+    case ocSubtitle = "oc.subtitle"
+    case ocTitle = "oc.title"
+    case piAddTitle = "pi.addTitle"
+    case piAdvancedHint = "pi.advancedHint"
+    case piApi = "pi.api"
+    case piApiHint = "pi.apiHint"
+    case piApiKeyHint = "pi.apiKeyHint"
+    case piBaseUrlPlaceholder = "pi.baseUrlPlaceholder"
+    case piDefault = "pi.default"
+    case piDefaultLabel = "pi.defaultLabel"
+    case piDeleteHint = "pi.deleteHint"
+    case piEditTitle = "pi.editTitle"
+    case piEmptyHint = "pi.emptyHint"
+    case piErrModelsRequired = "pi.errModelsRequired"
+    case piFormHint = "pi.formHint"
+    case piKeyLockedHint = "pi.keyLockedHint"
+    case piKeyPlaceholder = "pi.keyPlaceholder"
+    case piModelCount = "pi.modelCount"
+    case piModelIdPlaceholder = "pi.modelIdPlaceholder"
+    case piModels = "pi.models"
+    case piModelsHint = "pi.modelsHint"
+    case piSetDefault = "pi.setDefault"
+    case piSubtitle = "pi.subtitle"
+    case piTitle = "pi.title"
 }
 
 public enum DesktopStrings {
@@ -488,6 +574,92 @@ public enum DesktopStrings {
         .mpPresetCategoryCustom: "自定义",
         .envUpdate: "更新",
         .envUpdateTitle: "更新到最新版本（官方更新通道）",
+        .clBaseUrlPlaceholder: "https://api.deepseek.com/anthropic",
+        .clConfigure: "配置厂商",
+        .clDeleteHint: "清除 Claude Code 的厂商配置（仅摘除 ANTHROPIC_* 键）。",
+        .clEditTitle: "Claude Code 厂商配置",
+        .clEmpty: "还没有配置厂商",
+        .clEmptyHint: "配置一次，BrewPing 会帮你写好 settings.json，Claude Code 直接用你的中转站。",
+        .clFormHint: "保存后整体覆盖 settings.json 的 env 段（其余顶层键原样保留）。",
+        .clHaiku: "Haiku",
+        .clOpus: "Opus",
+        .clOtherKeysHint: "以下顶层键会原样保留（不参与覆盖）：",
+        .clOtherKeysNone: "settings.json 中暂无其他顶层配置。",
+        .clProviderName: "厂商名称（可选）",
+        .clSonnet: "Sonnet",
+        .clSubtitle: "写入 ~/.claude/settings.json 的 env 段，保存后 Claude Code 即刻生效。",
+        .clTiers: "模型档位映射",
+        .clTiersHint: "把 Claude Code 内置的 sonnet / opus / haiku 三档映射到厂商真实型号；留空则该档用官方默认。",
+        .clTitle: "Claude Code 厂商",
+        .cxActivate: "设为生效",
+        .cxActive: "生效中",
+        .cxAddTitle: "添加厂商",
+        .cxAdvancedHint: "需要设置 approval_policy、sandbox 或 reasoning 等高级项时，保存后手动编辑 config.toml。",
+        .cxApiKeyHint: "写入 experimental_bearer_token；不会覆盖你的 ChatGPT 登录凭据。",
+        .cxBaseUrlPlaceholder: "https://api.deepseek.com/v1",
+        .cxDeleteHint: "从 config.toml 删除该厂商（若为生效项同时清除顶层 model_provider）。",
+        .cxEditTitle: "编辑厂商",
+        .cxEmptyHint: "添加一个厂商，BrewPing 会帮你写好 config.toml 并设为生效项。",
+        .cxErrKeyReserved: "openai / ollama / lmstudio 是 Codex 保留标识，不能占用",
+        .cxFormHint: "保存后写入 config.toml 的 [model_providers.<key>]，注释与其它配置原样保留。",
+        .cxKeyPlaceholder: "my-deepseek",
+        .cxModel: "默认模型（可选）",
+        .cxModelHint: "留空不会覆盖 config.toml 里已有的顶层 model。",
+        .cxModelPlaceholder: "留空则不指定，沿用 Codex 当前设置",
+        .cxSubtitle: "写入 ~/.codex/config.toml 的 [model_providers]，不改动登录凭据。",
+        .cxTitle: "Codex 厂商",
+        .cxWireApi: "接口协议（wire_api）",
+        .cxWireApiHint: "多数中转站用 chat；官方 OpenAI 新接口用 responses。",
+        .ocAdd: "添加厂商",
+        .ocAddModel: "添加模型",
+        .ocAddTitle: "添加厂商",
+        .ocEditTitle: "编辑厂商",
+        .ocEmpty: "还没有配置厂商",
+        .ocEmptyHint: "添加一个厂商，BrewPing 会帮你写好 opencode.json。",
+        .ocErrBaseRequired: "请填写 API 基址",
+        .ocErrBaseScheme: "地址需以 http:// 或 https:// 开头",
+        .ocErrKeyFormat: "只能用小写字母、数字与单个连字符（如 my-deepseek）",
+        .ocErrKeyRequired: "请填写厂商标识",
+        .ocErrKeyTaken: "该标识已被占用，请换一个",
+        .ocErrModelsRequired: "至少填写一个模型 ID",
+        .ocFetchModels: "拉取模型",
+        .ocFetchUnsupported: "该地址无法自动拉取，请手动填写模型",
+        .ocFormHint: "保存后自动写入 opencode.json 的 provider 段，无需手动改文件。",
+        .ocHeadersHint: "如需自定义请求头，可在保存后手动编辑 opencode.json。",
+        .ocKey: "厂商标识（provider key）",
+        .ocKeyHint: "小写字母、数字与单个连字符；由名称自动生成，可手动修改。",
+        .ocKeyPlaceholder: "my-deepseek",
+        .ocModelCount: "{n} 个模型",
+        .ocModelIdPlaceholder: "模型 ID，如 deepseek-chat",
+        .ocModelNamePlaceholder: "显示名（可选）",
+        .ocModels: "模型列表",
+        .ocNamePlaceholder: "如 DeepSeek / Kimi",
+        .ocNotCreated: "文件尚未创建",
+        .ocNpm: "接口格式（npm 包）",
+        .ocSubtitle: "直接写入 opencode 配置文件，保存后 opencode 即刻可用。",
+        .ocTitle: "OpenCode 厂商",
+        .piAddTitle: "添加厂商",
+        .piAdvancedHint: "如需设置 headers、超时等高级项，保存后手动编辑 models.json。",
+        .piApi: "接口协议（api）",
+        .piApiHint: "Anthropic 系用 anthropic-messages；OpenAI 兼容用 openai-completions 或 openai-responses。",
+        .piApiKeyHint: "写入该厂商的 apiKey；不会覆盖 pi 的登录凭据（auth.json）。",
+        .piBaseUrlPlaceholder: "https://api.deepseek.com",
+        .piDefault: "默认",
+        .piDefaultLabel: "当前默认：",
+        .piDeleteHint: "从 models.json 删除该厂商（若为默认项同时清除默认设置）。",
+        .piEditTitle: "编辑厂商",
+        .piEmptyHint: "添加一个厂商，BrewPing 会帮你写好 models.json。",
+        .piErrModelsRequired: "至少填写一个模型 ID",
+        .piFormHint: "保存后写入 models.json 的 providers.<key>，其余厂商与设置原样保留。",
+        .piKeyLockedHint: "厂商标识不可修改（改动等于删旧建新，会让默认项悬空）。",
+        .piKeyPlaceholder: "my-deepseek",
+        .piModelCount: "{n} 个模型",
+        .piModelIdPlaceholder: "模型 ID，如 deepseek-chat",
+        .piModels: "模型列表",
+        .piModelsHint: "第一条即「设为默认」时使用的模型。",
+        .piSetDefault: "设为默认",
+        .piSubtitle: "写入 ~/.pi/agent/models.json 的 providers，默认项记在 settings.json。",
+        .piTitle: "pi 厂商",
     ]
 
     /// 英文词典（key 集合与中文严格一致）。
@@ -728,5 +900,91 @@ public enum DesktopStrings {
         .mpPresetCategoryCustom: "Custom",
         .envUpdate: "Update",
         .envUpdateTitle: "Update to the latest version (official channel)",
+        .clBaseUrlPlaceholder: "https://api.deepseek.com/anthropic",
+        .clConfigure: "Configure provider",
+        .clDeleteHint: "Remove the Claude Code provider config (only the ANTHROPIC_* keys are stripped).",
+        .clEditTitle: "Claude Code provider",
+        .clEmpty: "No provider configured yet",
+        .clEmptyHint: "Configure once and BrewPing writes settings.json for you — Claude Code uses your gateway directly.",
+        .clFormHint: "Saving overwrites the env block of settings.json (other top-level keys are kept).",
+        .clHaiku: "Haiku",
+        .clOpus: "Opus",
+        .clOtherKeysHint: "These top-level keys are preserved as-is (not overwritten):",
+        .clOtherKeysNone: "No other top-level config in settings.json.",
+        .clProviderName: "Provider name (optional)",
+        .clSonnet: "Sonnet",
+        .clSubtitle: "Writes the env block of ~/.claude/settings.json — effective immediately.",
+        .clTiers: "Model tier mapping",
+        .clTiersHint: "Maps Claude Code's built-in sonnet / opus / haiku tiers to your provider's models; leave blank to use the official defaults.",
+        .clTitle: "Claude Code provider",
+        .cxActivate: "Set active",
+        .cxActive: "Active",
+        .cxAddTitle: "Add provider",
+        .cxAdvancedHint: "For approval_policy, sandbox or reasoning settings, edit config.toml manually after saving.",
+        .cxApiKeyHint: "Written to experimental_bearer_token; your ChatGPT login is never overwritten.",
+        .cxBaseUrlPlaceholder: "https://api.deepseek.com/v1",
+        .cxDeleteHint: "Remove this provider from config.toml (clears top-level model_provider if active).",
+        .cxEditTitle: "Edit provider",
+        .cxEmptyHint: "Add a provider and BrewPing writes config.toml and makes it the active one.",
+        .cxErrKeyReserved: "openai / ollama / lmstudio are reserved by Codex and cannot be used",
+        .cxFormHint: "Saving writes [model_providers.<key>] in config.toml — comments and other config are kept.",
+        .cxKeyPlaceholder: "my-deepseek",
+        .cxModel: "Default model (optional)",
+        .cxModelHint: "Blank will not overwrite an existing top-level model in config.toml.",
+        .cxModelPlaceholder: "Leave blank to keep Codex's current setting",
+        .cxSubtitle: "Writes [model_providers] in ~/.codex/config.toml without touching login credentials.",
+        .cxTitle: "Codex provider",
+        .cxWireApi: "Wire API",
+        .cxWireApiHint: "Most gateways use chat; OpenAI's newer API uses responses.",
+        .ocAdd: "Add provider",
+        .ocAddModel: "Add model",
+        .ocAddTitle: "Add provider",
+        .ocEditTitle: "Edit provider",
+        .ocEmpty: "No providers configured yet",
+        .ocEmptyHint: "Add a provider and BrewPing will write opencode.json for you.",
+        .ocErrBaseRequired: "Base URL is required",
+        .ocErrBaseScheme: "URL must start with http:// or https://",
+        .ocErrKeyFormat: "Use lowercase letters, digits and single dashes (e.g. my-deepseek)",
+        .ocErrKeyRequired: "Provider key is required",
+        .ocErrKeyTaken: "This key is already taken",
+        .ocErrModelsRequired: "Add at least one model ID",
+        .ocFetchModels: "Fetch models",
+        .ocFetchUnsupported: "Cannot auto-fetch for this URL — enter models manually",
+        .ocFormHint: "Saving writes the provider section of opencode.json automatically — no manual editing.",
+        .ocHeadersHint: "To set custom request headers, edit opencode.json manually after saving.",
+        .ocKey: "Provider key",
+        .ocKeyHint: "Lowercase letters, digits and single dashes. Derived from the name; editable.",
+        .ocKeyPlaceholder: "my-deepseek",
+        .ocModelCount: "{n} model(s)",
+        .ocModelIdPlaceholder: "Model ID, e.g. deepseek-chat",
+        .ocModelNamePlaceholder: "Display name (optional)",
+        .ocModels: "Models",
+        .ocNamePlaceholder: "e.g. DeepSeek / Kimi",
+        .ocNotCreated: "file not created yet",
+        .ocNpm: "API format (npm package)",
+        .ocSubtitle: "Written straight into opencode's config file — usable immediately.",
+        .ocTitle: "OpenCode Providers",
+        .piAddTitle: "Add provider",
+        .piAdvancedHint: "For headers, timeouts and other advanced options, edit models.json manually after saving.",
+        .piApi: "API",
+        .piApiHint: "Anthropic-style uses anthropic-messages; OpenAI-compatible uses openai-completions or openai-responses.",
+        .piApiKeyHint: "Written to this provider's apiKey; pi's login credentials (auth.json) are never overwritten.",
+        .piBaseUrlPlaceholder: "https://api.deepseek.com",
+        .piDefault: "Default",
+        .piDefaultLabel: "Current default:",
+        .piDeleteHint: "Remove this provider from models.json (clears the default setting if it was default).",
+        .piEditTitle: "Edit provider",
+        .piEmptyHint: "Add a provider and BrewPing writes models.json for you.",
+        .piErrModelsRequired: "Enter at least one model ID",
+        .piFormHint: "Saving writes providers.<key> in models.json — other providers and settings are kept.",
+        .piKeyLockedHint: "The provider key cannot be changed (renaming is delete + recreate, orphaning the default).",
+        .piKeyPlaceholder: "my-deepseek",
+        .piModelCount: "{n} model(s)",
+        .piModelIdPlaceholder: "Model ID, e.g. deepseek-chat",
+        .piModels: "Models",
+        .piModelsHint: "The first entry is the one used when set as default.",
+        .piSetDefault: "Set default",
+        .piSubtitle: "Writes providers in ~/.pi/agent/models.json; defaults live in settings.json.",
+        .piTitle: "pi provider",
     ]
 }
