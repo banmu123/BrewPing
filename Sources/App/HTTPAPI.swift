@@ -173,7 +173,9 @@ enum HTTPAPI {
             "providers": providers,
             "activeModelId": config.activeModelId ?? NSNull(),
             "preferredModelId": defaultModelId ?? NSNull(),
-            "preferredProviderId": AgentManager.shared.defaultModelProvider(for: agentID) ?? NSNull()
+            "preferredProviderId": AgentManager.shared.defaultModelProvider(for: agentID) ?? NSNull(),
+            // 配置指纹：移动端把它并进缓存键，本机配置一变就自动重拉模型列表。
+            "configVersion": AgentConfigDiscovery.configVersion(agentId: agentID)
         ] as [String: Any])
     }
 

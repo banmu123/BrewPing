@@ -11,13 +11,19 @@ import SwiftUI
 /// ```json
 /// { "agentId": "opencode",
 ///   "providers": [ { "id", "name", "baseURL"?, "models": [ {"id","name","available","isActive","isDefault"} ] } ],
-///   "activeModelId": "...", "preferredModelId": "..." }
+///   "activeModelId": "...", "preferredModelId": "...", "configVersion": "..." }
 /// ```
+///
+/// `configVersion` 是主机侧配置文件的指纹（`mtime_nanos:size`，多文件用 `|`
+/// 连接、文件缺失记 `-`）。它**不参与展示**，只用来让下面的 `loadedKey` 感知
+/// "主机上的配置变了"，从而让 5 秒一轮的轮询真正去重拉模型列表。
+/// 老版本主机不返回该字段 → 解出 `nil`，此时退回原有的 device/agent 去重行为。
 private struct ModelsResponse: Decodable {
     let agentId: String?
     let providers: [Provider]?
     let activeModelId: String?
     let preferredModelId: String?
+    let configVersion: String?
 
     struct Provider: Decodable {
         let id: String?
@@ -87,12 +93,25 @@ final class ModelStore: ObservableObject {
     private var currentAgentID: String = ""
     /// 已加载过的 "deviceID/agentID"，避免状态轮询每 5 秒重复拉模型列表。
     private var loadedKey: String?
+    /// 上一次成功拉取时主机回报的配置指纹（`configVersion`）。
+    ///
+    /// 存在的意义：`loadedKey` 只认"设备/Agent 有没有换"，认不出"主机上那份
+    /// opencode.json / settings.json 被改了"。缺了它，用户在这边加完厂商、
+    /// 主机那侧配置已经变了，iPhone 这边因为 `loadedKey` 没变而**永远不重拉** ——
+    /// 表现就是"我在电脑上加了模型，手机上一直看不到"。
+    /// 记的是**最近一次成功响应**的值：请求失败时不更新，下次轮询会再试。
+    private var loadedConfigVersion: String?
 
-    /// 是否值得展示切换入口：0 个或只有 1 个模型时没有可选项。
+    /// 是否值得展示模型入口。
+    ///
+    /// 从 `models.count > 1` 放宽到 `!models.isEmpty`：只有一个模型时也要能看到
+    /// 当前用的是哪个 —— 「有 1 个可选」和「没得选」是两回事，前者入口消失会让
+    /// 用户以为配置没生效（实测踩过：xiaomi 只配了 1 个模型，界面上完全没有入口）。
+    /// 选择器在 `ConversationDetailView` 里对单选项天然退化，多一个入口无副作用。
     ///
     /// `unsupported`（主机没实现这个接口）时列表必然为空，这里显式写出来，
     /// 免得以后有人看到 `models` 为空却分不清是"这台机器没配模型"还是"这台主机没有这个接口"。
-    var canSwitch: Bool { !unsupported && models.count > 1 }
+    var canSwitch: Bool { !unsupported && !models.isEmpty }
 
     /// 当前生效模型的展示名；列表里没有时直接显示 id（比如配置里新增了模型但还没刷新）。
     var activeModelName: String? {
@@ -103,7 +122,15 @@ final class ModelStore: ObservableObject {
     // MARK: 拉取
 
     /// 拉取指定设备上某个 Agent 的模型列表。
-    /// - Note: 只在 device / agentID 变化时真正发请求（`refreshAgents` 等高频调用不会重复打接口）。
+    ///
+    /// 去重规则：`force` / device / agentID 变化 → 一定重拉（换主机必须重拉，
+    /// 旧列表属于别人）。同一目标下则直接发一次探测请求，用响应里的
+    /// `configVersion` 判断主机配置有没有变：没变就**不改动任何 state**
+    /// （不触发 SwiftUI 重绘、不闪列表），变了才应用新列表。
+    ///
+    /// 为什么不干脆"指纹没变就不发请求"：指纹只能从响应里拿到，本地没有别的
+    /// 途径知道主机配置变没变。好在这个请求很轻（就一个 GET，返回体几十字节），
+    /// 5 秒一次的开销可接受，换来的是**改完配置最多 5 秒内自动同步**。
     func refresh(device: ManagedDevice?, agentID: String, force: Bool = false) async {
         currentDevice = device
         currentAgentID = agentID
@@ -113,11 +140,18 @@ final class ModelStore: ObservableObject {
             unsupported = false
             loadError = nil
             loadedKey = nil
+            loadedConfigVersion = nil
             return
         }
 
         let key = "\(device.id)/\(agentID)"
-        if !force, loadedKey == key { return }
+        // 已判定过"主机没实现该接口"的目标不必反复撞：这是稳定的否定结论。
+        if !force, loadedKey == key, unsupported { return }
+
+        // 换设备 / 换 Agent：旧列表属于别的主机或别的 Agent，先清掉再拉，
+        // 免得新主机的界面短暂显示旧主机的模型（点了必然失败）。
+        let targetChanged = loadedKey != key
+        if targetChanged { clearModels() }
 
         guard let request = BrewPingHTTP.request(
             device: device,
@@ -128,6 +162,7 @@ final class ModelStore: ObservableObject {
             unsupported = false
             loadError = nil
             loadedKey = nil
+            loadedConfigVersion = nil
             return
         }
 
@@ -142,6 +177,7 @@ final class ModelStore: ObservableObject {
                 unsupported = false
                 loadError = nil
                 loadedKey = nil
+                loadedConfigVersion = nil
                 return
             }
 
@@ -153,6 +189,7 @@ final class ModelStore: ObservableObject {
                 loadError = nil
                 unsupported = true
                 loadedKey = key
+                loadedConfigVersion = nil
                 BrewPingLog.net.info("Model list unsupported by host (HTTP \(statusCode, privacy: .public))")
                 return
             }
@@ -160,6 +197,15 @@ final class ModelStore: ObservableObject {
             guard statusCode == 200 else { throw ModelLoadFailure.badStatus(statusCode) }
 
             let decoded = try JSONDecoder().decode(ModelsResponse.self, from: data)
+
+            // 配置指纹没变 → 内容必然一样，直接返回：不动 models / activeModelID，
+            // 避免每 5 秒无谓地触发一次 SwiftUI 重绘（列表会闪）。
+            let incoming = decoded.configVersion ?? ""
+            if !force, !targetChanged, !incoming.isEmpty, incoming == loadedConfigVersion {
+                loadError = nil
+                return
+            }
+
             models = Self.flatten(decoded)
             activeModelID = Self.resolveActive(
                 from: decoded,
@@ -169,6 +215,7 @@ final class ModelStore: ObservableObject {
             loadError = nil
             unsupported = false
             loadedKey = key
+            loadedConfigVersion = incoming.isEmpty ? nil : incoming
             // OSLog 的插值是 @autoclosure，直接引用 self 的属性会报
             // "reference to property in closure requires explicit use of 'self'"，先取局部变量。
             let count = models.count
@@ -211,15 +258,59 @@ final class ModelStore: ObservableObject {
     }
 
     /// 设备或 Agent 变了 —— 下次必须重新拉，否则会沿用上一个 Agent 的模型。
-    func invalidate() { loadedKey = nil }
+    /// 指纹一并清掉：它描述的是"旧目标那次成功响应"的配置，留着会误判。
+    func invalidate() {
+        loadedKey = nil
+        loadedConfigVersion = nil
+    }
 
     // MARK: 切换
 
-    func select(_ modelID: String, providerID: String? = nil) {
+    /// 选中一个模型。
+    ///
+    /// 两条落地路径，语义不同，不能混：
+    /// - **有 `conversationID`**（既有对话）→ 走对话级覆盖
+    ///   （`PATCH /api/conversations/<id>` 的 `modelId` + `modelProviderId`），
+    ///   只影响这一个对话。从对话里点进来的场景（含 `ModelPickerView`）都该走这条 ——
+    ///   用户的心智是"这个对话换个模型"，不是改全局默认。
+    /// - **无 `conversationID`**（草稿 / 无对话上下文）→ 改该 Agent 的全局默认模型
+    ///   （`POST /api/agents/models/default`），新对话以此为起点。
+    ///
+    /// 这条分叉与 `ConversationDetailView.selectModel` 的草稿/既有分支**语义一致**，
+    /// 两处不要各写一套判断。
+    ///
+    /// - Note: `providerID` 必须与 `modelID` 成对使用：同名模型可能来自多个 provider，
+    ///   缺了它会拼出错误的 `provider/model`。
+    func select(_ modelID: String, providerID: String? = nil, conversationID: String? = nil) {
         guard let device = currentDevice, !currentAgentID.isEmpty else {
             notice = L("No Mac connected. Add a device first.")
             return
         }
+
+        // 既有对话：写对话级覆盖，成功后由调用方重新拉取详情（onChanged）。
+        if let conversationID, !conversationID.isEmpty {
+            notice = nil
+            let agentID = currentAgentID
+            Task {
+                let ok = await ConversationStore.shared.setModel(
+                    device: device,
+                    id: conversationID,
+                    modelID: modelID,
+                    providerID: providerID
+                )
+                if ok {
+                    BrewPingLog.net.info("Conversation model override set to \(modelID, privacy: .public)")
+                } else {
+                    notice = L("Switch failed. Check the connection and try again.")
+                }
+                // 无论成败都回读一次：成功刷新 isDefault / 高亮，失败也要让界面
+                // 退回真实状态（避免乐观高亮留在错误的选项上）。
+                await refresh(device: device, agentID: agentID, force: true)
+            }
+            return
+        }
+
+        // 草稿 / 无对话上下文：改 Agent 全局默认。
         let previous = activeModelID
         // 乐观更新：先让界面高亮过去，请求失败再回滚。
         activeModelID = modelID
@@ -340,9 +431,17 @@ final class ModelStore: ObservableObject {
 
 // MARK: - 模型选择页（iPhone）
 
+/// 通用模型列表页。
+///
+/// ⚠️ **当前无调用方**（`ConversationDetailView` 用的是内嵌 Picker + 自己的
+/// `selectModel`，语义与这里一致）。保留它是为了将来需要一个独立的全屏选择页时
+/// 能直接复用 —— 真要用它，**必须传 `conversationID`**，否则选择会落到 Agent
+/// 全局默认上，与从对话里点进来的用户预期不符（`select` 的两条路径见其文档）。
 struct ModelPickerView: View {
+    /// 非空 → 选择写这个对话的覆盖；空 → 写 Agent 全局默认（仅无对话上下文时该为空）。
+    var conversationID: String?
+
     @StateObject private var store = ModelStore.shared
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         List {
@@ -361,7 +460,14 @@ struct ModelPickerView: View {
             Section("Available models") {
                 ForEach(store.models) { model in
                     Button {
-                        store.select(model.id)
+                        // providerID 必须与 modelID 成对提交：同名模型可能来自多个
+                        // provider，只传 id 时服务端会拿错 provider 去拼 `provider/model`。
+                        // conversationID 同样要带上，否则会误改 Agent 全局默认。
+                        store.select(
+                            model.id,
+                            providerID: model.providerID,
+                            conversationID: conversationID
+                        )
                     } label: {
                         HStack(spacing: 10) {
                             VStack(alignment: .leading, spacing: 2) {

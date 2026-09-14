@@ -20,6 +20,66 @@ enum AgentConfigDiscovery {
         }
     }
 
+    // MARK: - 配置指纹
+
+    /// 该 Agent 所读配置文件的指纹（`mtimeNanos:size`，多文件用 `|` 连接、缺失记 `-`）。
+    ///
+    /// 用途：让 iPhone 侧的模型列表缓存能感知"电脑上这份配置被改过了"。
+    /// iPhone 每 5 秒轮询 `/api/agents/<id>/models`，把本值并进缓存键 ——
+    /// 指纹一变就说明该重拉列表，用户在这边加完厂商不必等切设备/切 Agent。
+    ///
+    /// 与 Windows 端 `agent_config::config_version_for` **语义一致**（同为
+    /// `mtime_nanos:size`、多文件 `|`、缺失 `-`），两端接口逐字段对齐。
+    /// 纳入"全部候选路径"而非只有实际读到的那份：文件在候选路径间搬动时，
+    /// 指纹也必须跟着变，否则移动端会继续用旧列表。
+    static func configVersion(agentId: String) -> String {
+        configPaths(for: agentId).map { url in
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  let size = (attrs[.size] as? NSNumber)?.intValue else {
+                return "-"
+            }
+            let mtime = (attrs[.modificationDate] as? Date)?
+                .timeIntervalSince1970 ?? 0
+            return "\(Int64(mtime * 1_000_000_000)):\(size)"
+        }.joined(separator: "|")
+    }
+
+    /// 读一个文本配置文件，并剥掉行首的 UTF-8 BOM。
+    ///
+    /// 为什么要单独做：Windows 上编辑器常带 BOM 保存，用户把配置同步/拷贝到 Mac
+    /// 时 BOM 会一起带过来。`JSONSerialization` 对 BOM 是宽容的，但 **TOML / YAML
+    /// 那两条是按行 + `hasPrefix` 解析的** —— 行首多一个 `U+FEFF` 后
+    /// `hasPrefix("[")` / `hasPrefix("model:")` 直接判否，整段配置被静默丢掉。
+    ///
+    /// 只剥开头那一个（BOM 按规范只允许出现在文件最前），中间的 `U+FEFF`
+    /// 可能是用户内容里的零宽不换行空格，不该动。
+    private static func readText(at path: URL) -> String? {
+        guard let data = try? Data(contentsOf: path),
+              let text = String(data: data, encoding: .utf8) else { return nil }
+        return text.hasPrefix("\u{feff}") ? String(text.dropFirst()) : text
+    }
+
+    /// 各 Agent 的候选配置文件路径（顺序与各 `discover*` 实际读取的保持一致）。
+    private static func configPaths(for agentId: String) -> [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        switch agentId {
+        case "opencode":
+            return [home.appendingPathComponent(".config/opencode/opencode.json")]
+        case "claude-code":
+            return [home.appendingPathComponent(".claude/settings.json")]
+        case "codex":
+            return [home.appendingPathComponent(".codex/config.toml")]
+        case "aider":
+            // 与 discoverAider 的两条候选顺序一致：先 ~/.aider.conf.yml，再 ~/.config/aider/config.yml。
+            return [
+                home.appendingPathComponent(".aider.conf.yml"),
+                home.appendingPathComponent(".config/aider/config.yml"),
+            ]
+        default:
+            return []
+        }
+    }
+
     // MARK: - OpenCode
     // 配置：~/.config/opencode/opencode.json
     // 格式：{ "provider": { "<providerId>": { "name": "...", "models": { "<modelId>": { "name": "..." } }, "options": { "baseURL": "..." } } } }
@@ -125,7 +185,9 @@ enum AgentConfigDiscovery {
     private static func discoverCodex() -> AgentProviders {
         let path = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex/config.toml")
-        guard let content = try? String(contentsOf: path, encoding: .utf8) else {
+        // 必须走 readText：TOML 是按行 + hasPrefix 解析的，行首 BOM 会让
+        // `hasPrefix("[")` 判否，整段 [model_providers.*] 被静默丢掉。
+        guard let content = readText(at: path) else {
             return AgentProviders(agentId: "codex", providers: [], activeModelId: nil, error: "config not found")
         }
 
@@ -183,7 +245,8 @@ enum AgentConfigDiscovery {
         for path in paths {
             if FileManager.default.fileExists(atPath: path.path) {
                 // 简单提取 model 字段（Aider 的 yaml 配置通常有 model: xxx）
-                if let content = try? String(contentsOf: path, encoding: .utf8) {
+                // 走 readText：YAML 同样按行解析，行首 BOM 会让 `hasPrefix("model:")` 判否。
+                if let content = readText(at: path) {
                     for line in content.components(separatedBy: "\n") {
                         let trimmed = line.trimmingCharacters(in: .whitespaces)
                         if trimmed.hasPrefix("model:") {
