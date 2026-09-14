@@ -81,6 +81,7 @@ struct SettingsView: View {
         switch section {
         case .general: return "globe"
         case .machine: return "info.circle"
+        case .models: return "square.stack.3d.up"
         case .environment: return "cpu"
         case .pairing: return "qrcode"
         }
@@ -90,6 +91,7 @@ struct SettingsView: View {
         switch section {
         case .general: return i18n.t(.setNavGeneral)
         case .machine: return i18n.t(.setNavMachine)
+        case .models: return i18n.t(.mpTitle)
         case .environment: return i18n.t(.setNavEnvironment)
         case .pairing: return i18n.t(.setNavPairing)
         }
@@ -125,6 +127,7 @@ struct SettingsView: View {
                     switch app.settingsSection {
                     case .general: languageSection
                     case .machine: machineSection
+                    case .models: ModelProvidersView()
                     case .environment: EnvironmentCardView()
                     case .pairing: pairingSection
                     }

@@ -154,6 +154,7 @@ enum ConversationCommandService {
         guard let resolution = ApprovalGate.shared.decide(id: id, action: action) else {
             return nil
         }
+        let store = ConversationStore.shared
         switch resolution.action {
         case "deny":
             // 拒绝也要留痕：否则手机端那条消息在转录里彻底消失，

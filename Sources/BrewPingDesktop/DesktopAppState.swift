@@ -24,7 +24,7 @@ let kDraftKey = "__draft__"
 
 /// 设置弹窗左侧分类。
 public enum SettingsSection: String, CaseIterable, Identifiable {
-    case general, machine, environment, pairing
+    case general, machine, models, environment, pairing
 
     public var id: String { rawValue }
 }

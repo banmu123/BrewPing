@@ -190,6 +190,7 @@ public enum LKey: String, CaseIterable {
     case mpAuthStyle = "mp.authStyle"
     case mpAuthAuto = "mp.auth.auto"
     case mpAuthBearer = "mp.auth.bearer"
+    case mpAuthXApiKey = "mp.auth.x-api-key"
     case mpIsFullUrl = "mp.isFullUrl"
     case mpNotes = "mp.notes"
     case mpPort = "mp.port"
@@ -431,6 +432,7 @@ public enum DesktopStrings {
         .mpAuthStyle: "鉴权方式",
         .mpAuthAuto: "自动（按协议）",
         .mpAuthBearer: "Bearer Token",
+        .mpAuthXApiKey: "x-api-key",
         .mpIsFullUrl: "Base URL 已是完整端点（不再拼接路径）",
         .mpNotes: "备注（可选）",
         .mpPort: "端口",
@@ -670,6 +672,7 @@ public enum DesktopStrings {
         .mpAuthStyle: "Auth style",
         .mpAuthAuto: "Auto (by format)",
         .mpAuthBearer: "Bearer Token",
+        .mpAuthXApiKey: "x-api-key",
         .mpIsFullUrl: "Base URL is a full endpoint (do not append paths)",
         .mpNotes: "Notes (optional)",
         .mpPort: "Port",
