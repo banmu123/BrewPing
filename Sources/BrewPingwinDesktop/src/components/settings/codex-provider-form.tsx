@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, RefreshCw, X } from "lucide-react";
-import type { CodexProviderEntry, WireApiOption } from "../../api/types";
+import type { CatalogEndpoint, CatalogEntry, CodexProviderEntry, WireApiOption } from "../../api/types";
 import { Button } from "../ui/button";
 import { useI18n } from "../../i18n";
 import { cn } from "../../lib/utils";
+import { VendorPresetSelect } from "./vendor-preset-select";
 
 // ─── Codex「添加 / 编辑厂商」表单（对标 cc-switch）──────────────────────────
 //
@@ -59,9 +60,31 @@ export function emptyCodexProvider(defaultWireApi: string): CodexProviderEntry {
   };
 }
 
+/**
+ * 编辑既有厂商前归一化（兜底运行时缺失字段）。
+ *
+ * 🚨 `entry` 来自 Tauri IPC（运行时边界），TS 类型不保证字段真的存在。
+ * 曾因后端把 `base_url` 序列化成 camelCase 派生的 `baseUrl`（而非约定的
+ * `baseURL`），导致 `value.baseURL` 是 undefined，表单里 `value.baseURL.trim()`
+ * 抛 TypeError → 整棵树卸载 = 白屏。在此处统一补空串，比逐点防御可靠。
+ */
+export function normalizeCodexEntry(entry: CodexProviderEntry): CodexProviderEntry {
+  return {
+    ...entry,
+    id: entry.id ?? "",
+    name: entry.name ?? "",
+    baseURL: entry.baseURL ?? "",
+    wireApi: entry.wireApi ?? "chat",
+    apiKey: entry.apiKey ?? "",
+    model: entry.model ?? "",
+    active: entry.active ?? false,
+  };
+}
+
 export function CodexProviderForm({
   value,
   wireApis,
+  catalog,
   existingIds,
   busy,
   isEdit,
@@ -74,6 +97,8 @@ export function CodexProviderForm({
 }: {
   value: CodexProviderEntry;
   wireApis: WireApiOption[];
+  /** 厂商目录（预填模板；空数组则不显示下拉）。 */
+  catalog: CatalogEntry[];
   /** 已存在的厂商 key（查重用；编辑时排除自身）。 */
   existingIds: string[];
   busy: boolean;
@@ -90,6 +115,8 @@ export function CodexProviderForm({
   const { t } = useI18n();
   const [keyDirty, setKeyDirty] = useState(isEdit);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  /** 当前选中的目录 id（仅用于下拉回显）。 */
+  const [presetId, setPresetId] = useState("");
 
   const keyConflict = useMemo(
     () => existingIds.some((id) => id === value.id) && !isEdit,
@@ -124,6 +151,31 @@ export function CodexProviderForm({
     }
   };
 
+  /**
+   * 选了预设厂商 → 预填名称 / key / baseURL / wireApi / 模型。
+   *
+   * 🚨 baseURL 与 wireApi 都来自**按 agent 分派的端点数据**（ep = codex 条目）：
+   * - baseURL 必须是 OpenAI 端点（cc-switch 源码实证：/anthropic 只属于
+   *   Claude Code；给 Codex 填 Anthropic 端点必然协议不匹配 —— 本表单
+   *   曾因此给 DeepSeek 预填错地址）；
+   * - wireApi 跟随预设固定为 "responses"：国内五家官方均原生支持 Responses，
+   *   且新版 Codex 已废弃 "chat"（写入即拒载整份 config.toml）。选预设 =
+   *   用户明确要这家厂商的推荐配置，故此处**无条件覆盖**（不同于名称/baseURL
+   *   的「只填没填过的」语义 —— wireApi 恒有默认值，无法区分「没填过」）。
+   */
+  const applyPreset = (c: CatalogEntry, ep: CatalogEndpoint) => {
+    setPresetId(c.id);
+    const nextName = c.displayName || c.name;
+    onChange({
+      ...value,
+      name: value.name.trim() ? value.name : nextName,
+      id: !keyDirty && !isEdit ? slugifyCodexKey(nextName) : value.id,
+      baseURL: value.baseURL.trim() ? value.baseURL : ep.baseUrl,
+      wireApi: ep.wireApi || value.wireApi,
+      model: value.model.trim() ? value.model : (c.models[0] ?? ""),
+    });
+  };
+
   return (
     <div className="flex flex-col gap-2.5 rounded-md border border-border p-2.5">
       <div className="flex items-center justify-between">
@@ -143,6 +195,15 @@ export function CodexProviderForm({
       <div className="rounded-md bg-muted/60 px-2 py-1 text-[10px] leading-relaxed text-muted-foreground">
         {t("cx.formHint")}
       </div>
+
+      {/* 预设厂商：选一家自动预填名称 / key / baseURL / wireApi / 模型 */}
+      <VendorPresetSelect
+        catalog={catalog}
+        agentId="codex"
+        value={presetId}
+        disabled={busy}
+        onPick={applyPreset}
+      />
 
       <div>
         <span className={fieldLabelCls}>{t("mp.name")}</span>

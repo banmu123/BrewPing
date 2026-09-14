@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { Loader2, Plus, X } from "lucide-react";
-import type { ClaudeProviderEntry, ClaudeTierEntry } from "../../api/types";
+import type { CatalogEndpoint, CatalogEntry, ClaudeProviderEntry, ClaudeTierEntry } from "../../api/types";
 import { Button } from "../ui/button";
 import { useI18n, type DictKey } from "../../i18n";
 import { cn } from "../../lib/utils";
+import { VendorPresetSelect } from "./vendor-preset-select";
 
 // ─── Claude Code「厂商配置」表单（对标 cc-switch）────────────────────────────
 //
@@ -38,11 +39,23 @@ export function emptyClaudeProvider(): ClaudeProviderEntry {
   };
 }
 
-/** 补齐三档（读回的配置可能只填了部分档位）。 */
+/**
+ * 补齐三档 + 兜底所有字符串字段（读回的配置可能只填了部分档位）。
+ *
+ * 🚨 这里做 `?? ""` 不是多余的：`entry` 来自 Tauri IPC（运行时边界），
+ * TS 类型并不能保证字段真的存在。曾经因为后端字段名写成 camelCase 派生的
+ * `baseUrl`（而非约定的 `baseURL`），导致 `value.baseURL` 是 undefined，
+ * 表单里 `value.baseURL.trim()` 抛 TypeError → 整棵树卸载 = 白屏。
+ * 在唯一入口处归一化，比在每个使用点防御更可靠。
+ */
 export function normalizeClaudeTiers(entry: ClaudeProviderEntry): ClaudeProviderEntry {
-  const byTier = new Map(entry.tiers.map((t) => [t.tier, t]));
+  const byTier = new Map((entry.tiers ?? []).map((t) => [t.tier, t]));
   return {
     ...entry,
+    name: entry.name ?? "",
+    baseURL: entry.baseURL ?? "",
+    apiKey: entry.apiKey ?? "",
+    otherKeys: entry.otherKeys ?? [],
     tiers: TIERS.map(
       (t) => byTier.get(t.key) ?? { tier: t.key, model: "", name: "" },
     ),
@@ -51,6 +64,7 @@ export function normalizeClaudeTiers(entry: ClaudeProviderEntry): ClaudeProvider
 
 export function ClaudeProviderForm({
   value,
+  catalog,
   busy,
   error,
   onChange,
@@ -58,6 +72,8 @@ export function ClaudeProviderForm({
   onSave,
 }: {
   value: ClaudeProviderEntry;
+  /** 厂商目录（预填模板；空数组则不显示下拉）。 */
+  catalog: CatalogEntry[];
   busy: boolean;
   error: string | null;
   onChange: (next: ClaudeProviderEntry) => void;
@@ -66,6 +82,8 @@ export function ClaudeProviderForm({
 }) {
   const { t } = useI18n();
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  /** 当前选中的目录 id（仅用于下拉回显）。 */
+  const [presetId, setPresetId] = useState("");
 
   const baseError = useMemo(() => {
     const base = value.baseURL.trim();
@@ -85,6 +103,36 @@ export function ClaudeProviderForm({
       ? value.tiers.map((x) => (x.tier === key ? { ...x, ...patch } : x))
       : [...value.tiers, { tier: key, model: "", name: "", ...patch }];
     onChange({ ...value, tiers });
+  };
+
+  /**
+   * 选了预设厂商 → 预填名称 / baseURL，并把模型填进**空白的**档位。
+   *
+   * Claude Code 只有一份配置 + 三档模型映射（sonnet/opus/haiku），
+   * 所以这里不覆盖已有档位，只把目录里的第一个模型填进第一个空档
+   * （通常就是 sonnet），其余留给用户按需分配。
+   *
+   * baseURL 走按 agent 分派的端点数据（ep = claude-code 条目，即 Anthropic
+   * 端点 /anthropic —— cc-switch 实证该子路径只属于 Claude Code）。
+   */
+  const applyPreset = (c: CatalogEntry, ep: CatalogEndpoint) => {
+    setPresetId(c.id);
+    const nextName = c.displayName || c.name;
+    const presetModel = c.models[0] ?? "";
+    let filled = false;
+    const tiers = value.tiers.map((x) => {
+      if (!filled && !x.model.trim() && presetModel) {
+        filled = true;
+        return { ...x, model: presetModel };
+      }
+      return x;
+    });
+    onChange({
+      ...value,
+      name: value.name.trim() ? value.name : nextName,
+      baseURL: value.baseURL.trim() ? value.baseURL : ep.baseUrl,
+      tiers,
+    });
   };
 
   return (
@@ -107,6 +155,14 @@ export function ClaudeProviderForm({
         {t("cl.formHint")}
       </div>
 
+      {/* 预设厂商：选一家自动预填名称 / baseURL / 首个空档位模型 */}
+      <VendorPresetSelect
+        catalog={catalog}
+        agentId="claude-code"
+        value={presetId}
+        disabled={busy}
+        onPick={applyPreset}
+      />
       <div>
         <span className={fieldLabelCls}>{t("cl.providerName")}</span>
         <input

@@ -1,9 +1,16 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, Plus, Trash2, X } from "lucide-react";
-import type { PiApiOption, PiModelEntry, PiProviderEntry } from "../../api/types";
+import type {
+  CatalogEndpoint,
+  CatalogEntry,
+  PiApiOption,
+  PiModelEntry,
+  PiProviderEntry,
+} from "../../api/types";
 import { Button } from "../ui/button";
 import { useI18n } from "../../i18n";
 import { cn } from "../../lib/utils";
+import { VendorPresetSelect } from "./vendor-preset-select";
 
 // ─── pi「添加 / 编辑厂商」表单（对标 cc-switch）─────────────────────────────
 //
@@ -59,9 +66,34 @@ export function emptyPiProvider(defaultApi: string): PiProviderEntry {
   };
 }
 
+/**
+ * 编辑既有厂商前归一化（兜底运行时缺失字段）。
+ *
+ * 🚨 `entry` 来自 Tauri IPC（运行时边界），TS 类型不保证字段真的存在。
+ * 曾因后端把 `base_url` 序列化成 camelCase 派生的 `baseUrl`（而非约定的
+ * `baseURL`），导致 `value.baseURL` 是 undefined，表单里 `value.baseURL.trim()`
+ * 抛 TypeError → 整棵树卸载 = 白屏。在此处统一补空串，比逐点防御可靠。
+ *
+ * `models` 至少留一条空行（编辑态不能出现空清单，否则无法新增）。
+ */
+export function normalizePiEntry(entry: PiProviderEntry): PiProviderEntry {
+  const models = entry.models ?? [];
+  return {
+    ...entry,
+    id: entry.id ?? "",
+    name: entry.name ?? "",
+    baseURL: entry.baseURL ?? "",
+    apiKey: entry.apiKey ?? "",
+    api: entry.api ?? "anthropic-messages",
+    models: models.length ? models.map((m) => ({ ...m })) : [{ id: "", name: "" }],
+    isDefault: entry.isDefault ?? false,
+  };
+}
+
 export function PiProviderForm({
   value,
   apis,
+  catalog,
   existingIds,
   busy,
   isEdit,
@@ -72,6 +104,8 @@ export function PiProviderForm({
 }: {
   value: PiProviderEntry;
   apis: PiApiOption[];
+  /** 厂商目录（预填模板；空数组则不显示下拉）。 */
+  catalog: CatalogEntry[];
   /** 已存在的厂商 key（查重用；编辑时排除自身）。 */
   existingIds: string[];
   busy: boolean;
@@ -85,6 +119,8 @@ export function PiProviderForm({
   const { t } = useI18n();
   const [keyDirty, setKeyDirty] = useState(isEdit);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  /** 当前选中的目录 id（仅用于下拉回显）。 */
+  const [presetId, setPresetId] = useState("");
 
   const keyConflict = useMemo(
     () => existingIds.some((id) => id === value.id) && !isEdit,
@@ -137,6 +173,34 @@ export function PiProviderForm({
     onChange({ ...value, models: value.models.filter((_, i) => i !== idx) });
   };
 
+  /**
+   * 选了预设厂商 → 预填名称 / key / baseURL / api / 首条模型。
+   *
+   * 🚨 baseURL 与 api 都来自**按 agent 分派的端点数据**（ep = pi 条目）：
+   * pi 走 OpenAI 兼容 Chat 端点（/anthropic 只属于 Claude Code），api 跟随
+   * 预设固定为 "openai-completions"（cc-switch 五家同款；api 恒有默认值
+   * 无法区分「没填过」，选预设 = 明确要推荐配置，故无条件覆盖 —— 旧注释
+   * 「刻意不碰 api」的前提已由 per-agent 端点数据消除）。
+   */
+  const applyPreset = (c: CatalogEntry, ep: CatalogEndpoint) => {
+    setPresetId(c.id);
+    const nextName = c.displayName || c.name;
+    const presetModel = c.models[0] ?? "";
+    const models = value.models.map((m) => ({ ...m }));
+    if (presetModel && !models.some((m) => m.id.trim())) {
+      if (models.length === 0) models.push({ id: presetModel, name: "" });
+      else models[0] = { ...models[0], id: presetModel };
+    }
+    onChange({
+      ...value,
+      name: value.name.trim() ? value.name : nextName,
+      id: !keyDirty && !isEdit ? slugifyPiKey(nextName) : value.id,
+      baseURL: value.baseURL.trim() ? value.baseURL : ep.baseUrl,
+      api: ep.piApi || value.api,
+      models,
+    });
+  };
+
   return (
     <div className="flex flex-col gap-2.5 rounded-md border border-border p-2.5">
       <div className="flex items-center justify-between">
@@ -156,6 +220,15 @@ export function PiProviderForm({
       <div className="rounded-md bg-muted/60 px-2 py-1 text-[10px] leading-relaxed text-muted-foreground">
         {t("pi.formHint")}
       </div>
+
+      {/* 预设厂商：选一家自动预填名称 / key / baseURL / 首条模型 */}
+      <VendorPresetSelect
+        catalog={catalog}
+        agentId="pi"
+        value={presetId}
+        disabled={busy}
+        onPick={applyPreset}
+      />
 
       <div>
         <span className={fieldLabelCls}>{t("mp.name")}</span>

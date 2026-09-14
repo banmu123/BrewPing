@@ -47,7 +47,6 @@ import type {
   AgentModelsInfo,
   ApiFormat,
   AuthStyle,
-  CatalogCategory,
   CatalogEntry,
   ClaudeProviderEntry,
   ClaudeProvidersInfo,
@@ -72,11 +71,17 @@ import {
 import {
   CodexProviderForm,
   emptyCodexProvider,
+  normalizeCodexEntry,
 } from "./codex-provider-form";
 import { CodexProviderPanel } from "./codex-provider-panel";
+import { groupCatalogByCategory } from "./vendor-preset-select";
 import { OpenCodeProviderForm, emptyOpenCodeProvider } from "./opencode-provider-form";
 import { OpenCodeProviderPanel } from "./opencode-provider-panel";
-import { PiProviderForm, emptyPiProvider } from "./pi-provider-form";
+import {
+  PiProviderForm,
+  emptyPiProvider,
+  normalizePiEntry,
+} from "./pi-provider-form";
 import { PiProviderPanel } from "./pi-provider-panel";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -96,6 +101,30 @@ const AUTH_OPTIONS: AuthStyle[] = ["auto", "bearer", "x-api-key"];
 
 /** 记忆上次的 Agent tab（localStorage；失效自动回落「通用」）。 */
 const TAB_STORAGE_KEY = "brewping.modelTab";
+
+/**
+ * 🚧 临时屏蔽「转发代理厂商」区块（厂商卡片列表 + 添加配置）。
+ *
+ * 屏蔽原因：这套「转发代理」体系与各 tab 下的「CLI 原生配置」区块语义重叠，
+ * 用户会把厂商加到这边然后困惑"为什么不生效"（两套写法互不相通）。
+ * 经决定改为**先屏蔽、不删除** —— 后端命令面（model_providers.json /
+ * model_proxy / cli_takeover）与 `provider_catalog` 全部保留不动，
+ * 置回 `true` 即完整恢复，无需改任何其它文件。
+ */
+const SHOW_FORWARD_PROXY_SECTION = false;
+
+/**
+ * 🚧 临时隐藏「CLI 接管」全部 UI 入口（未接管黄条 + 一键接入 + CLI 接入折叠区）。
+ *
+ * 隐藏原因（2026-09-14 排查结论，三问题叠加，功能暂不可用）：
+ * 1. Codex 新版已废弃 `wire_api="chat"`（会拒载整份 config.toml）——代码已改
+ *    "responses"，但代理侧缺「responses 入站 → anthropic 上游」的协议转换；
+ * 2. 代理路由表 `~/.brewping/model_providers.json` 与 CLI 原生配置互不相通，
+ *    用户配完厂商点接入后代理仍 503（路由表空）；
+ * 3. 接管后的排错成本高（错误只体现在 CLI 报错文本里）。
+ * 后端（cli_takeover / model_proxy）全部保留不动；置回 `true` 即恢复全部入口。
+ */
+const SHOW_TAKEOVER_UI = false;
 
 const inputCls =
   "h-7 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-primary/40";
@@ -119,15 +148,6 @@ function emptyDraft(agentId: string): ModelProviderConfig {
     agentId,
   };
 }
-
-/** category 分组排序权重（custom 恒最后；未识别分类居中）。 */
-const CATEGORY_ORDER: Record<CatalogCategory, number> = {
-  official: 0,
-  cn_official: 1,
-  aggregator: 2,
-  third_party: 3,
-  custom: 99,
-};
 
 /**
  * 生效端点预览（纯前端镜像后端拼接逻辑，让「智能补 /v1」可验证）：
@@ -197,19 +217,10 @@ export function ModelConfigCard() {
   }, []);
 
   /** 目录按 category 分组（custom 恒最后），供厂商下拉的 optgroup。 */
-  const groupedCatalog = useMemo(() => {
-    const sorted = [...catalog].sort(
-      (a, b) =>
-        (CATEGORY_ORDER[a.category] ?? 50) - (CATEGORY_ORDER[b.category] ?? 50),
-    );
-    const groups: { category: CatalogCategory; entries: CatalogEntry[] }[] = [];
-    for (const c of sorted) {
-      const last = groups[groups.length - 1];
-      if (last && last.category === c.category) last.entries.push(c);
-      else groups.push({ category: c.category, entries: [c] });
-    }
-    return groups;
-  }, [catalog]);
+  const groupedCatalog = useMemo(
+    () => groupCatalogByCategory(catalog),
+    [catalog],
+  );
 
   /** 高级选项（默认折叠）：拉取模型列表状态。 */
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -1276,7 +1287,7 @@ export function ModelConfigCard() {
         <div className="flex items-center justify-center py-4 text-muted-foreground">
           <Loader2 size={14} className="animate-spin" />
         </div>
-      ) : (
+      ) : SHOW_FORWARD_PROXY_SECTION ? (
         <AgentProviderPanel
           agentId={activeTab}
           providers={tabProviders}
@@ -1284,6 +1295,7 @@ export function ModelConfigCard() {
           busy={busy}
           confirmId={confirmId}
           takeoverItem={cliForTab}
+          showTakeover={SHOW_TAKEOVER_UI}
           onSetCurrent={(id) =>
             void run(() => switchModelProvider(id, activeTab))
           }
@@ -1300,7 +1312,11 @@ export function ModelConfigCard() {
             setEditing(emptyDraft(activeTab));
           }}
         />
-      )}
+      ) : null}
+      {/* 🚧 未接管黄条（TakeoverNotice）随 SHOW_TAKEOVER_UI 一并隐藏；
+          恢复时在 SHOW_FORWARD_PROXY_SECTION 分支下渲染即可：
+          <TakeoverNotice takeoverItem={cliForTab} busy={busy}
+            onConnectCli={() => cliForTab && toggleTakeover(cliForTab.id, true)} /> */}
 
       {/* ── OpenCode 专属：厂商写入本机 opencode.json（对标 cc-switch）──
           仅在 opencode tab 下出现 —— 这是「给 opencode CLI 加厂商」的入口，
@@ -1319,6 +1335,7 @@ export function ModelConfigCard() {
             <OpenCodeProviderForm
               value={ocEditing}
               npmPackages={ocInfo?.npmPackages ?? []}
+              catalog={catalog}
               existingIds={(ocInfo?.providers ?? []).map((p) => p.id)}
               busy={ocBusy}
               isEdit={ocIsEdit}
@@ -1347,10 +1364,19 @@ export function ModelConfigCard() {
                 setOcConfirmId(null);
                 setOcIsEdit(true);
                 setOcFetchErr(null);
+                // 兜底运行时缺失字段（IPC 边界，TS 类型不保证）：
+                // models 为空会给一条空行，baseURL/apiKey 缺失补空串，
+                // 否则表单里 `value.baseURL.trim()` 会抛异常 → 白屏。
+                const models = p.models ?? [];
                 setOcEditing({
                   ...p,
-                  models: p.models.length
-                    ? p.models.map((m) => ({ ...m }))
+                  id: p.id ?? "",
+                  name: p.name ?? "",
+                  npm: p.npm ?? defaultOpenCodeNpm,
+                  baseURL: p.baseURL ?? "",
+                  apiKey: p.apiKey ?? "",
+                  models: models.length
+                    ? models.map((m) => ({ ...m }))
                     : [{ id: "", name: "" }],
                 });
               }}
@@ -1406,6 +1432,7 @@ export function ModelConfigCard() {
           {clEditing ? (
             <ClaudeProviderForm
               value={clEditing}
+              catalog={catalog}
               busy={clBusy}
               error={clError}
               onChange={setClEditing}
@@ -1516,6 +1543,7 @@ export function ModelConfigCard() {
             <CodexProviderForm
               value={cxEditing}
               wireApis={cxInfo?.wireApis ?? []}
+              catalog={catalog}
               existingIds={(cxInfo?.providers ?? []).map((p) => p.id)}
               busy={cxBusy}
               isEdit={cxIsEdit}
@@ -1549,7 +1577,7 @@ export function ModelConfigCard() {
                 setCxConfirmId(null);
                 setCxIsEdit(true);
                 setCxFetchErr(null);
-                setCxEditing({ ...p });
+                setCxEditing(normalizeCodexEntry(p));
               }}
               onDelete={(id) => {
                 if (cxConfirmId !== id) {
@@ -1585,6 +1613,7 @@ export function ModelConfigCard() {
             <PiProviderForm
               value={piEditing}
               apis={piInfo?.apis ?? []}
+              catalog={catalog}
               existingIds={(piInfo?.providers ?? []).map((p) => p.id)}
               busy={piBusy}
               isEdit={piIsEdit}
@@ -1614,12 +1643,7 @@ export function ModelConfigCard() {
                 setPiConfirmId(null);
                 setPiIsEdit(true);
                 setPiError(null);
-                setPiEditing({
-                  ...p,
-                  models: p.models.length
-                    ? p.models.map((m) => ({ ...m }))
-                    : [{ id: "", name: "" }],
-                });
+                setPiEditing(normalizePiEntry(p));
               }}
               onDelete={(id) => {
                 if (piConfirmId !== id) {
@@ -1640,8 +1664,10 @@ export function ModelConfigCard() {
         </div>
       )}
 
-      {/* ── 折叠收纳：CLI 接入（完整列表；单个 Agent 的快捷接入在面板黄条里）── */}
-      <div className="mt-3 rounded-md border border-border/70 bg-background/60 p-2.5">
+      {/* ── 折叠收纳：CLI 接入（完整列表；单个 Agent 的快捷接入在面板黄条里）──
+          🚧 随 SHOW_TAKEOVER_UI 一并隐藏（接管功能暂不可用，见开关处注释）。 */}
+      {SHOW_TAKEOVER_UI && (
+        <div className="mt-3 rounded-md border border-border/70 bg-background/60 p-2.5">
         <button
           type="button"
           className="flex w-full items-center gap-1 text-xs font-medium text-foreground"
@@ -1726,7 +1752,8 @@ export function ModelConfigCard() {
             )}
           </>
         )}
-      </div>
+        </div>
+      )}
 
       {/* ── 折叠收纳：Agent 模型偏好（各 Agent 当前生效模型 + 完整可选列表）── */}
       <div className="mt-2 rounded-md border border-border/70 bg-background/60 p-2.5">

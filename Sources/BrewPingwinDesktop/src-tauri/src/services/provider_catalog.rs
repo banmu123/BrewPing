@@ -9,9 +9,12 @@
 //! `models_url` 只是数据字段，网络调用放 lib.rs 的 command 层（fetch_provider_models）。
 //!
 //! 一期清单（2026-09-13 拍板）：Kimi / DeepSeek / GLM(智谱) / Xiaomi(小米) / MiniMax
-//! 五家 + custom。五家全部走 **Anthropic Messages 端点**（零协议转换、纯透传）；
-//! 列模型走各家 **OpenAI 端点**（Anthropic 协议无 GET /models），见 `models_url`。
-//! 数据取自厂商官方文档；**严禁携带任何推广参数**（TC-PC-07 拦截）。
+//! 五家 + custom。**端点按 agent 分派**（2026-09-14 对齐 cc-switch 源码实证）：
+//! 顶层 `base_url`/`api_format` 是**转发代理语义**（Anthropic Messages 端点，
+//! 零协议转换纯透传）；各 CLI 表单改用 `endpoints` 里对应 agent 的端点 ——
+//! Claude Code 用 `/anthropic`、Codex 用 OpenAI Responses 端点（`wire_api="responses"`）、
+//! OpenCode/pi 用 OpenAI 兼容 Chat 端点。列模型仍走各家 OpenAI 端点，见 `models_url`。
+//! 数据取自厂商官方文档（经 cc-switch 预设交叉核对）；**严禁携带任何推广参数**（TC-PC-07 拦截）。
 
 use crate::services::model_provider_store::{ApiFormat, AuthStyle};
 use serde::Serialize;
@@ -32,6 +35,70 @@ pub enum CatalogCategory {
     Custom,
 }
 
+/// 单个 agent 的端点形态 —— **同一厂商在不同 agent 下要用不同 baseURL 与协议**。
+///
+/// 数据逐条对齐 cc-switch 的按 app_type 分预设实证（2026-09-14 源码核实：
+/// `src/config/{claude,codex,opencode,pi}ProviderPresets.ts`），关键结论：
+/// - **`/anthropic` 子路径只属于 Claude Code**（Anthropic Messages 兼容层）；
+/// - Codex 一律 OpenAI 系端点：国内五家官方全部支持原生 Responses
+///   （`wire_api = "responses"`；新版 Codex 已废弃 `"chat"`，写入即拒载）；
+/// - OpenCode / pi 走 OpenAI 兼容 Chat 端点（`@ai-sdk/openai-compatible` /
+///   `openai-completions`）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentEndpoint {
+    /// agent 标识：`claude-code` / `codex` / `opencode` / `pi`。
+    pub agent: &'static str,
+    /// 该 agent 应使用的 base_url。
+    pub base_url: &'static str,
+    /// Codex 专属：`wire_api` 取值（其余 agent 为空串）。
+    pub wire_api: &'static str,
+    /// OpenCode 专属：npm SDK 包名（其余 agent 为空串）。
+    pub npm: &'static str,
+    /// pi 专属：`api` 协议值（其余 agent 为空串）。
+    pub pi_api: &'static str,
+}
+
+/// 便捷宏：一个厂商的四个 agent 端点一次写齐（在 CATALOG 的 const 上下文里
+/// 展开，数组字面量随目录成为 'static）。
+///
+/// 协议字段按 agent 固定（cc-switch 实证）：codex=`responses`、
+/// opencode=`@ai-sdk/openai-compatible`、pi=`openai-completions`。
+macro_rules! agent_endpoints {
+    ($claude:expr, $codex:expr, $opencode:expr, $pi:expr $(,)?) => {
+        &[
+            AgentEndpoint {
+                agent: "claude-code",
+                base_url: $claude,
+                wire_api: "",
+                npm: "",
+                pi_api: "",
+            },
+            AgentEndpoint {
+                agent: "codex",
+                base_url: $codex,
+                wire_api: "responses",
+                npm: "",
+                pi_api: "",
+            },
+            AgentEndpoint {
+                agent: "opencode",
+                base_url: $opencode,
+                wire_api: "",
+                npm: "@ai-sdk/openai-compatible",
+                pi_api: "",
+            },
+            AgentEndpoint {
+                agent: "pi",
+                base_url: $pi,
+                wire_api: "",
+                npm: "",
+                pi_api: "openai-completions",
+            },
+        ]
+    };
+}
+
 /// 一条厂商目录项（纯静态模板）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,12 +109,15 @@ pub struct CatalogEntry {
     pub name: &'static str,
     /// 展示别名 / 中文名（UI 优先用它，为空回落 name）。
     pub display_name: &'static str,
-    /// 预填 base_url（可原样照抄官方文档；代理层负责路径拼接）。
+    /// 预填 base_url（**转发代理语义** = Anthropic 端点，与 `api_format` 配套；
+    /// 各 CLI 表单应改用 `endpoints` 里对应 agent 的端点）。
     pub base_url: &'static str,
     /// 预填协议族。
     pub api_format: ApiFormat,
     /// 预填鉴权方式。
     pub auth_style: AuthStyle,
+    /// 各 agent 专属端点（custom 为空表；前端按 agentId 解析，缺失回落顶层）。
+    pub endpoints: &'static [AgentEndpoint],
     /// 可选模型清单（静态兜底候选；离线可用，TC-PC-03 保证非 custom 非空）。
     pub models: &'static [&'static str],
     /// 列模型端点（OpenAI 格式；空串 = 不支持自动获取）。
@@ -70,6 +140,14 @@ pub const CATALOG: &[CatalogEntry] = &[
         base_url: "https://api.moonshot.cn/anthropic", // Anthropic 兼容端点，零协议转换
         api_format: ApiFormat::Anthropic,
         auth_style: AuthStyle::Bearer,
+        // codex/opencode/pi 走 OpenAI 端点（cc-switch：Kimi 官方 Codex 文档
+        // 明写原生支持 Responses API，/v1 + wire_api="responses" 直连）
+        endpoints: agent_endpoints!(
+            "https://api.moonshot.cn/anthropic",
+            "https://api.moonshot.cn/v1",
+            "https://api.moonshot.cn/v1",
+            "https://api.moonshot.cn/v1",
+        ),
         models: &["kimi-k3", "kimi-k2-turbo-preview", "kimi-latest"],
         models_url: "https://api.moonshot.cn/v1/models",
         console_url: "https://platform.moonshot.cn/console/api-keys",
@@ -80,10 +158,20 @@ pub const CATALOG: &[CatalogEntry] = &[
         id: "deepseek",
         name: "DeepSeek",
         display_name: "DeepSeek (深度求索)",
-        // 官方 Anthropic 兼容端点（不再是裸域名 + openai_chat）
+        // 官方 Anthropic 兼容端点（仅 Claude Code 用；**不是** Codex 端点）
         base_url: "https://api.deepseek.com/anthropic",
         api_format: ApiFormat::Anthropic,
         auth_style: AuthStyle::Bearer,
+        // 🔴 codex 用**裸域** https://api.deepseek.com（官方 Codex 接入文档：
+        // deepseek-v4 系原生 Responses，wire_api="responses" 直连裸域，无需
+        // /v1 也无需 /anthropic）—— cc-switch codexProviderPresets 同款。
+        // opencode/pi 走 /v1 OpenAI 兼容端点。
+        endpoints: agent_endpoints!(
+            "https://api.deepseek.com/anthropic",
+            "https://api.deepseek.com",
+            "https://api.deepseek.com/v1",
+            "https://api.deepseek.com/v1",
+        ),
         // [1m] 为官方上下文长度后缀；若转发报 model 不存在可改 deepseek-v4-pro
         models: &["deepseek-v4-pro[1m]", "deepseek-chat", "deepseek-reasoner"],
         models_url: "https://api.deepseek.com/models",
@@ -95,10 +183,21 @@ pub const CATALOG: &[CatalogEntry] = &[
         id: "zhipu",
         name: "GLM (Zhipu)",
         display_name: "GLM (智谱)",
-        // Anthropic 协议端点（/api/paas/v4 是 OpenAI 端点，不用）
+        // Anthropic 协议端点（仅 Claude Code 用）
         base_url: "https://open.bigmodel.cn/api/anthropic",
         api_format: ApiFormat::Anthropic,
         auth_style: AuthStyle::Bearer,
+        // 🔴 智谱三端点分立（官方明示「错误配置端点将无法使用套餐额度」）：
+        // Anthropic=/api/anthropic、OpenAI Chat=/api/coding/paas/v4、
+        // **OpenAI Responses=/api/v1**。codex 发 Responses wire → 必须用
+        // /api/v1（cc-switch 实证同款）；opencode/pi 发 Chat wire →
+        // /api/coding/paas/v4。
+        endpoints: agent_endpoints!(
+            "https://open.bigmodel.cn/api/anthropic",
+            "https://open.bigmodel.cn/api/v1",
+            "https://open.bigmodel.cn/api/coding/paas/v4",
+            "https://open.bigmodel.cn/api/coding/paas/v4",
+        ),
         // glm-5.1 为旗舰（需显式指定才用得上）；额度吃紧可换 glm-4.7
         models: &["glm-5.1", "glm-4.7", "glm-4.6"],
         models_url: "https://open.bigmodel.cn/api/paas/v4/models",
@@ -110,9 +209,17 @@ pub const CATALOG: &[CatalogEntry] = &[
         id: "xiaomi",
         name: "MiMo (Xiaomi)",
         display_name: "MiMo (小米)",
-        base_url: "https://api.xiaomimimo.com/anthropic",
+        base_url: "https://api.xiaomimimo.com/anthropic", // 仅 Claude Code 用
         api_format: ApiFormat::Anthropic,
         auth_style: AuthStyle::Bearer,
+        // MiMo 官方 Codex 文档声明原生支持 Responses API（/v1 + responses，
+        // cc-switch 与用户机器 cc-switch 投影实测均为该写法）
+        endpoints: agent_endpoints!(
+            "https://api.xiaomimimo.com/anthropic",
+            "https://api.xiaomimimo.com/v1",
+            "https://api.xiaomimimo.com/v1",
+            "https://api.xiaomimimo.com/v1",
+        ),
         // MiMo 的 Anthropic 端点是否做 Claude 型号名映射未明确，显式填主力型号兜底
         models: &["mimo-v2.5-pro"],
         models_url: "https://api.xiaomimimo.com/v1/models",
@@ -125,9 +232,16 @@ pub const CATALOG: &[CatalogEntry] = &[
         name: "MiniMax",
         display_name: "MiniMax (稀宇)",
         // 国内正式域名 api.minimaxi.com（多一个 i；api.minimax.chat 是旧域名）
-        base_url: "https://api.minimaxi.com/anthropic",
+        base_url: "https://api.minimaxi.com/anthropic", // 仅 Claude Code 用
         api_format: ApiFormat::Anthropic,
         auth_style: AuthStyle::Bearer,
+        // MiniMax 官方 API 参考已列 /v1/responses 为正式端点（原生 Responses）
+        endpoints: agent_endpoints!(
+            "https://api.minimaxi.com/anthropic",
+            "https://api.minimaxi.com/v1",
+            "https://api.minimaxi.com/v1",
+            "https://api.minimaxi.com/v1",
+        ),
         models: &["MiniMax-M3"],
         models_url: "https://api.minimaxi.com/v1/models",
         console_url: "https://platform.minimaxi.com/user-center/basic-information/interface-key",
@@ -141,6 +255,8 @@ pub const CATALOG: &[CatalogEntry] = &[
         base_url: "",
         api_format: ApiFormat::Anthropic,
         auth_style: AuthStyle::Auto,
+        // 空表 = 前端回落顶层（同样为空）→ 只当「我要自己填」的显式选择
+        endpoints: &[],
         models: &[],
         models_url: "",
         console_url: "",
@@ -196,7 +312,7 @@ mod tests {
         }
     }
 
-    // TC-PC-04  序列化契约：字段名 camelCase（含新增字段）
+    // TC-PC-04  序列化契约：字段名 camelCase（含新增 endpoints）
     #[test]
     fn catalog_serializes_camel_case() {
         let json = serde_json::to_string(&CATALOG[0]).unwrap();
@@ -207,7 +323,11 @@ mod tests {
         assert!(json.contains("modelsUrl"), "必须 camelCase modelsUrl");
         assert!(json.contains("websiteUrl"), "必须 camelCase websiteUrl");
         assert!(json.contains("category"), "必须带 category");
+        assert!(json.contains("endpoints"), "必须带 endpoints");
+        assert!(json.contains("wireApi"), "endpoint 必须带 wireApi");
+        assert!(json.contains("piApi"), "endpoint 必须带 piApi");
         assert!(!json.contains("base_url"), "不得出现 snake_case");
+        assert!(!json.contains("wire_api"), "不得出现 snake_case");
     }
 
     // TC-PC-05  除 custom 外每条都有合法 https console_url
@@ -262,8 +382,9 @@ mod tests {
         }
     }
 
-    // TC-PC-09  一期专属护栏：五家全部走 Anthropic 协议端点（零协议转换前提）
-    // 二期若加入 openai_chat 厂商，需有意识地放开此断言。
+    // TC-PC-09  顶层 base_url 全部为 Anthropic 协议端点 —— **仅转发代理语义**
+    // （转发层做 Anthropic 入站透传）。各 CLI 表单用 endpoints 按 agent 分派，
+    // 见 TC-PC-12。
     #[test]
     fn catalog_phase1_all_anthropic() {
         for c in CATALOG.iter().filter(|c| c.id != "custom") {
@@ -295,5 +416,89 @@ mod tests {
                 c.id
             );
         }
+    }
+
+    // TC-PC-12  🔴 per-agent 端点护栏（cc-switch 源码实证的对齐断言）：
+    // 1. 除 custom 外每条恰好 4 个 agent 端点（claude-code/codex/opencode/pi 各一次）；
+    // 2. codex 端点绝不含 /anthropic（新版 Codex 只认 OpenAI Responses 端点，
+    //    填 /anthropic 必然协议不匹配 —— 本次修复的根因）；
+    // 3. claude-code 端点 == 顶层 base_url（转发代理与 Claude 表单同源）；
+    // 4. 协议字段只挂在各自的 agent 上（wireApi→codex、npm→opencode、piApi→pi）。
+    #[test]
+    fn catalog_per_agent_endpoints_valid() {
+        const AGENTS: [&str; 4] = ["claude-code", "codex", "opencode", "pi"];
+        for c in CATALOG.iter().filter(|c| c.id != "custom") {
+            assert_eq!(
+                c.endpoints.len(),
+                4,
+                "{} 必须带 4 个 agent 端点",
+                c.id
+            );
+            for agent in AGENTS {
+                let ep = c
+                    .endpoints
+                    .iter()
+                    .find(|e| e.agent == agent)
+                    .unwrap_or_else(|| panic!("{} 缺少 {} 端点", c.id, agent));
+                assert!(
+                    ep.base_url.starts_with("https://"),
+                    "{} 的 {} 端点必须 https",
+                    c.id,
+                    agent
+                );
+                if agent == "codex" {
+                    assert!(
+                        !ep.base_url.contains("/anthropic"),
+                        "{} 的 codex 端点不得用 /anthropic（Codex 只认 OpenAI 端点）",
+                        c.id
+                    );
+                    assert_eq!(
+                        ep.wire_api, "responses",
+                        "{} 的 codex 端点必须 wire_api=responses（新版 Codex 已废弃 chat）",
+                        c.id
+                    );
+                } else {
+                    assert_eq!(ep.wire_api, "", "wireApi 只允许出现在 codex");
+                }
+                if agent == "opencode" {
+                    assert_eq!(
+                        ep.npm, "@ai-sdk/openai-compatible",
+                        "{} 的 opencode 端点必须带 openai-compatible SDK",
+                        c.id
+                    );
+                } else {
+                    assert_eq!(ep.npm, "", "npm 只允许出现在 opencode");
+                }
+                if agent == "pi" {
+                    assert_eq!(
+                        ep.pi_api, "openai-completions",
+                        "{} 的 pi 端点必须 openai-completions",
+                        c.id
+                    );
+                } else {
+                    assert_eq!(ep.pi_api, "", "piApi 只允许出现在 pi");
+                }
+                if agent == "claude-code" {
+                    assert_eq!(
+                        ep.base_url, c.base_url,
+                        "{} 的 claude-code 端点必须与顶层 base_url 同源",
+                        c.id
+                    );
+                }
+            }
+        }
+    }
+
+    // TC-PC-13  custom 无 endpoints；DeepSeek 的 codex 端点是裸域（官方文档钦定）
+    #[test]
+    fn catalog_custom_empty_and_deepseek_bare_domain() {
+        let custom = CATALOG.iter().find(|c| c.id == "custom").unwrap();
+        assert!(custom.endpoints.is_empty(), "custom 不得预填端点");
+        let ds = CATALOG.iter().find(|c| c.id == "deepseek").unwrap();
+        let codex = ds.endpoints.iter().find(|e| e.agent == "codex").unwrap();
+        assert_eq!(
+            codex.base_url, "https://api.deepseek.com",
+            "DeepSeek codex 端点 = 官方 Codex 文档裸域（原生 Responses 直连）"
+        );
     }
 }

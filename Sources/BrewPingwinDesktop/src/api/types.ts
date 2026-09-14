@@ -306,15 +306,35 @@ export type CatalogCategory =
   | "third_party"
   | "custom";
 
+/// 单个 agent 的端点形态 —— 同一厂商在不同 agent 下 baseURL 与协议不同
+/// （对齐 cc-switch 按 app_type 分预设：/anthropic 只属于 Claude Code，
+/// Codex 用 OpenAI Responses 端点，OpenCode/pi 用 OpenAI 兼容 Chat 端点）。
+export interface CatalogEndpoint {
+  /// agent 标识。
+  agent: "claude-code" | "codex" | "opencode" | "pi";
+  /// 该 agent 应使用的 base_url。
+  baseUrl: string;
+  /// Codex 专属：wire_api（其余为空串）。
+  wireApi: string;
+  /// OpenCode 专属：npm SDK 包名（其余为空串）。
+  npm: string;
+  /// pi 专属：api 协议值（其余为空串）。
+  piApi: string;
+}
+
 /// 内置厂商目录项（纯静态预填模板，不含任何密钥）。
 export interface CatalogEntry {
   id: string;
   name: string;
   /// 展示别名 / 中文名（UI 优先用它，为空回落 name）。
   displayName: string;
+  /// 转发代理语义的 base_url（= Anthropic 端点，与 apiFormat 配套）；
+  /// 各 CLI 表单应经 endpoints 按 agent 解析。
   baseUrl: string;
   apiFormat: ApiFormat;
   authStyle: AuthStyle;
+  /// 各 agent 专属端点（custom 为空数组；旧后端可能缺省）。
+  endpoints?: CatalogEndpoint[];
   models: string[];
   /// 列模型端点（OpenAI 格式；空串 = 不支持自动获取）。
   /// 转发走 Anthropic 端点（无 GET /models），列模型走 OpenAI 端点，二者地址不同。

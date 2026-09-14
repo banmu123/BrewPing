@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, Plus, RefreshCw, X } from "lucide-react";
 import type {
+  CatalogEndpoint,
+  CatalogEntry,
   NpmPackageOption,
   OpenCodeModelEntry,
   OpenCodeProviderEntry,
@@ -8,6 +10,7 @@ import type {
 import { Button } from "../ui/button";
 import { useI18n } from "../../i18n";
 import { cn } from "../../lib/utils";
+import { VendorPresetSelect } from "./vendor-preset-select";
 
 // ─── OpenCode「添加 / 编辑厂商」表单（对标 cc-switch）──────────────────────────
 //
@@ -64,6 +67,7 @@ export function emptyOpenCodeProvider(defaultNpm: string): OpenCodeProviderEntry
 export function OpenCodeProviderForm({
   value,
   npmPackages,
+  catalog,
   existingIds,
   busy,
   isEdit,
@@ -76,6 +80,8 @@ export function OpenCodeProviderForm({
 }: {
   value: OpenCodeProviderEntry;
   npmPackages: NpmPackageOption[];
+  /** 厂商目录（预填模板；空数组则不显示下拉）。 */
+  catalog: CatalogEntry[];
   /** 已存在的厂商 key（查重用；编辑时排除自身）。 */
   existingIds: string[];
   busy: boolean;
@@ -93,6 +99,8 @@ export function OpenCodeProviderForm({
   /** key 是否被用户手动改过（改过则不再随名称自动派生）。 */
   const [keyDirty, setKeyDirty] = useState(isEdit);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  /** 当前选中的目录 id（仅用于下拉回显；改字段不会清掉，便于用户回看/重选）。 */
+  const [presetId, setPresetId] = useState("");
 
   const keyConflict = useMemo(
     () =>
@@ -123,6 +131,44 @@ export function OpenCodeProviderForm({
     } else {
       onChange({ ...value, name });
     }
+  };
+
+  /**
+   * 选了预设厂商 → 一次性预填。
+   *
+   * 与转发代理表单的 `applyVendor` 语义一致：**只填没填过的**，
+   * 已填字段（名称 / baseURL）保留用户输入，避免误操作清掉用户辛苦填的值。
+   * `custom` 条目不预填任何值（空模板 = 显式表示"我自己填"）。
+   *
+   * key 一并按厂商名派生（若用户没手改过 key 且非编辑态），这样 opencode.json
+   * 里 `provider.<key>` 就是可读的 `deepseek` 而不是 `provider`。
+   *
+   * 🚨 baseURL/npm 来自**按 agent 分派的端点数据**（ep = opencode 条目）：
+   * OpenCode 用 OpenAI 兼容 Chat 端点（/anthropic 只属于 Claude Code），
+   * npm 跟随预设固定为 @ai-sdk/openai-compatible（cc-switch 同款；npm 恒有
+   * 默认值无法区分「没填过」，选预设 = 明确要推荐配置，故无条件覆盖）。
+   */
+  const applyPreset = (c: CatalogEntry, ep: CatalogEndpoint) => {
+    setPresetId(c.id);
+    const nextName = c.displayName || c.name;
+    const nextKey =
+      !keyDirty && !isEdit ? slugifyProviderKey(nextName) : value.id;
+    // 预设模型：取第一条作为默认（目录里 models 已按"主力优先"排序）
+    const presetModel = c.models[0] ?? "";
+    const models = value.models.map((m) => ({ ...m }));
+    if (presetModel && !models.some((m) => m.id.trim())) {
+      // 兜底：models 为空数组时（IPC 边界防御）也要能填进第一条
+      if (models.length === 0) models.push({ id: presetModel, name: "" });
+      else models[0] = { ...models[0], id: presetModel };
+    }
+    onChange({
+      ...value,
+      name: value.name.trim() ? value.name : nextName,
+      id: nextKey,
+      baseURL: value.baseURL.trim() ? value.baseURL : ep.baseUrl,
+      npm: ep.npm || value.npm,
+      models,
+    });
   };
 
   const updateModel = (index: number, patch: Partial<OpenCodeModelEntry>) => {
@@ -158,6 +204,15 @@ export function OpenCodeProviderForm({
       <div className="rounded-md bg-muted/60 px-2 py-1 text-[10px] leading-relaxed text-muted-foreground">
         {t("oc.formHint")}
       </div>
+
+      {/* 预设厂商：选一家自动预填名称 / key / baseURL / npm / 首条模型 */}
+      <VendorPresetSelect
+        catalog={catalog}
+        agentId="opencode"
+        value={presetId}
+        disabled={busy}
+        onPick={applyPreset}
+      />
 
       {/* 名称 + provider key（自动派生、可编辑） */}
       <div>
