@@ -963,8 +963,8 @@ async fn set_model_failover(
     Ok(model_providers_info(&core).await)
 }
 
-/// 读取 CLI 接入状态（动态列表：Claude Code / Codex / OpenCode / Aider …，
-/// 含 installed 检测；仅前两者支持配置接管）。
+/// 读取 CLI 接入状态（动态列表：Claude Code / Codex / OpenCode / pi …，
+/// 含 installed 检测；claude_code / codex / pi 支持配置接管）。
 #[tauri::command]
 async fn get_cli_takeover(
     core: tauri::State<'_, DesktopCore>,

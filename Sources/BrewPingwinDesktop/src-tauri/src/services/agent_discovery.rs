@@ -73,9 +73,9 @@ const CATALOG: &[AgentDefinition] = &[
         version_args: &["--version"],
     },
     AgentDefinition {
-        id: "aider",
-        name: "Aider",
-        command: "aider",
+        id: "pi",
+        name: "pi",
+        command: "pi",
         version_args: &["--version"],
     },
 ];
@@ -456,7 +456,7 @@ mod tests {
         assert!(agents.iter().any(|a| a.id == "opencode"));
         assert!(agents.iter().any(|a| a.id == "claude-code"));
         assert!(agents.iter().any(|a| a.id == "codex"));
-        assert!(agents.iter().any(|a| a.id == "aider"));
+        assert!(agents.iter().any(|a| a.id == "pi"));
     }
 
     // TC-AD-04  一致性：installed 与 executable 必须同时成立或同时缺失
@@ -487,8 +487,8 @@ mod tests {
         assert_eq!(api.version.as_deref(), Some("1.0.0"));
 
         let missing = AgentEntry {
-            id: "aider".into(),
-            name: "Aider".into(),
+            id: "pi".into(),
+            name: "pi".into(),
             installed: false,
             executable: None,
             version: None,

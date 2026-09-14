@@ -10,7 +10,7 @@
 //!   要求 Node ≥ 22 且已标记弃用（仍可用，作为备选）。
 //! - **OpenCode**：`npm install -g opencode-ai`（官方另有 bash 安装脚本，仅 macOS/Linux）。
 //! - **Codex CLI**：`npm install -g @openai/codex`（engines node>=16，Windows 原生支持）。
-//! - **Aider**：`python -m pip install aider-install && aider-install`（官方安装器，需 Python）。
+//! - **pi**：`npm install -g @earendil-works/pi-coding-agent`（engines node>=20.6，免 Python）。
 //!
 //! Node 的安装统一走 **NVM for Windows**（用户要求）：先装 NVM（winget → 官方静默安装包
 //! 兜底），再 `nvm install <版本>` + `nvm use <版本>`。版本清单优先从 nodejs.org dist index
@@ -104,7 +104,7 @@ pub struct EnvironmentStatus {
     pub node: NodeToolStatus,
     pub npm: ToolStatus,
     pub nvm: NvmToolStatus,
-    /// 仅 Aider 需要；Windows 商店的 python 占位符按未安装处理。
+    /// 需要 Python 的安装方式依赖此字段；Windows 商店的 python 占位符按未安装处理。
     pub python: ToolStatus,
     pub agents: Vec<AgentCliStatus>,
 }
@@ -273,12 +273,12 @@ fn install_methods_for(
         ],
         "opencode" => vec![("npm", true, 16, false, "npm install -g opencode-ai", true)],
         "codex" => vec![("npm", true, 16, false, "npm install -g @openai/codex", true)],
-        "aider" => vec![(
-            "pip",
-            false,
-            0,
+        "pi" => vec![(
+            "npm",
             true,
-            "python -m pip install aider-install && aider-install",
+            20,
+            false,
+            "npm install -g @earendil-works/pi-coding-agent",
             true,
         )],
         _ => Vec::new(),
@@ -331,6 +331,7 @@ fn npm_package(agent_id: &str) -> Option<&'static str> {
         "claude-code" => Some("@anthropic-ai/claude-code"),
         "opencode" => Some("opencode-ai"),
         "codex" => Some("@openai/codex"),
+        "pi" => Some("@earendil-works/pi-coding-agent"),
         _ => None,
     }
 }
@@ -372,10 +373,6 @@ pub(crate) fn build_install_plan(agent_id: &str, method_id: &str) -> Result<Vec<
                 .ok_or_else(|| format!("agent '{agent_id}' has no npm package"))?;
             Ok(vec![cmd_spec(&["npm", "install", "-g", pkg])])
         }
-        ("aider", "pip") => Ok(vec![
-            cmd_spec(&["python", "-m", "pip", "install", "aider-install"]),
-            cmd_spec(&["aider-install"]),
-        ]),
         _ => Err(format!("unsupported install method: {agent_id}/{method_id}")),
     }
 }
@@ -594,7 +591,7 @@ fn install_agent_cli_inner(
                 node.version.as_deref().unwrap_or("?"),
                 method.min_node_major
             ),
-            "python" => "Python 未安装：Aider 需要 Python 3.9+（python.org 安装）".to_string(),
+            "python" => "Python 未安装：该安装方式需要 Python 3.9+（python.org 安装）".to_string(),
             other => format!("前置条件不满足：{other}"),
         });
     }
@@ -634,8 +631,7 @@ fn install_agent_cli_inner(
 ///
 /// 原则：复用各工具官方的更新通道——
 /// - Claude Code：自带 `claude update` 自更新子命令（native / npm 安装都支持）；
-/// - opencode / codex：npm 重装 `@latest`（幂等，已是最新也安全）；
-/// - aider：官方安装器重跑即更新（`aider-install` 支持升级）。
+/// - opencode / codex / pi：npm 重装 `@latest`（幂等，已是最新也安全）。
 pub(crate) fn build_update_plan(agent_id: &str) -> Result<Vec<ProcSpec>, String> {
     match agent_id {
         "claude-code" => {
@@ -645,16 +641,12 @@ pub(crate) fn build_update_plan(agent_id: &str) -> Result<Vec<ProcSpec>, String>
                 Err("Claude Code 未安装，无需更新".to_string())
             }
         }
-        "opencode" | "codex" => {
+        "opencode" | "codex" | "pi" => {
             let pkg = npm_package(agent_id)
                 .ok_or_else(|| format!("agent '{agent_id}' has no npm package"))?;
             let latest = format!("{pkg}@latest");
             Ok(vec![cmd_spec(&["npm", "install", "-g", &latest])])
         }
-        "aider" => Ok(vec![
-            cmd_spec(&["python", "-m", "pip", "install", "--upgrade", "aider-install"]),
-            cmd_spec(&["aider-install"]),
-        ]),
         _ => Err(format!("unsupported update target: {agent_id}")),
     }
 }
@@ -984,7 +976,7 @@ mod tests {
     // TC-ES-02  安装规格完整性：目录内每个 agent 都有方式，包名与官方一致
     #[test]
     fn install_plans_cover_catalog_with_official_commands() {
-        for agent_id in ["claude-code", "opencode", "codex", "aider"] {
+        for agent_id in ["claude-code", "opencode", "codex", "pi"] {
             assert!(
                 agent_discovery::catalog_definition(agent_id).is_some(),
                 "{agent_id} 必须在目录里"
@@ -1001,17 +993,13 @@ mod tests {
             ("opencode", "opencode-ai"),
             ("codex", "@openai/codex"),
             ("claude-code", "@anthropic-ai/claude-code"),
+            ("pi", "@earendil-works/pi-coding-agent"),
         ];
         for (agent_id, pkg) in cases {
             let plan = build_install_plan(agent_id, "npm").unwrap();
             assert_eq!(plan[0].program, "cmd");
             assert!(plan[0].args.windows(2).any(|w| w[0] == "-g" && w[1] == pkg));
         }
-
-        // aider：pip 安装器两步
-        let pip = build_install_plan("aider", "pip").unwrap();
-        assert_eq!(pip.len(), 2);
-        assert!(pip[0].args.join(" ").contains("aider-install"));
 
         assert!(build_install_plan("opencode", "native").is_err());
         assert!(build_install_plan("unknown", "npm").is_err());
@@ -1029,7 +1017,7 @@ mod tests {
         assert_eq!(blocked_reason(true, 22, Some(22), false, true), None);
         // claude 原生安装不需要 Node
         assert_eq!(blocked_reason(false, 0, None, false, false), None);
-        // aider 需要 Python
+        // 需要 Python 的方式（保留组合覆盖；pip 通道已移除，python 标记仅作前置检查）
         assert_eq!(blocked_reason(false, 0, Some(22), true, false).as_deref(), Some("python"));
     }
 
@@ -1122,20 +1110,20 @@ mod tests {
         assert!(v["methods"][0].get("minNodeMajor").is_some());
     }
 
-    // TC-ES-10  更新计划：npm 包带 @latest、aider 走升级、claude 依赖本机安装状态
+    // TC-ES-10  更新计划：npm 包带 @latest（opencode/codex/pi）、claude 依赖本机安装状态
     #[test]
     fn update_plans_use_official_channels() {
-        // opencode / codex：npm -g pkg@latest
-        for (agent_id, pkg) in [("opencode", "opencode-ai"), ("codex", "@openai/codex")] {
+        // opencode / codex / pi：npm -g pkg@latest
+        for (agent_id, pkg) in [
+            ("opencode", "opencode-ai"),
+            ("codex", "@openai/codex"),
+            ("pi", "@earendil-works/pi-coding-agent"),
+        ] {
             let plan = build_update_plan(agent_id).unwrap();
             assert_eq!(plan[0].program, "cmd");
             let args = plan[0].args.join(" ");
             assert!(args.contains("-g") && args.contains(&format!("{pkg}@latest")));
         }
-        // aider：升级安装器两步
-        let pip = build_update_plan("aider").unwrap();
-        assert_eq!(pip.len(), 2);
-        assert!(pip[0].args.join(" ").contains("--upgrade"));
         // 未知 agent 拒绝
         assert!(build_update_plan("unknown").is_err());
     }

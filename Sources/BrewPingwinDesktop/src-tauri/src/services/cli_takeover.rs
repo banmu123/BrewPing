@@ -14,6 +14,13 @@
 //! - Codex：`~/.codex/config.toml` → `model_provider = "brewping"` +
 //!   `[model_providers.brewping]`（base_url 指代理、wire_api = "chat"）；
 //!   `~/.codex/auth.json` → `OPENAI_API_KEY` 占位。
+//! - pi：`~/.pi/agent/models.json` → `providers.brewping`（baseUrl 带别名
+//!   `/pi`、api = "anthropic-messages"、占位 key、至少一条占位模型——契约
+//!   见本机 pi 包 docs/models.md：非内置 provider 自定义模型必须
+//!   baseUrl+apiKey+api 三件套齐全）；`~/.pi/agent/settings.json` →
+//!   `defaultProvider` + `defaultModel` **成对**写入（pi 的 model-resolver
+//!   要求两者都非空才采用默认；pi 无环境变量入口，代理接管必须写默认，
+//!   这与 cc-switch「不碰默认选择」的契约是有意差异）。
 //!
 //! 模块不依赖 tauri 类型（services 层同款约束）。
 
@@ -25,10 +32,14 @@ use std::path::{Path, PathBuf};
 pub const PLACEHOLDER_KEY: &str = "brewping-proxy";
 /// Codex 里 brewping provider 的注册名。
 pub const CODEX_PROVIDER_NAME: &str = "brewping";
+/// pi models.json 里 brewping provider 的注册名（同 CodeX 命名，语义独立）。
+pub const PI_PROVIDER_NAME: &str = "brewping";
+/// pi 的占位模型 id（models.json 必须至少一条模型才能在 /model 里被选中）。
+pub const PI_DEFAULT_MODEL: &str = "brewping-default";
 
 /// CLI 种类（与前端约定的字符串值）。
 ///
-/// 扩展新 CLI（qoder / pi 等）三步：
+/// 扩展新 CLI（qoder 等）三步：
 /// ① 这里加枚举值；② `binary_name` / `display_name` / `config_file` 补分支；
 /// ③ 若支持配置接管，在 `enable` / `disable` / `item_active` 补实现并把
 /// `is_takeover_supported` 改为 true —— 前端列表与按钮**自动**跟上，无需改 UI。
@@ -37,7 +48,7 @@ pub enum CliKind {
     ClaudeCode,
     Codex,
     OpenCode,
-    Aider,
+    Pi,
 }
 
 /// 全部可检测/展示的 CLI（列表顺序即前端展示顺序）。
@@ -45,7 +56,7 @@ pub const ALL_KINDS: &[CliKind] = &[
     CliKind::ClaudeCode,
     CliKind::Codex,
     CliKind::OpenCode,
-    CliKind::Aider,
+    CliKind::Pi,
 ];
 
 impl CliKind {
@@ -56,7 +67,7 @@ impl CliKind {
             "claude-code" | "claude_code" | "claudeCode" => Some(Self::ClaudeCode),
             "codex" => Some(Self::Codex),
             "opencode" => Some(Self::OpenCode),
-            "aider" => Some(Self::Aider),
+            "pi" => Some(Self::Pi),
             _ => None,
         }
     }
@@ -66,7 +77,7 @@ impl CliKind {
             Self::ClaudeCode => "claude_code",
             Self::Codex => "codex",
             Self::OpenCode => "opencode",
-            Self::Aider => "aider",
+            Self::Pi => "pi",
         }
     }
 
@@ -75,7 +86,7 @@ impl CliKind {
             Self::ClaudeCode => "Claude Code",
             Self::Codex => "Codex",
             Self::OpenCode => "OpenCode",
-            Self::Aider => "Aider",
+            Self::Pi => "pi",
         }
     }
 
@@ -85,14 +96,14 @@ impl CliKind {
             Self::ClaudeCode => "claude",
             Self::Codex => "codex",
             Self::OpenCode => "opencode",
-            Self::Aider => "aider",
+            Self::Pi => "pi",
         }
     }
 
     /// 是否支持「配置接管」（能把上游指向本地代理）。
     /// 其余 CLI 仅做检测与展示；接入实现补齐后改为 true 即可。
     pub fn is_takeover_supported(self) -> bool {
-        matches!(self, Self::ClaudeCode | Self::Codex)
+        matches!(self, Self::ClaudeCode | Self::Codex | Self::Pi)
     }
 
     /// 主配置文件路径（展示用；不存在也显示，供用户了解 CLI 配置位置）。
@@ -101,7 +112,7 @@ impl CliKind {
             Self::ClaudeCode => home.join(".claude").join("settings.json"),
             Self::Codex => home.join(".codex").join("config.toml"),
             Self::OpenCode => home.join(".config").join("opencode").join("opencode.json"),
-            Self::Aider => home.join(".aider.conf.yml"),
+            Self::Pi => home.join(".pi").join("agent").join("models.json"),
         }
     }
 }
@@ -163,6 +174,12 @@ impl CliTakeover {
         format!("http://127.0.0.1:{port}/codex")
     }
 
+    fn pi_base_url(&self, port: u16) -> String {
+        // pi（anthropic-messages）请求 = {baseUrl}/v1/messages（@anthropic-ai/sdk 拼接），
+        // 剥掉 /pi 别名后正好落在本代理的 Anthropic 透传路径上。
+        format!("http://127.0.0.1:{port}/pi")
+    }
+
     /// 查询全部 CLI 的接管状态（动态列表，顺序 = ALL_KINDS）。
     pub fn status(&self, port: u16) -> CliTakeoverInfo {
         CliTakeoverInfo {
@@ -217,7 +234,20 @@ impl CliTakeover {
                             == Some(self.codex_base_url(port).as_str())
                 }
                 // 尚未实现接管的 CLI：仅展示，恒 false
-                CliKind::OpenCode | CliKind::Aider => false,
+                CliKind::OpenCode => false,
+                // pi：models.json 有 brewping provider 且 baseUrl 按值匹配（与 Codex 双条件同构）
+                CliKind::Pi => self
+                    .read_json(&file)
+                    .and_then(|v| {
+                        v.pointer("/providers")
+                            .and_then(Value::as_object)?
+                            .get(PI_PROVIDER_NAME)?
+                            .pointer("/baseUrl")
+                            .and_then(Value::as_str)
+                            .map(|s| s == self.pi_base_url(port))
+                            .or(Some(false))
+                    })
+                    .unwrap_or(false),
             };
         CliTakeoverItem {
             id: kind.id().into(),
@@ -283,8 +313,44 @@ impl CliTakeover {
                 self.write_json(&auth_file, &auth)?;
                 self.write_text(&file, &doc.to_string())
             }
+            CliKind::Pi => {
+                // ① models.json：providers.brewping（三件套 + 占位模型），保留既有 providers
+                let file = kind.config_file(&self.home);
+                let mut root = self.read_json(&file).unwrap_or_else(|| json!({}));
+                let Value::Object(ref mut obj) = root else {
+                    return Err("pi models.json root is not an object".into());
+                };
+                let providers = obj
+                    .entry("providers")
+                    .or_insert_with(|| json!({}))
+                    .as_object_mut()
+                    .ok_or("pi models.json providers must be an object")?;
+                providers.insert(
+                    PI_PROVIDER_NAME.into(),
+                    json!({
+                        "baseUrl": self.pi_base_url(port),
+                        "apiKey": PLACEHOLDER_KEY,
+                        "api": "anthropic-messages",
+                        "models": [
+                            { "id": PI_DEFAULT_MODEL, "name": "BrewPing (proxied)" }
+                        ],
+                    }),
+                );
+                self.write_json(&file, &root)?;
+
+                // ② settings.json：defaultProvider + defaultModel 成对写（缺一不生效）。
+                //    pi 无环境变量入口，代理接管必须写默认——与 cc-switch「不碰默认」的有意差异。
+                let settings_file = self.home.join(".pi").join("agent").join("settings.json");
+                let mut settings = self.read_json(&settings_file).unwrap_or_else(|| json!({}));
+                let Value::Object(ref mut sobj) = settings else {
+                    return Err("pi settings.json root is not an object".into());
+                };
+                sobj.insert("defaultProvider".into(), json!(PI_PROVIDER_NAME));
+                sobj.insert("defaultModel".into(), json!(PI_DEFAULT_MODEL));
+                self.write_json(&settings_file, &settings)
+            }
             // 上方 is_takeover_supported 已拦截，此分支不可达（保持穷尽匹配）
-            CliKind::OpenCode | CliKind::Aider => {
+            CliKind::OpenCode => {
                 Err(format!("{} does not support takeover yet", kind.display_name()))
             }
         }
@@ -365,8 +431,55 @@ impl CliTakeover {
                 }
                 Ok(())
             }
+            CliKind::Pi => {
+                // ① models.json：brewping provider 按值移除（baseUrl 是我们的才删）
+                let file = kind.config_file(&self.home);
+                let base = self.pi_base_url(port);
+                if let Some(mut root) = self.read_json(&file) {
+                    let mut changed = false;
+                    if let Some(providers) =
+                        root.pointer_mut("/providers").and_then(Value::as_object_mut)
+                    {
+                        let ours = providers
+                            .get(PI_PROVIDER_NAME)
+                            .and_then(|p| p.pointer("/baseUrl").and_then(Value::as_str))
+                            == Some(base.as_str());
+                        if ours {
+                            providers.remove(PI_PROVIDER_NAME);
+                            changed = true;
+                        }
+                    }
+                    if changed {
+                        self.write_json(&file, &root)?;
+                    }
+                }
+
+                // ② settings.json：默认项按值移除（用户改过则保留）
+                let settings_file = self.home.join(".pi").join("agent").join("settings.json");
+                if let Some(mut settings) = self.read_json(&settings_file) {
+                    let mut changed = false;
+                    if let Some(sobj) = settings.as_object_mut() {
+                        if sobj.get("defaultProvider").and_then(Value::as_str)
+                            == Some(PI_PROVIDER_NAME)
+                        {
+                            sobj.remove("defaultProvider");
+                            changed = true;
+                        }
+                        if sobj.get("defaultModel").and_then(Value::as_str)
+                            == Some(PI_DEFAULT_MODEL)
+                        {
+                            sobj.remove("defaultModel");
+                            changed = true;
+                        }
+                    }
+                    if changed {
+                        self.write_json(&settings_file, &settings)?;
+                    }
+                }
+                Ok(())
+            }
             // 上方 is_takeover_supported 已拦截，此分支不可达（保持穷尽匹配）
-            CliKind::OpenCode | CliKind::Aider => {
+            CliKind::OpenCode => {
                 Err(format!("{} does not support takeover yet", kind.display_name()))
             }
         }
@@ -532,7 +645,7 @@ mod tests {
         assert_eq!(CliKind::parse("claudeCode"), Some(CliKind::ClaudeCode));
         assert_eq!(CliKind::parse("codex"), Some(CliKind::Codex));
         assert_eq!(CliKind::parse("opencode"), Some(CliKind::OpenCode));
-        assert_eq!(CliKind::parse("aider"), Some(CliKind::Aider));
+        assert_eq!(CliKind::parse("pi"), Some(CliKind::Pi));
         assert_eq!(CliKind::parse("gemini"), None);
     }
 
@@ -543,14 +656,17 @@ mod tests {
         let take = CliTakeover::with_home(temp_home("list"));
         let info = take.status(15721);
         let ids: Vec<&str> = info.items.iter().map(|i| i.id.as_str()).collect();
-        assert_eq!(ids, vec!["claude_code", "codex", "opencode", "aider"]);
+        assert_eq!(ids, vec!["claude_code", "codex", "opencode", "pi"]);
         assert_eq!(info.proxy_port, 15721);
         for it in &info.items {
             assert!(!it.name.is_empty());
             assert!(!it.config_file.is_empty());
             assert_eq!(it.active, false, "空 home 下不可能 active");
             assert_eq!(it.exists, false, "空 home 下配置文件不存在");
-            assert_eq!(it.supported, it.id == "claude_code" || it.id == "codex");
+            assert_eq!(
+                it.supported,
+                it.id == "claude_code" || it.id == "codex" || it.id == "pi"
+            );
         }
     }
 
@@ -560,7 +676,77 @@ mod tests {
         let take = CliTakeover::with_home(temp_home("unsup"));
         let err = take.enable(CliKind::OpenCode, 15721).unwrap_err();
         assert!(err.contains("OpenCode"));
-        let err = take.disable(CliKind::Aider, 15721).unwrap_err();
-        assert!(err.contains("Aider"));
+        let err = take.disable(CliKind::OpenCode, 15721).unwrap_err();
+        assert!(err.contains("OpenCode"));
+    }
+
+    // TC-CT-09  pi：写 models.json providers.brewping（三件套+占位模型）+ settings 成对默认
+    #[test]
+    fn pi_enable_writes_models_and_settings() {
+        let home = temp_home("pi");
+        let take = CliTakeover::with_home(home.clone());
+        let models_file = home.join(".pi").join("agent").join("models.json");
+        std::fs::create_dir_all(models_file.parent().unwrap()).unwrap();
+        std::fs::write(
+            &models_file,
+            r#"{"providers":{"ollama":{"baseUrl":"http://localhost:11434/v1","api":"openai-completions","apiKey":"ollama","models":[{"id":"q"}]}}}"#,
+        )
+        .unwrap();
+
+        take.enable(CliKind::Pi, 15721).unwrap();
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&models_file).unwrap()).unwrap();
+        let brew = v.pointer("/providers/brewping").unwrap();
+        assert_eq!(brew["baseUrl"], "http://127.0.0.1:15721/pi");
+        assert_eq!(brew["apiKey"], PLACEHOLDER_KEY);
+        assert_eq!(brew["api"], "anthropic-messages");
+        assert_eq!(brew["models"][0]["id"], PI_DEFAULT_MODEL);
+        // 既有 provider 保留
+        assert!(v.pointer("/providers/ollama/models/0/id").is_some());
+
+        let settings: Value = serde_json::from_str(
+            &std::fs::read_to_string(home.join(".pi").join("agent").join("settings.json").as_path())
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(settings["defaultProvider"], PI_PROVIDER_NAME);
+        assert_eq!(settings["defaultModel"], PI_DEFAULT_MODEL);
+
+        // 幂等 + active
+        take.enable(CliKind::Pi, 15721).unwrap();
+        assert!(item(&take.status(15721), "pi").active);
+    }
+
+    // TC-CT-10  pi：关闭按值还原（models.json 条目与 settings 两键；用户改过不动）
+    #[test]
+    fn pi_disable_restores_by_value() {
+        let home = temp_home("pi-off");
+        let take = CliTakeover::with_home(home.clone());
+        take.enable(CliKind::Pi, 15721).unwrap();
+        take.disable(CliKind::Pi, 15721).unwrap();
+
+        let v: Value = serde_json::from_str(
+            &std::fs::read_to_string(home.join(".pi/agent/models.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(v.pointer("/providers/brewping").is_none(), "brewping 条目必须移除");
+
+        let s: Value = serde_json::from_str(
+            &std::fs::read_to_string(home.join(".pi/agent/settings.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(s.get("defaultProvider").is_none(), "默认 provider 必须移除");
+        assert!(s.get("defaultModel").is_none(), "默认 model 必须移除");
+        assert!(!item(&take.status(15721), "pi").active);
+
+        // 用户改过值 → 不动
+        take.enable(CliKind::Pi, 15721).unwrap();
+        let spath = home.join(".pi/agent/settings.json");
+        let mut s: Value =
+            serde_json::from_str(&std::fs::read_to_string(&spath).unwrap()).unwrap();
+        s["defaultProvider"] = json!("my-own-proxy");
+        std::fs::write(&spath, serde_json::to_string(&s).unwrap()).unwrap();
+        take.disable(CliKind::Pi, 15721).unwrap();
+        let s: Value = serde_json::from_str(&std::fs::read_to_string(&spath).unwrap()).unwrap();
+        assert_eq!(s["defaultProvider"], "my-own-proxy", "用户的默认不得删除");
     }
 }

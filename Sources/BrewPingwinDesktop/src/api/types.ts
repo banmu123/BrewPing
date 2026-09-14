@@ -338,7 +338,7 @@ export interface ModelProvidersInfo {
 
 /// 单个 CLI 的检测/接入状态（动态列表项；后端按 ALL_KINDS 顺序下发）。
 export interface CliTakeoverItem {
-  /// CLI 标识（"claude_code" | "codex" | "opencode" | "aider" …，随支持面扩展）。
+  /// CLI 标识（"claude_code" | "codex" | "opencode" | "pi" …，随支持面扩展）。
   id: string;
   /// 展示名（如 "Claude Code"）。
   name: string;

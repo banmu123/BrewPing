@@ -51,7 +51,7 @@ impl AgentProviders {
 }
 
 /// 已知 Agent 的 id 列表（与 `agent_discovery::CATALOG` 保持一致）。
-pub const SUPPORTED_AGENTS: &[&str] = &["opencode", "claude-code", "codex", "aider"];
+pub const SUPPORTED_AGENTS: &[&str] = &["opencode", "claude-code", "codex", "pi"];
 
 /// 某个 agent id 是否在目录里（与 macOS `AgentDiscovery.catalog` 的用途一致）。
 pub fn is_known_agent(agent_id: &str) -> bool {
@@ -67,7 +67,7 @@ pub fn discover(agent_id: &str) -> AgentProviders {
         "opencode" => read_opencode(),
         "claude-code" => read_claude_code(),
         "codex" => read_codex(),
-        "aider" => read_aider(),
+        "pi" => read_pi(),
         _ => AgentProviders::empty(agent_id),
     }
 }
@@ -323,50 +323,99 @@ fn parse_codex_toml(content: &str) -> AgentProviders {
     }
 }
 
-// ─── Aider ───────────────────────────────────────────────────────────────────
-// 配置：~/.aider.conf.yml 或 ~/.config/aider/config.yml（yaml 里的 `model:` 一行）
+// ─── pi ──────────────────────────────────────────────────────────────────────
+// 配置：~/.pi/agent/settings.json（defaultProvider / defaultModel，成对生效）
+//      + ~/.pi/agent/models.json（providers.<id>.baseUrl / .models[].id|name）
+// 代理接管时 settings.defaultProvider = "brewping"（cli_takeover 写入），
+// 这里只读不改，把真实默认如实暴露给移动端。
 
-fn read_aider() -> AgentProviders {
-    let Some(content) = read_first(&aider_paths()) else {
-        return AgentProviders::empty("aider");
+fn read_pi() -> AgentProviders {
+    let Some(settings_content) = read_first(&pi_settings_paths()) else {
+        return AgentProviders::empty("pi");
     };
-    parse_aider_yaml(&content)
+    let models_content = read_first(&pi_models_paths());
+    parse_pi(&settings_content, models_content.as_deref())
 }
 
-fn aider_paths() -> Vec<PathBuf> {
+fn pi_settings_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Some(home) = dirs::home_dir() {
-        paths.push(home.join(".aider.conf.yml"));
-        paths.push(home.join(".config").join("aider").join("config.yml"));
+        paths.push(home.join(".pi").join("agent").join("settings.json"));
     }
     paths
 }
 
-fn parse_aider_yaml(content: &str) -> AgentProviders {
-    for line in content.lines() {
-        let trimmed = line.trim();
-        let Some(rest) = trimmed.strip_prefix("model:") else { continue };
-        let model_id = rest.trim().trim_matches('"').trim_matches('\'').trim();
-        if model_id.is_empty() {
-            continue;
-        }
-        return AgentProviders {
-            agent_id: "aider".to_string(),
-            providers: vec![Provider {
-                id: "aider-default".to_string(),
-                name: "Aider Default".to_string(),
-                base_url: None,
-                models: vec![ProviderModel {
-                    id: model_id.to_string(),
-                    name: model_id.to_string(),
-                    available: true,
-                    is_active: true,
-                }],
-            }],
-            active_model_id: Some(model_id.to_string()),
-        };
+fn pi_models_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        paths.push(home.join(".pi").join("agent").join("models.json"));
     }
-    AgentProviders::empty("aider")
+    paths
+}
+
+fn parse_pi(settings_content: &str, models_content: Option<&str>) -> AgentProviders {
+    let Ok(settings) = serde_json::from_str::<serde_json::Value>(settings_content) else {
+        return AgentProviders::empty("pi");
+    };
+    let default_provider = settings
+        .get("defaultProvider")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let active_model_id = settings
+        .get("defaultModel")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let Some(models_content) = models_content else {
+        return AgentProviders::empty("pi");
+    };
+    let Ok(root) = serde_json::from_str::<serde_json::Value>(models_content) else {
+        return AgentProviders::empty("pi");
+    };
+    let Some(providers_obj) = root.get("providers").and_then(|v| v.as_object()) else {
+        return AgentProviders::empty("pi");
+    };
+
+    let mut providers: Vec<Provider> = Vec::new();
+    for (provider_id, provider_value) in providers_obj {
+        let base_url = provider_value
+            .get("baseUrl")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let mut models: Vec<ProviderModel> = Vec::new();
+        if let Some(models_arr) = provider_value.get("models").and_then(|v| v.as_array()) {
+            for model_value in models_arr {
+                let Some(model_id) = model_value.get("id").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let model_name = model_value
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(model_id)
+                    .to_string();
+                models.push(ProviderModel {
+                    id: model_id.to_string(),
+                    name: model_name,
+                    available: true,
+                    is_active: active_model_id.as_deref() == Some(model_id),
+                });
+            }
+        }
+        models.sort_by(|a, b| a.id.cmp(&b.id));
+        providers.push(Provider {
+            id: provider_id.clone(),
+            name: provider_id.clone(),
+            base_url,
+            models,
+        });
+    }
+    providers.sort_by(|a, b| a.id.cmp(&b.id));
+
+    AgentProviders {
+        agent_id: "pi".to_string(),
+        providers,
+        // 当前正在用的模型 = settings.defaultModel（未设置则回落 None）
+        active_model_id,
+    }
 }
 
 // ─── 公共工具 ────────────────────────────────────────────────────────────────
@@ -470,15 +519,37 @@ base_url = "https://open.bigmodel.cn/api/paas/v4"
         assert_eq!(result.active_model_id.as_deref(), Some("glm-5.2"));
     }
 
-    // TC-AC-05  aider：只认 `model:` 一行，引号要剥掉
+    // TC-AC-05  pi：settings 默认 + models.json providers 全解析，isActive 标默认
     #[test]
-    fn aider_extracts_model_line() {
-        let yaml = "# comment\nmodel: \"gpt-4o\"\nother: x\n";
-        let result = parse_aider_yaml(yaml);
-        assert_eq!(result.active_model_id.as_deref(), Some("gpt-4o"));
-        assert_eq!(result.providers[0].models[0].name, "gpt-4o");
+    fn pi_parses_settings_and_models() {
+        let settings = r#"{"defaultProvider":"brewping","defaultModel":"brewping-default"}"#;
+        let models = r#"{
+            "providers": {
+                "brewping": {
+                    "baseUrl": "http://127.0.0.1:15721/pi",
+                    "apiKey": "brewping-proxy",
+                    "api": "anthropic-messages",
+                    "models": [ { "id": "brewping-default", "name": "BrewPing (proxied)" } ]
+                },
+                "ollama": { "baseUrl": "http://localhost:11434/v1", "models": [ { "id": "q" } ] }
+            }
+        }"#;
+        let result = parse_pi(settings, Some(models));
+        assert_eq!(result.agent_id, "pi");
+        assert_eq!(result.providers.len(), 2, "providers 按 id 排序");
+        assert_eq!(result.providers[0].id, "brewping");
+        assert_eq!(
+            result.providers[0].base_url.as_deref(),
+            Some("http://127.0.0.1:15721/pi")
+        );
+        assert_eq!(result.providers[0].models[0].id, "brewping-default");
+        assert!(result.providers[0].models[0].is_active, "默认模型必须标 isActive");
+        assert!(!result.providers[1].models[0].is_active);
+        assert_eq!(result.active_model_id.as_deref(), Some("brewping-default"));
 
-        assert!(parse_aider_yaml("other: x\n").providers.is_empty());
+        // 边界：settings 非法 / models 缺失 → 空
+        assert!(parse_pi("not json", Some(models)).providers.is_empty());
+        assert!(parse_pi(settings, None).providers.is_empty());
     }
 
     // TC-AC-06  未知 agent 返回空，不 panic（移动端据此隐藏入口）

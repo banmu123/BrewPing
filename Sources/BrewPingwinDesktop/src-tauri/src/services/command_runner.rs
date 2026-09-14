@@ -27,11 +27,10 @@ pub fn headless_args(agent_id: &str, text: &str, model: Option<&str>) -> Vec<Str
             "workspace-write".to_string(),
             text.to_string(),
         ],
-        "aider" => vec![
-            "--message".to_string(),
+        "pi" => vec![
+            // print 模式：响应打印后退出（docs/usage.md CLI Reference）
+            "-p".to_string(),
             text.to_string(),
-            "--yes-always".to_string(),
-            "--no-auto-commits".to_string(),
         ],
         // opencode 与其它未知 agent：headless 一次性运行（opencode run <message..>）
         _ => vec!["run".to_string(), text.to_string()],
@@ -297,7 +296,7 @@ pub async fn execute_agent_command(
         ),
     };
     // opencode 的 `--model` 要求 `provider/model` 复合格式；其它 agent
-    // （claude/codex/aider）的 --model 只认裸 model id，原样传。
+    // （claude/codex/pi）的 --model 只认裸 model id，原样传。
     // 绑定诊断日志（方案 §7.5）：用户报错时能立刻定位是不是模型名不对。
     log::info!("[Agent] {agent_id} model={model:?} (provider={model_provider:?})");
     let model_arg = match (model_provider, model) {
