@@ -25,6 +25,14 @@ let package = Package(
             name: "BrewPingDesktop",
             dependencies: ["BrewPingCore"],
             path: "Sources/BrewPingDesktop"
+        ),
+        // 「厂商原生配置」四模块的不变量测试（对齐 Windows 的 cargo test）。
+        // 🚨 只依赖 BrewPingCore，**不要**依赖 BrewPingDesktop —— 后者链 SwiftUI App，
+        //    swift test 会去启动 GUI。
+        .testTarget(
+            name: "BrewPingCoreTests",
+            dependencies: ["BrewPingCore"],
+            path: "Tests/BrewPingCoreTests"
         )
     ]
 )
