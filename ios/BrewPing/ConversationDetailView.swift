@@ -476,7 +476,10 @@ struct ConversationDetailView: View {
     private func settle() {
         pendingUserText = nil
         Task {
-            if let id = activeConversationID {
+            // 🚨 P0 防串台：store.detail 是单例共享槽位。本页被 NavigationStack
+            // push 覆盖后，.onChange(phase) 仍会触发本方法 —— 若不校验，
+            // 旧对话的 open() 会把前台新对话的详情覆盖成旧消息。
+            if let id = activeConversationID, store.detail?.id == id {
                 await store.open(id: id, device: device)
             }
             await store.refresh(device: device, force: true)

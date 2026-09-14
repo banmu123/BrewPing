@@ -24,8 +24,8 @@ final class DemoBackend {
     /// 模拟的 Agent 列表。名称仅用于说明"可兼容哪些 CLI"，
     /// 界面另有免责声明（见 `BrewPingConfig.trademarkDisclaimer`）。
     private static let agents: [[String: Any]] = [
-        ["id": "opencode", "name": "OpenCode", "installed": true, "active": true, "executable": true, "version": "0.4.2 (demo)"],
-        ["id": "claude-code", "name": "Claude Code", "installed": true, "active": false, "executable": true, "version": "1.9.0 (demo)"],
+        ["id": "opencode", "name": "OpenCode", "installed": true, "active": false, "executable": true, "version": "0.4.2 (demo)"],
+        ["id": "claude-code", "name": "Claude Code", "installed": true, "active": true, "executable": true, "version": "1.9.0 (demo)"],
         ["id": "codex", "name": "Codex CLI", "installed": false, "active": false, "executable": false]
     ]
 
@@ -127,10 +127,11 @@ final class DemoBackend {
             guard !text.isEmpty else {
                 return (400, ["success": false, "error": "text is empty"])
             }
-            // 授权门卫（与 Mac 端 ApprovalGate 同构）：safe 模式命中危险 → 挂起等确认。
+            // 授权门卫（与 Mac 端 ApprovalGate 同构）：
+            //   safe：命中危险 → 挂起；askAll：一律挂起；auto：直接执行。
             let mode = currentMode()
             let dangers = Self.demoDangers(in: text)
-            if mode != "auto", !dangers.isEmpty {
+            if mode == "askAll" || (mode != "auto" && !dangers.isEmpty) {
                 let approvalID = "apv-demo-\(UUID().uuidString)"
                 lock.lock()
                 pendingApprovals[approvalID] = DemoApproval(text: text, reasons: dangers, createdAt: Date())
@@ -301,6 +302,12 @@ final class DemoBackend {
             if let workdir = json["workdir"] as? String {
                 overrides["workdirOverride"] = workdir.isEmpty ? NSNull() : workdir
             }
+            if let pinned = json["pinned"] as? Bool {
+                overrides["pinned"] = pinned
+            }
+            if let archived = json["archived"] as? Bool {
+                overrides["archived"] = archived
+            }
             lock.lock()
             conversationOverrides[id] = overrides
             lock.unlock()
@@ -310,6 +317,25 @@ final class DemoBackend {
 
         if method == "GET", path == "/api/conversations" {
             return (200, ["success": true, "conversations": demoConversations()])
+        }
+        if method == "DELETE", path.hasPrefix("/api/conversations/") {
+            // 与真实桌面端同语义：仅归档态可删，否则 409
+            let id = String(path.dropFirst("/api/conversations/".count))
+            lock.lock()
+            defer { lock.unlock() }
+            let isArchived = { () -> Bool in
+                if let idx = createdConversations.firstIndex(where: { ($0["id"] as? String) == id }) {
+                    return (createdConversations[idx]["archived"] as? Bool) == true
+                }
+                return Self.baseDemoConversations().first(where: { ($0["id"] as? String) == id })
+                    .flatMap { ($0["archived"] as? Bool) == true } ?? false
+            }()
+            guard isArchived else {
+                return (409, ["success": false, "error": "conversation must be archived before delete"])
+            }
+            createdConversations.removeAll(where: { ($0["id"] as? String) == id })
+            conversationOverrides.removeValue(forKey: id)
+            return (200, ["success": true])
         }
         if method == "GET", path.hasPrefix("/api/conversations/") {
             let id = String(path.dropFirst("/api/conversations/".count))
@@ -553,10 +579,19 @@ final class DemoBackend {
         case ..<3.6:
             payload["status"] = "working"
         default:
-            payload["status"] = "completed"
-            payload["duration"] = (elapsed * 10).rounded() / 10
-            payload["modelId"] = "demo-model"
-            payload["response"] = Self.demoResponse(for: command.text)
+            // 错误路径也要能被审核员看到：约定触发词（命令含 "fail"）→ failed，
+            // 走与真实桌面端同形的失败载荷（error + failureReason）。
+            if command.text.lowercased().contains("fail") {
+                payload["status"] = "failed"
+                payload["duration"] = (elapsed * 10).rounded() / 10
+                payload["error"] = L("Command failed (simulated).")
+                payload["failureReason"] = "timeout"
+            } else {
+                payload["status"] = "completed"
+                payload["duration"] = (elapsed * 10).rounded() / 10
+                payload["modelId"] = "demo-model"
+                payload["response"] = Self.demoResponse(for: command.text)
+            }
         }
         return (200, payload)
     }

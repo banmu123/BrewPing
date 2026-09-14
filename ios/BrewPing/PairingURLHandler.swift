@@ -36,7 +36,8 @@ final class PairingURLHandler: ObservableObject {
     func handle(_ url: URL) {
         guard url.scheme?.lowercased() == "brewping",
               url.host?.lowercased() == "pair" else {
-            BrewPingLog.discovery.info("Ignoring non-pair URL: \(url.absoluteString, privacy: .public)")
+            // 配对 URL 可能携带 6 位配对码 → 一律 .private，绝不进系统日志明文。
+            BrewPingLog.discovery.info("Ignoring non-pair URL: \(url.absoluteString, privacy: .private)")
             return
         }
         let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)

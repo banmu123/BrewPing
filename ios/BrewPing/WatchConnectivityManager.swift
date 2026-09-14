@@ -159,7 +159,8 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
     }
 
     func sessionDidBecomeInactive(_ session: WCSession) {
-        session.activate()
+        // 按 Apple 契约：这里只做会话状态转移，重新 activate 留给
+        // sessionDidDeactivate（否则多 Watch 切换场景可能激活失败）。
     }
 
     func sessionDidDeactivate(_ session: WCSession) {

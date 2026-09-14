@@ -351,6 +351,17 @@ struct ContentView: View {
             .tint(Color.bpPrimary)
             .padding(.top, 8)
 
+            // 审核 / 无 Mac 用户的一等入口：Demo 是明确的产品能力，不是隐藏后门
+            Button {
+                deviceStore.addDemoDevice()
+            } label: {
+                Label("Try the Demo (no Mac needed)", systemImage: "sparkles")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .padding(.top, 4)
+
             Text("No desktop yet? Get BrewPing for Mac, Windows or Linux.")
                 .font(.system(size: 10))
                 .foregroundStyle(Color.bpMutedForeground.opacity(0.7))
@@ -854,7 +865,12 @@ struct ContentView: View {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             let decoded = try? JSONDecoder().decode(PairingResponse.self, from: data)
             if statusCode == 200, decoded?.success == true, let token = decoded?.token, !token.isEmpty {
-                DeviceAuth.store(token: token, for: device)
+                // 🚨 Keychain 写入失败必须让配对失败：否则用户以为配好了，
+                // 实际 token 丢失，后续全部 401 且无从排查。
+                guard DeviceAuth.store(token: token, for: device) else {
+                    BrewPingLog.net.error("Keychain store failed for host \(device.host, privacy: .private)")
+                    return (false, L("Couldn't save the pairing token to the Keychain."))
+                }
                 BrewPingLog.net.info("Paired with host \(device.host, privacy: .private)")
                 return (true, L("Paired successfully."))
             }
@@ -1135,6 +1151,8 @@ struct ContentView: View {
                 return
             }
 
+            // 🚨 切设备窗口：await 期间用户可能已切到别的 Mac，旧回包不能写入 UI。
+            guard deviceStore.activeDeviceID == device.id else { return }
             let decoded = try JSONDecoder().decode(StatusResponse.self, from: data)
             online = decoded.status == "online"
             hostName = decoded.host ?? ""
@@ -1155,9 +1173,8 @@ struct ContentView: View {
             watchBridge.currentAgentName = sessionAgentNameFromStatus
             watchBridge.currentAgentMode = sessionAgentIDFromStatus == "opencode" ? "session" : "headless"
             watchBridge.currentAgentID = sessionAgentIDFromStatus
-            if !agents.isEmpty {
-                watchBridge.knownAgents = agents.map { ["id": $0.id, "name": $0.name] }
-            }
+            // 空列表也推：拉取失败时 Watch 显示"无"，而不是旧的硬编码假列表
+            watchBridge.knownAgents = agents.map { ["id": $0.id, "name": $0.name] }
             // 同步设备列表到 Watch
             watchBridge.knownDevices = deviceStore.devices.map { d in
                 ["id": d.id, "name": d.displayName, "os": d.osType.rawValue]
@@ -1196,6 +1213,7 @@ struct ContentView: View {
     }
 
     private func refreshAgents() async {
+        let requestingDeviceID = deviceStore.activeDeviceID
         guard let request = BrewPingHTTP.request(device: activeDevice, path: "/api/agents", timeout: 10) else {
             agents = []
             agentsUnauthorized = false
@@ -1210,6 +1228,8 @@ struct ContentView: View {
                 agentsUnauthorized = true
                 return
             }
+            // 🚨 切设备窗口守卫（与 refreshStatus 同语义）
+            guard deviceStore.activeDeviceID == requestingDeviceID else { return }
             let decoded = try JSONDecoder().decode(AgentsResponse.self, from: data)
             agents = decoded.agents ?? []
             agentsUnauthorized = false

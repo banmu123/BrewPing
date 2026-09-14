@@ -148,6 +148,12 @@ final class CommandSubmitter: ObservableObject {
     private var pendingFromWatch = false
     /// 当前提交的目标对话（Watch 端用它判断"这条结果是不是我这个对话的"）。
     private var activeConversationId: String?
+    /// 进入 pending_approval 时桌面端返回的 commandId（可能为 nil）。
+    /// 用户关闭确认窗后仍可凭它继续轮询到服务端超时终态，Watch 才有回执。
+    private var pendingCommandId: String?
+    /// 轮询停滞看门狗：delivered（queued/sent）状态超过该时长仍未 working → 判定失败。
+    /// （桌面端活着但命令永远不被拾取的 bug 不能让 UI 永久转圈。）
+    private static let pickupStallTimeout: TimeInterval = 90
 
     private init() {}
 
@@ -182,6 +188,7 @@ final class CommandSubmitter: ObservableObject {
         lastFailureReason = nil
         lastModelId = nil
         pendingApproval = nil
+        pendingCommandId = nil
     }
 
     /// 提交一条文本命令。
@@ -196,6 +203,23 @@ final class CommandSubmitter: ObservableObject {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
+        // 🚨 P0 防重入：inFlight 期间丢弃新提交。两个发送 UI 都已按 inFlight 禁用，
+        // 这里只兜「双击竞态 / Watch 与 iPhone 同时提交」的窗口 —— 否则后到者
+        // cancelPolling() 会把先到命令变成孤儿（Mac 继续执行但结果无人接收）。
+        // Watch 来源被丢弃时必须回一条终态，否则手表会永远停在 Sent。
+        guard !phase.inFlight else {
+            BrewPingLog.command.info("Submit dropped: another command is in flight")
+            if fromWatch {
+                WatchConnectivityManager.shared.sendCommandResult(
+                    status: "failed",
+                    text: L("Another command is still running. Try again after it finishes."),
+                    duration: nil,
+                    conversationId: conversationId
+                )
+            }
+            return
+        }
+
         guard let device = DeviceStore.shared.activeDevice, device.baseURL != nil else {
             fail(with: L("No Mac connected. Add a device first."), fromWatch: fromWatch)
             return
@@ -207,6 +231,7 @@ final class CommandSubmitter: ObservableObject {
         lastFailureReason = nil
         lastModelId = nil
         pendingApproval = nil
+        pendingCommandId = nil
         pendingFromWatch = fromWatch
         activeConversationId = conversationId
 
@@ -230,15 +255,25 @@ final class CommandSubmitter: ObservableObject {
             fail(with: L("No Mac connected. Add a device first."), fromWatch: fromWatch)
             return
         }
-        Task { [weak self] in
+        // 🚨 P0：decision 之后的轮询必须挂在 pollTask 上 —— 原来起的是无句柄 Task，
+        // reset()/cancelPolling() 取消不掉，会和下一条命令的轮询并存、交替写 phase。
+        pollTask = Task { [weak self] in
             await self?.postDecision(id: id, action: action, device: device, fromWatch: fromWatch)
         }
     }
 
     /// 用户手动关闭确认窗（不点任何按钮）：命令继续在 Mac 端挂起，直到服务端超时。
     /// 不自动 deny、也不自动执行 —— 缺席不表态，留给服务端兜底。
+    /// 🚨 但必须继续跟踪终态（低频轮询到 failed/completed），否则：
+    /// ① Watch 端永远停在 Sent；② 服务端超时后 UI 也无感知。
     func clearPendingApproval() {
         pendingApproval = nil
+        guard let commandId = pendingCommandId, !commandId.isEmpty,
+              let device = DeviceStore.shared.activeDevice, device.baseURL != nil else { return }
+        let fromWatch = pendingFromWatch
+        pollTask = Task { [weak self] in
+            await self?.poll(commandId: commandId, device: device, fromWatch: fromWatch)
+        }
     }
 
     // MARK: - Internals
@@ -315,6 +350,8 @@ final class CommandSubmitter: ObservableObject {
             // 授权门卫：Mac 端判定该命令需要用户确认（safe 命中危险 / askAll）。
             if let approval = decoded?.approval, decoded?.status == "pending_approval" {
                 pendingApproval = approval
+                // 记下 commandId：用户关窗后仍能轮询到服务端超时终态
+                pendingCommandId = decoded?.commandId
                 phase = .idle  // 等待确认，不进入轮询
                 return
             }
@@ -333,9 +370,17 @@ final class CommandSubmitter: ObservableObject {
 
     private func poll(commandId: String, device: ManagedDevice, fromWatch: Bool) async {
         var consecutiveErrors = 0
+        // delivered（queued/sent）开始计时；进入 working 后解除。
+        // 桌面端活着却永远不拾取命令（bug）时，UI 不能永久转圈挡住发送。
+        var deliveredSince = Date()
         while !Task.isCancelled {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             guard !Task.isCancelled else { return }
+            if phase == .delivered,
+               Date().timeIntervalSince(deliveredSince) > Self.pickupStallTimeout {
+                fail(with: L("Command was never picked up by the desktop."), fromWatch: fromWatch)
+                return
+            }
             guard let request = BrewPingHTTP.request(device: device, path: "/api/message/\(commandId)", timeout: 15) else {
                 fail(with: L("No Mac connected. Add a device first."), fromWatch: fromWatch)
                 return
@@ -365,6 +410,7 @@ final class CommandSubmitter: ObservableObject {
                     phase = .delivered
                 case "working":
                     phase = .working
+                    deliveredSince = Date()   // 进入 working：解除拾取停滞计时
                 case "completed":
                     finish(decoded.response ?? L("(empty response)"), raw: false, decoded: decoded, fromWatch: fromWatch)
                     return

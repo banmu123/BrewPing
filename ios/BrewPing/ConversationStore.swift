@@ -223,6 +223,9 @@ final class ConversationStore: ObservableObject {
             }
 
             let decoded = try JSONDecoder().decode(ListConversationsResponse.self, from: data)
+            // 🚨 切设备窗口：await 期间用户可能已切到别的 Mac，旧回包不能写入 UI
+            //（失败分支本来就有 loadedKey 校验，成功分支漏了）。
+            guard DeviceStore.shared.activeDevice?.id == device.id else { return }
             conversations = decoded.conversations ?? []
             unsupported = false
             loadError = nil

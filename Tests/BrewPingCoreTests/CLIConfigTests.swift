@@ -100,10 +100,14 @@ final class CLIConfigTests: XCTestCase {
                 ClaudeTierEntry(tier: "opus", model: "m-2", name: "M2"),
             ]), at: path)
 
-        // 第二档清空 → 对应键必须被删掉，而不是保留旧值
+        // 第二档清空（表单语义 = 三档全量提交，空串档 = 删除该键）→ 键必须被删掉。
+        // 注意：数组里缺档 = 不触碰（与 Windows claude_config.rs 一致，表单永远全量提交）。
         _ = try ClaudeConfigStore.save(ClaudeProviderEntry(
             baseURL: "https://a.com", apiKey: "k",
-            tiers: [ClaudeTierEntry(tier: "sonnet", model: "m-1", name: "M1")]), at: path)
+            tiers: [
+                ClaudeTierEntry(tier: "sonnet", model: "m-1", name: "M1"),
+                ClaudeTierEntry(tier: "opus", model: "", name: ""),
+            ]), at: path)
 
         let env = (try readJSON(path))["env"] as? [String: Any] ?? [:]
         XCTAssertEqual(env["ANTHROPIC_DEFAULT_SONNET_MODEL"] as? String, "m-1")
@@ -190,7 +194,7 @@ final class CLIConfigTests: XCTestCase {
         XCTAssertTrue(text.contains("NODE_PATH = \"/opt/node\""), "嵌套表必须保留")
         XCTAssertTrue(text.contains("model_provider = \"my-deepseek\""))
         XCTAssertTrue(text.contains("[model_providers.my-deepseek]"))
-        XCTAssertTrue(text.contains("name = \"My Deep Seek\""))
+        XCTAssertTrue(text.contains("name = \"My DeepSeek\""))
 
         let info = CodexProviderConfigStore.list(at: path)
         XCTAssertEqual(info.activeId, "my-deepseek")

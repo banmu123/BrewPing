@@ -84,6 +84,32 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     @Published var agentName: String = "OpenCode"
     @Published var agentMode: String = "session"
     @Published var commandState: CommandSendState = .idle
+
+    /// 命令回执看门狗：iPhone 进程被杀 / 命令丢失时，终态永远不会来，
+    /// Watch 不能无限停在 Sent（输入被禁用）。90s 无终态 → 明确失败。
+    private var commandWatchdog: DispatchWorkItem?
+
+    private func armCommandWatchdog() {
+        commandWatchdog?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                switch self.commandState {
+                case .sending, .sent:
+                    self.commandState = .failed(LW("No response from iPhone. The command may still run later."))
+                default:
+                    break
+                }
+            }
+        }
+        commandWatchdog = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 90, execute: item)
+    }
+
+    private func disarmCommandWatchdog() {
+        commandWatchdog?.cancel()
+        commandWatchdog = nil
+    }
     @Published var lastCommandDuration: Double?
 
     // MARK: - Multi-Agent
@@ -221,23 +247,8 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
                     self.agents = parsed
                 }
             }
-            if let activeId = context["activeAgent"] as? String,
-               let idx = self.agents.firstIndex(where: { $0.id == activeId }) {
-                if let pending = self.pendingAgentSwitch, pending != activeId {
-                    // 用户刚切过 Agent、服务端尚未确认：忽略这个滞后的旧值。
-                    // 超过 5 秒仍未确认则放弃保护（说明切换大概失败了，接受服务端状态）。
-                    if let t = self.pendingAgentSwitchAt,
-                       Date().timeIntervalSince(t) < 5 {
-                        // 保持本地选择
-                    } else {
-                        self.pendingAgentSwitch = nil
-                        self.activeAgentIndex = idx
-                    }
-                } else {
-                    // 没有待确认切换，或服务端已确认到目标 Agent：接受并解除保护。
-                    self.pendingAgentSwitch = nil
-                    self.activeAgentIndex = idx
-                }
+            if let activeId = context["activeAgent"] as? String {
+                self.applyServerActiveAgent(activeId)
             }
             // 同步设备列表
             if let deviceList = context["devices"] as? [[String: String]] {
@@ -548,9 +559,10 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
                     }
                     if !parsed.isEmpty { self.agents = parsed }
                 }
-                if let activeId = reply["activeAgent"] as? String,
-                   let idx = self.agents.firstIndex(where: { $0.id == activeId }) {
-                    self.activeAgentIndex = idx
+                if let activeId = reply["activeAgent"] as? String {
+                    // 与 applyContext 同一套 5s 防回弹：切 Agent 后的滞后状态
+                    // 回复不能把 UI 弹回旧 Agent。
+                    self.applyServerActiveAgent(activeId)
                 }
                 // 同步设备列表
                 if let deviceList = reply["devices"] as? [[String: String]] {
@@ -606,7 +618,10 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
         } else {
             payload["agentId"] = activeAgentID
         }
-        DispatchQueue.main.async { self.commandState = .sending }
+        DispatchQueue.main.async {
+            self.commandState = .sending
+            self.armCommandWatchdog()
+        }
 
         // sendMessage 只在 iPhone App 处于前台时可用；
         // 不可达时退回 transferUserInfo（排队投递，会在 App 下次运行时送达）。
@@ -690,6 +705,23 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     /// 最近一条结果所属的对话。对话页用它判断"该不该由我来刷新"。
     @Published var lastResultConversationId: String?
 
+    /// 服务端回报的 activeAgent → Watch UI。带 5s 防回弹：用户刚切过 Agent、
+    /// 服务端尚未确认时，忽略滞后的旧值（超时则放弃保护，接受服务端状态）。
+    /// applyContext 与 requestStatusSync 的 reply 共用，避免两条路径行为漂移。
+    private func applyServerActiveAgent(_ activeId: String) {
+        guard let idx = agents.firstIndex(where: { $0.id == activeId }) else { return }
+        if let pending = pendingAgentSwitch, pending != activeId {
+            if let t = pendingAgentSwitchAt, Date().timeIntervalSince(t) < 5 {
+                return   // 保持本地选择
+            }
+            pendingAgentSwitch = nil
+            activeAgentIndex = idx
+        } else {
+            pendingAgentSwitch = nil
+            activeAgentIndex = idx
+        }
+    }
+
     private func applyCommandResult(_ message: [String: Any]) {
         guard message["type"] as? String == "commandResult" else { return }
         let status = message["status"] as? String ?? ""
@@ -706,6 +738,7 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
         }
 
         DispatchQueue.main.async {
+            self.disarmCommandWatchdog()
             self.lastCommandDuration = duration
             self.lastResultConversationId = conversationId
             if status == "completed" || status == "completed_with_raw" {

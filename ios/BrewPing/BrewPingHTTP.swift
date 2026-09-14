@@ -124,7 +124,10 @@ enum DeviceAuth {
         return !(token(for: device) ?? "").isEmpty
     }
 
-    static func store(token: String, for device: ManagedDevice) {
+    /// 写入配对 token。返回 `KeychainStore.set` 的结果：false = Keychain 写失败，
+    /// 调用方（配对流程）必须把它当作配对失败，不能假装成功。
+    @discardableResult
+    static func store(token: String, for device: ManagedDevice) -> Bool {
         KeychainStore.set(token, forKey: tokenKey(deviceId: device.id))
     }
 
