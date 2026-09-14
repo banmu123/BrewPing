@@ -14,7 +14,7 @@ import SwiftUI
 //    暂不支持 —— 不假装可用。配置项与交互顺序与 Windows 完全一致。
 
 struct ModelProvidersView: View {
-    @ObservedObject private var i18n = I18n()
+    @EnvironmentObject private var i18n: I18n
     @State private var info: ModelProvidersInfo?
     @State private var catalog: [ProviderCatalogEntry] = []
     @State private var agents: [DesktopStatusAgent] = []

@@ -286,7 +286,7 @@ private func rowTitle(_ name: String, _ id: String) -> String {
 extension OpenCodeProviderEntry: Identifiable {}
 
 struct OpenCodeProviderPanel: View {
-    @ObservedObject private var i18n = I18n()
+    @EnvironmentObject private var i18n: I18n
     @State private var info: OpenCodeProvidersInfo?
     @State private var editing: OpenCodeProviderEntry? = OpenCodeProviderEntry()
     @State private var confirmId: String?
@@ -408,7 +408,7 @@ struct OpenCodeProviderPanel: View {
 // MARK: - Claude 面板（单例）
 
 struct ClaudeProviderPanel: View {
-    @ObservedObject private var i18n = I18n()
+    @EnvironmentObject private var i18n: I18n
     @State private var info: ClaudeProvidersInfo?
     @State private var editing = false
     @State private var confirmDelete = false
@@ -552,7 +552,7 @@ struct ClaudeProviderPanel: View {
 extension CodexProviderEntry: Identifiable {}
 
 struct CodexProviderPanel: View {
-    @ObservedObject private var i18n = I18n()
+    @EnvironmentObject private var i18n: I18n
     @State private var info: CodexProvidersInfo?
     @State private var editing: CodexProviderEntry?
     @State private var confirmId: String?
@@ -692,7 +692,7 @@ struct CodexProviderPanel: View {
 extension PiProviderEntry: Identifiable {}
 
 struct PiProviderPanel: View {
-    @ObservedObject private var i18n = I18n()
+    @EnvironmentObject private var i18n: I18n
     @State private var info: PiProvidersInfo?
     @State private var editing: PiProviderEntry?
     @State private var confirmId: String?
@@ -872,7 +872,7 @@ func cliGroupedCatalog(_ catalog: [ProviderCatalogEntry]) -> [CLIProviderCatalog
 /// 目录**只是预填模板，不是校验白名单**（选完仍可随意改，中转站地址千变万化）；
 /// `custom` 不预填任何值（只当「我要自己填」的显式选择）。
 private struct VendorPresetSelect: View {
-    @ObservedObject var i18n = I18n()
+    @EnvironmentObject var i18n: I18n
     /// 可用目录条目（空数组 = 不渲染控件）。
     let catalog: [ProviderCatalogEntry]
     /// 所属 agent —— 决定回传哪个端点（baseURL 与协议都按 agent 分派）。
@@ -1099,7 +1099,7 @@ private func formScaffold<Content: View>(
 // MARK: - OpenCode 表单
 
 struct OpenCodeProviderForm: View {
-    @ObservedObject private var i18n = I18n()
+    @EnvironmentObject private var i18n: I18n
     let packages: [NpmPackageOption]
     let isNew: Bool
     let onSave: (OpenCodeProviderEntry) -> Void
@@ -1323,7 +1323,7 @@ private struct ClaudeTierSpec: Identifiable {
 }
 
 struct ClaudeProviderForm: View {
-    @ObservedObject private var i18n = I18n()
+    @EnvironmentObject private var i18n: I18n
     let onSave: (ClaudeProviderEntry) -> Void
     let onCancel: () -> Void
 
@@ -1497,7 +1497,7 @@ struct ClaudeProviderForm: View {
 // MARK: - Codex 表单
 
 struct CodexProviderForm: View {
-    @ObservedObject private var i18n = I18n()
+    @EnvironmentObject private var i18n: I18n
     let wireApis: [WireApiOption]
     let isNew: Bool
     let onSave: (CodexProviderEntry) -> Void
@@ -1683,7 +1683,7 @@ struct CodexProviderForm: View {
 // MARK: - pi 表单
 
 struct PiProviderForm: View {
-    @ObservedObject private var i18n = I18n()
+    @EnvironmentObject private var i18n: I18n
     let apis: [PiApiOption]
     let isNew: Bool
     let onSave: (PiProviderEntry) -> Void

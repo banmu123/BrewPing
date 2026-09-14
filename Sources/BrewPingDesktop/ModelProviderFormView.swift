@@ -12,7 +12,7 @@ import SwiftUI
 // 后端更新时会强制保留原 agentId），因此表单里只做只读提示，不提供切换。
 
 struct ModelProviderFormView: View {
-    @ObservedObject private var i18n = I18n()
+    @EnvironmentObject private var i18n: I18n
     @Environment(\.dismiss) private var dismiss
 
     @State private var draft: ModelProviderConfig
