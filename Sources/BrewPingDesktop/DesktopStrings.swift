@@ -332,6 +332,55 @@ public enum LKey: String, CaseIterable {
     case piSetDefault = "pi.setDefault"
     case piSubtitle = "pi.subtitle"
     case piTitle = "pi.title"
+    case swWelcomeTitle = "swWelcomeTitle"
+    case swWelcomeSubtitle = "swWelcomeSubtitle"
+    case swGetStarted = "swGetStarted"
+    case swSkipForNow = "swSkipForNow"
+    case swStepCheck = "swStepCheck"
+    case swChecking = "swChecking"
+    case swCheckAgain = "swCheckAgain"
+    case swContinue = "swContinue"
+    case swBack = "swBack"
+    case swStatusReady = "swStatusReady"
+    case swStatusNeedsSetup = "swStatusNeedsSetup"
+    case swStatusUnavailable = "swStatusUnavailable"
+    case swStatusOptional = "swStatusOptional"
+    case swRowOS = "swRowOS"
+    case swRowNode = "swRowNode"
+    case swRowNpm = "swRowNpm"
+    case swRowNvm = "swRowNvm"
+    case swRowBrewping = "swRowBrewping"
+    case swRowAgents = "swRowAgents"
+    case swWhyNodeMissing = "swWhyNodeMissing"
+    case swWhyNodeOld = "swWhyNodeOld"
+    case swWhyNpmMissing = "swWhyNpmMissing"
+    case swWhyNvmMissing = "swWhyNvmMissing"
+    case swNvmOptionalHint = "swNvmOptionalHint"
+    case swNodeStepTitle = "swNodeStepTitle"
+    case swNodeStepHint = "swNodeStepHint"
+    case swOpenNvmGuide = "swOpenNvmGuide"
+    case swOpenNodeDownload = "swOpenNodeDownload"
+    case swAgentsStepTitle = "swAgentsStepTitle"
+    case swAgentsStepHint = "swAgentsStepHint"
+    case swAgentNotInstalled = "swAgentNotInstalled"
+    case swCopyCommand = "swCopyCommand"
+    case swCopied = "swCopied"
+    case swOpenDocs = "swOpenDocs"
+    case swReadyTitle = "swReadyTitle"
+    case swReadySubtitle = "swReadySubtitle"
+    case swStartBrewping = "swStartBrewping"
+    case swNoAgentsTitle = "swNoAgentsTitle"
+    case swNoAgentsSubtitle = "swNoAgentsSubtitle"
+    case swInstallAgent = "swInstallAgent"
+    case swBannerIncomplete = "swBannerIncomplete"
+    case swBannerComplete = "swBannerComplete"
+    case swRunSetupAgain = "swRunSetupAgain"
+    case swSetupCardTitle = "swSetupCardTitle"
+    case swSetupCardHint = "swSetupCardHint"
+    case swViaNvm = "swViaNvm"
+    case swViaSystem = "swViaSystem"
+    case swAgentsSummary = "swAgentsSummary"
+    case swServiceReadyDetail = "swServiceReadyDetail"
 }
 
 public enum DesktopStrings {
@@ -660,6 +709,55 @@ public enum DesktopStrings {
         .piSetDefault: "设为默认",
         .piSubtitle: "写入 ~/.pi/agent/models.json 的 providers，默认项记在 settings.json。",
         .piTitle: "pi 厂商",
+        .swWelcomeTitle: "欢迎使用 BrewPing",
+        .swWelcomeSubtitle: "用手机、Apple Watch 与桌面端，掌控你电脑上的 coding agents。",
+        .swGetStarted: "开始",
+        .swSkipForNow: "暂时跳过",
+        .swStepCheck: "环境检查",
+        .swChecking: "正在扫描电脑环境…",
+        .swCheckAgain: "重新检测",
+        .swContinue: "继续",
+        .swBack: "上一步",
+        .swStatusReady: "就绪",
+        .swStatusNeedsSetup: "需要配置",
+        .swStatusUnavailable: "不可用",
+        .swStatusOptional: "可选",
+        .swRowOS: "操作系统",
+        .swRowNode: "Node.js",
+        .swRowNpm: "npm",
+        .swRowNvm: "NVM",
+        .swRowBrewping: "BrewPing 服务",
+        .swRowAgents: "Coding Agents",
+        .swWhyNodeMissing: "BrewPing 依赖 Node.js 运行受支持的 coding agents。",
+        .swWhyNodeOld: "检测到 {version}，但 agents 需要 Node v{n} 或更高版本。",
+        .swWhyNpmMissing: "npm 随 Node.js 一起安装，装好 Node 即有 npm。",
+        .swWhyNvmMissing: "NVM 用于安装与切换 Node 版本；不需要时不装也不影响使用。",
+        .swNvmOptionalHint: "Node 已可用，NVM 仅为可选项。",
+        .swNodeStepTitle: "配置 Node.js",
+        .swNodeStepHint: "BrewPing 不会替你执行安装脚本。请打开官方页面安装，然后点「重新检测」。",
+        .swOpenNvmGuide: "打开 NVM 安装指南",
+        .swOpenNodeDownload: "打开 Node.js 官网",
+        .swAgentsStepTitle: "Coding Agents",
+        .swAgentsStepHint: "下面列出本机检测到的 agents。未安装的可按官方命令安装，然后点「重新检测」。",
+        .swAgentNotInstalled: "未安装",
+        .swCopyCommand: "复制命令",
+        .swCopied: "已复制",
+        .swOpenDocs: "打开官方文档",
+        .swReadyTitle: "这台电脑已准备就绪。",
+        .swReadySubtitle: "手机现在可以连接这台电脑了。",
+        .swStartBrewping: "开始使用 BrewPing",
+        .swNoAgentsTitle: "还没有检测到 coding agents。",
+        .swNoAgentsSubtitle: "至少安装一个受支持的 agent 才能远程执行命令；也可以先不装继续使用。",
+        .swInstallAgent: "去安装 Agent",
+        .swBannerIncomplete: "环境设置未完成",
+        .swBannerComplete: "完成设置",
+        .swRunSetupAgain: "重新运行环境设置",
+        .swSetupCardTitle: "环境设置",
+        .swSetupCardHint: "随时检查 Node.js、npm 与 coding agents 的安装状态。",
+        .swViaNvm: "经 NVM 安装",
+        .swViaSystem: "系统安装",
+        .swAgentsSummary: "已安装 {n} / {total}",
+        .swServiceReadyDetail: "HTTP 服务运行中 · 可随时配对",
     ]
 
     /// 英文词典（key 集合与中文严格一致）。
@@ -986,5 +1084,54 @@ public enum DesktopStrings {
         .piSetDefault: "Set default",
         .piSubtitle: "Writes providers in ~/.pi/agent/models.json; defaults live in settings.json.",
         .piTitle: "pi provider",
+        .swWelcomeTitle: "Welcome to BrewPing",
+        .swWelcomeSubtitle: "Control your coding agents from your phone, Apple Watch, and desktop.",
+        .swGetStarted: "Get Started",
+        .swSkipForNow: "Skip for Now",
+        .swStepCheck: "Environment Check",
+        .swChecking: "Scanning your computer…",
+        .swCheckAgain: "Check Again",
+        .swContinue: "Continue",
+        .swBack: "Back",
+        .swStatusReady: "Ready",
+        .swStatusNeedsSetup: "Needs Setup",
+        .swStatusUnavailable: "Unavailable",
+        .swStatusOptional: "Optional",
+        .swRowOS: "Operating System",
+        .swRowNode: "Node.js",
+        .swRowNpm: "npm",
+        .swRowNvm: "NVM",
+        .swRowBrewping: "BrewPing Service",
+        .swRowAgents: "Coding Agents",
+        .swWhyNodeMissing: "BrewPing uses Node.js to run supported coding agents.",
+        .swWhyNodeOld: "Found {version}, but agents need Node v{n} or newer.",
+        .swWhyNpmMissing: "npm comes with Node.js — installing Node also installs npm.",
+        .swWhyNvmMissing: "NVM lets you install and switch Node versions. It is not required unless you need it.",
+        .swNvmOptionalHint: "Node is already working — NVM is optional.",
+        .swNodeStepTitle: "Set up Node.js",
+        .swNodeStepHint: "BrewPing does not run install scripts for you. Open the official page, install, then Check Again.",
+        .swOpenNvmGuide: "Install NVM",
+        .swOpenNodeDownload: "Open Node.js",
+        .swAgentsStepTitle: "Coding Agents",
+        .swAgentsStepHint: "Agents found on this computer are listed below. Install missing ones with the official command, then Check Again.",
+        .swAgentNotInstalled: "Not installed",
+        .swCopyCommand: "Copy Command",
+        .swCopied: "Copied",
+        .swOpenDocs: "Open Documentation",
+        .swReadyTitle: "Your computer is ready.",
+        .swReadySubtitle: "Your phone can now connect to this computer.",
+        .swStartBrewping: "Start BrewPing",
+        .swNoAgentsTitle: "No coding agents found yet.",
+        .swNoAgentsSubtitle: "Install at least one supported agent to use remote commands. You can also continue without one.",
+        .swInstallAgent: "Install an Agent",
+        .swBannerIncomplete: "Setup incomplete",
+        .swBannerComplete: "Complete Setup",
+        .swRunSetupAgain: "Run Setup Again",
+        .swSetupCardTitle: "Environment Setup",
+        .swSetupCardHint: "Check Node.js, npm and coding agents anytime.",
+        .swViaNvm: "via NVM",
+        .swViaSystem: "system installation",
+        .swAgentsSummary: "{n} of {total} installed",
+        .swServiceReadyDetail: "HTTP service running · ready for pairing",
     ]
 }

@@ -65,6 +65,10 @@ struct DesktopRootView: View {
             if app.settingsOpen {
                 SettingsView()
             }
+            // 首次启动 Setup Wizard（在设置之上，保证 Run Setup Again 入口可用）
+            if app.setupWizardOpen {
+                SetupWizardView()
+            }
         }
     }
 
@@ -78,6 +82,11 @@ struct DesktopRootView: View {
 
             topBar
 
+            // Skip 后的轻量提醒：常驻一条窄横幅，不弹窗、不打断（§12）
+            if !app.setupCompleted, !app.setupWizardOpen {
+                setupIncompleteBanner
+            }
+
             ChatView()
 
             if app.dockOpen {
@@ -90,6 +99,26 @@ struct DesktopRootView: View {
         .onChange(of: app.effectiveAgentId) { _ in app.syncFollowedState() }
         .onChange(of: app.activeConvId) { _ in app.syncFollowedState() }
         .onChange(of: app.isBusy) { _ in app.syncFollowedState() }
+    }
+
+    /// Skip 后的主界面提示（轻量、可关闭语义 = 点按钮去完成）。
+    private var setupIncompleteBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "wand.and.stars")
+                .font(.system(size: 11))
+                .foregroundStyle(Latte.warning)
+            Text(i18n.t(.swBannerIncomplete))
+                .font(LatteFont.font10)
+                .foregroundStyle(Latte.mutedForeground)
+            Spacer(minLength: 8)
+            Button(i18n.t(.swBannerComplete)) { app.runSetupAgain() }
+                .buttonStyle(LatteButtonStyle(variant: .outline))
+                .font(LatteFont.font10)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 5)
+        .background(Latte.warning.opacity(0.07))
+        .overlay(alignment: .bottom) { LatteDivider(opacity: 0.3) }
     }
 
     private func errorBanner(_ message: String) -> some View {

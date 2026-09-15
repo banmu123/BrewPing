@@ -110,6 +110,10 @@ public final class DesktopAppState: ObservableObject {
     @Published public var agentWorkdir: String?
     @Published public var draftWorkdir: DraftWorkdir = .unset
 
+    // 首次启动 Setup Wizard
+    @Published public var setupWizardOpen = false
+    @Published public var setupCompleted = SetupState.isCompleted
+
     // ─── 私有 ────────────────────────────────────────────────────────────────
 
     private var cancellables = Set<AnyCancellable>()
@@ -152,6 +156,31 @@ public final class DesktopAppState: ObservableObject {
             await fetchConversation(id)
         }
         loading = false
+
+        // 首次启动（既没完成也没跳过 setup）→ 进入 Setup Wizard
+        if SetupState.shouldShowOnLaunch {
+            setupWizardOpen = true
+        }
+    }
+
+    // ─── Setup Wizard ─────────────────────────────────────────────────────────
+
+    /// 走完向导（Ready 页的 Start BrewPing）。
+    public func completeSetup() {
+        SetupState.markCompleted()
+        setupCompleted = true
+        setupWizardOpen = false
+    }
+
+    /// 跳过向导：不再自动弹出；主界面保留轻量「未完成」横幅。
+    public func skipSetup() {
+        SetupState.markSkipped()
+        setupWizardOpen = false
+    }
+
+    /// 「Run Setup Again」/ 主界面横幅入口。
+    public func runSetupAgain() {
+        setupWizardOpen = true
     }
 
     // ─── 轮询（对齐 App.tsx：status/security/conversations 5s，终端 2s）──────

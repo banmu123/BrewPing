@@ -124,8 +124,12 @@ struct SettingsView: View {
 
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 14) {
-                    switch app.settingsSection {
-                    case .general: languageSection
+                switch app.settingsSection {
+                case .general:
+                    VStack(spacing: 12) {
+                        languageSection
+                        setupSection
+                    }
                     case .machine: machineSection
                     case .models: ModelProvidersView()
                     case .environment: EnvironmentCardView()
@@ -163,6 +167,27 @@ struct SettingsView: View {
                     label: i18n.t(.langEn),
                     desc: i18n.locale == .en ? i18n.t(.langCurrent, ["name": i18n.t(.langEn)]) : ""
                 )
+            }
+        }
+    }
+
+    // MARK: 环境设置入口（Run Setup Again）
+
+    private var setupSection: some View {
+        settingsCard(title: i18n.t(.swSetupCardTitle)) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(i18n.t(.swSetupCardHint))
+                    .font(LatteFont.xs)
+                    .foregroundStyle(Latte.mutedForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    app.settingsOpen = false
+                    app.runSetupAgain()
+                } label: {
+                    Label(i18n.t(.swRunSetupAgain), systemImage: "arrow.triangle.2.circlepath")
+                        .font(LatteFont.xs)
+                }
+                .buttonStyle(LatteButtonStyle(variant: .outline))
             }
         }
     }
