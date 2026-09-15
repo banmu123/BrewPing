@@ -116,7 +116,23 @@ fn pairing_url(
 
 async fn build_pairing_info(core: &DesktopCore) -> PairingInfo {
     let port = *core.http_port.read().await;
-    let lan_ip = core.lan_ip.read().await.clone();
+    // 🚨 每次生成配对信息都重新探测 LAN IP（对齐 macOS 8839809）：启动时缓存的
+    // lan_ip 在网络/网段切换后会过期（实测 Mac 从 192.168.0.x 切到 192.168.5.x 后，
+    // QR 里仍是旧 IP → iPhone 配对请求根本到不了这台电脑，表现为扫码后一直转圈）。
+    // 探测失败回落缓存值（离线/无网段时仍能展示信息，不 panic）。
+    let lan_ip = match services::lan_address::detect_primary_lan() {
+        Some(info) if !info.ip.is_unspecified() && !info.ip.is_loopback() => {
+            let fresh = info.ip.to_string();
+            {
+                let mut cached = core.lan_ip.write().await;
+                if fresh != *cached {
+                    *cached = fresh.clone();
+                }
+            }
+            fresh
+        }
+        _ => core.lan_ip.read().await.clone(),
+    };
     let device_name = services::device_identity::get_device_name();
     let device_id = core.state.identity.device_id.clone();
 

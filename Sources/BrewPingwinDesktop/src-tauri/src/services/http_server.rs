@@ -923,6 +923,11 @@ async fn handle_pair(State(state): State<AppState>, Json(body): Json<PairBody>) 
         );
     };
 
+    // 配对码此刻已被消费（一次性）。UI 层靠这条通知得知「有设备配对成功」，
+    // 否则 Setup Wizard 终步只会看到 QR 消失（url=nil）而没有任何成功反馈
+    //（对齐 macOS 15c9819：NotificationCenter → pairingSuccessCount）。
+    command_runner::emit(&state, "device-paired", serde_json::json!({}));
+
     json_response(
         200,
         serde_json::json!({
@@ -1643,7 +1648,8 @@ mod tests {
     // 单线程运行时会被阻塞导致服务端任务无法被调度（表现为读取超时）。
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn pair_endpoint_exchanges_code_for_token() {
-        let srv = spawn_server().await;
+        let log: EventLog = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let srv = spawn_server_with_events(log.clone()).await;
 
         // 尚未生成配对码：任何码都换不到 token
         let (code, raw) = request_anonymous(
@@ -1668,6 +1674,21 @@ mod tests {
             !v["deviceName"].as_str().unwrap().is_empty(),
             "响应必须带设备名"
         );
+
+        // 兑换成功必须广播 device-paired（对齐 macOS 15c9819：向导终步靠它
+        // 显示「配对成功」并自动进入主界面），且失败尝试不得广播。
+        {
+            let log_guard = log.lock().expect("event log poisoned");
+            assert!(
+                log_guard.iter().any(|(event, _)| event == "device-paired"),
+                "成功兑换后必须广播 device-paired 事件"
+            );
+            assert_eq!(
+                log_guard.iter().filter(|(e, _)| e == "device-paired").count(),
+                1,
+                "device-paired 只广播一次"
+            );
+        }
 
         // 一次性：同一个码不能重复兑换
         let (code, _) = request_anonymous(srv.port, "POST", "/api/pair", Some(&body));

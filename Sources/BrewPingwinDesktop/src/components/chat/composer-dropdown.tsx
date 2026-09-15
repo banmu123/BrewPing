@@ -96,11 +96,11 @@ export function ComposerDropdown({
 
       {open && (
         <div className={cn(POPUP_CLASS, popupAlign === "right" ? "right-0" : "left-0")}>
-          {options.map((o) => {
+          {options.map((o, index) => {
             const selected = o.value === value;
             return (
               <button
-                key={o.value}
+                key={`${o.value}-${index}`}
                 type="button"
                 title={o.description ? `${o.label} · ${o.description}` : o.label}
                 onClick={() => {

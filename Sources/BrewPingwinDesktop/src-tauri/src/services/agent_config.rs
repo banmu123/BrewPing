@@ -253,14 +253,29 @@ fn parse_claude_code(content: &str) -> AgentProviders {
     ];
 
     let mut models: Vec<ProviderModel> = Vec::new();
+    // 🚨 同一模型常被多个 tier 映射到（如 sonnet/opus/haiku 全指同一模型，
+    // cc-switch 统一改写就是这种形态）。不去重会让模型选择器出现 N 行完全
+    // 相同的条目，且 key（provider::model）相同 → 下拉选中一行全打勾。
+    // 语义上「一个模型 = 一个选项」：按 id 去重，isActive 在任意 tier 命中
+    // 即为 active（首个 tier 的展示名优先）。
+    let mut seen_model_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     for (env_id, env_name, tier_name) in tiers {
         let Some(model_id) = env_str(env_id) else { continue };
         let display_name = env_str(env_name).unwrap_or_else(|| model_id.clone());
+        let is_active = active_tier == tier_name;
+        if !seen_model_ids.insert(model_id.clone()) {
+            if is_active {
+                if let Some(existing) = models.iter_mut().find(|m| m.id == model_id) {
+                    existing.is_active = true;
+                }
+            }
+            continue;
+        }
         models.push(ProviderModel {
             id: model_id,
             name: display_name,
             available: true,
-            is_active: active_tier == tier_name,
+            is_active,
         });
     }
 
@@ -571,7 +586,39 @@ mod tests {
         assert_eq!(result.active_model_id.as_deref(), Some("claude-opus-4-7"));
     }
 
-    // TC-AC-04  codex：section 内取值，且当前 model 进列表
+    // TC-AC-04  claude-code：同一模型被多个 tier 映射 → 按 id 去重，
+    // isActive 在任意 tier 命中即 active（对齐 macOS b912942）
+    #[test]
+    fn claude_code_dedupes_same_model_across_tiers() {
+        let json = r#"{
+            "model": "opus",
+            "env": {
+                "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.3-flash",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "GLM Sonnet",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.3-flash",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-5.3-flash"
+            }
+        }"#;
+        let result = parse_claude_code(json);
+        let provider = &result.providers[0];
+        assert_eq!(
+            provider.models.len(),
+            1,
+            "三个 tier 指同一模型 → 只出现一个选项"
+        );
+        assert_eq!(provider.models[0].id, "glm-5.3-flash");
+        assert_eq!(
+            provider.models[0].name, "GLM Sonnet",
+            "首个 tier 的展示名优先"
+        );
+        assert!(
+            provider.models[0].is_active,
+            "model=opus 命中重复 tier → 唯一条目仍为 active"
+        );
+        assert_eq!(result.active_model_id.as_deref(), Some("glm-5.3-flash"));
+    }
+
+    // TC-AC-05  codex：section 内取值，且当前 model 进列表
     #[test]
     fn codex_reads_section_and_top_level() {
         let toml = r#"

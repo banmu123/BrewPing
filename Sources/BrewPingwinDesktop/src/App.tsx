@@ -244,6 +244,10 @@ export default function App() {
   const [draftAgentId, setDraftAgentId] = useState<string>("opencode");
   const [loading, setLoading] = useState(true);
   const [pairing, setPairing] = useState<PairingInfo | null>(null);
+  /// 手机配对成功事件计数：后端 pair 成功广播 device-paired，这里 +1。
+  /// SetupWizard 终步以此感知「扫码 / 手动输码成功」并自动完成向导
+  /// （对齐 macOS AppState.pairingSuccessCount）。
+  const [pairingSuccessCount, setPairingSuccessCount] = useState(0);
   /// 全局默认授权档位（`~/.brewping/approval.json`，轮询只更新它）。
   const [globalApprovalMode, setGlobalApprovalModeState] = useState<ApprovalMode>("safe");
   /// 草稿里手动选过的档位（null = 未选过，跟随全局默认）。仅草稿态使用；
@@ -423,6 +427,12 @@ export default function App() {
       setSettingsSection("pairing");
       refreshSecurity();
     });
+    // 手机扫码 / 手动输码配对成功（HTTP 后端 pair 处理器广播）
+    // → 计数 +1，SetupWizard 终步据此切成功态并自动完成向导。
+    const unlistenDevicePaired = listen("device-paired", () => {
+      setPairingSuccessCount((c) => c + 1);
+      refreshSecurity();
+    });
     const unlistenRefresh = listen("refresh-agents", () => {
       refreshStatus();
       refreshTerminal();
@@ -461,6 +471,7 @@ export default function App() {
       unlistenAgent.then((fn) => fn());
       unlistenRuntime.then((fn) => fn());
       unlistenPairing.then((fn) => fn());
+      unlistenDevicePaired.then((fn) => fn());
       unlistenRefresh.then((fn) => fn());
       unlistenConvs.then((fn) => fn());
       unlistenDelta.then((fn) => fn());
@@ -1295,6 +1306,14 @@ export default function App() {
       {/* 引导页：全屏覆盖（对齐 macOS 首启向导；完成后 / 跳过后不再出现） */}
       {setupPhase === "wizard" && (
         <SetupWizard
+          pairing={pairing}
+          settingsOpen={settingsOpen}
+          pairingSuccessCount={pairingSuccessCount}
+          onOpenSettings={(section) => {
+            setSettingsSection(section);
+            setSettingsOpen(true);
+          }}
+          onRevealPairing={handleRevealPairing}
           onFinish={() =>
             setSetupPhase(SetupState.isSkipped() && !SetupState.isCompleted() ? "banner" : "none")
           }

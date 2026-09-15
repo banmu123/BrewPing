@@ -1,6 +1,6 @@
-// ─── Setup Wizard（引导页，五步：welcome → check → node → agents → done）──────
+// ─── Setup Wizard（引导页，六步：welcome → check → node → agents → models → done）
 //
-// 对齐 macOS SetupWizardView（ed2d2f5 + 1c66bf5 + 52ce1fa）：
+// 对齐 macOS SetupWizardView（ed2d2f5 + 1c66bf5 + 52ce1fa + e3f9f1d + 15c9819）：
 // - 检测复用设置 → 环境同一后端（checkEnvironment / installedNodeVersions）；
 // - **绝不自动安装**：只提供官方链接 + 复制安装命令 + 「重新检测」；
 // - 决策模型 evaluateSetup：nodeOK = installed && compatible（≥22）；
@@ -8,15 +8,27 @@
 // - done 双变体（就绪清单 / 未装 agent）由同一决策驱动；
 // - Skip 后主界面只留轻量横幅（App.tsx），设置 → 通用可重新运行。
 //
+// models 步 + 终步配对区（对齐 macOS e3f9f1d + 15c9819）：
+// - 至少为一个已装 agent 配好模型（providers 非空）才能走「继续」进 done；
+//   「去配置」写 localStorage `brewping.modelTab` 后打开设置 → 模型分类，
+//   设置关闭后自动重扫（对齐 macOS UserDefaults 同键语义）；
+// - done 展示扫码配对区（二维码 + 地址 + 配对码兜底）；手机配对成功
+//   （App.tsx 收到 device-paired 广播 → pairingSuccessCount +1）→ 成功态
+//   停留 1.4s 自动完成向导。
+//
 // Windows 平台差异：
 // - Node 版本切换走 nvm-windows 的 `nvm use`（重建 NVM_SYMLINK，即全局默认），
 //   没有 macOS 的 default 别名语义；isDefault = 符号链接当前指向的版本；
-// - 版本来源只有 "nvm" | "system"（无 Homebrew 分支，文案键保留以对齐 macOS）。
+// - 版本来源只有 "nvm" | "system"（无 Homebrew 分支，文案键保留以对齐 macOS）；
+// - 配对成功通知：macOS 走 AppState 直接计数，Windows 经 Tauri 事件
+//   `device-paired`（HTTP 后端 pair 成功后广播）由 App.tsx 转成计数。
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import QRCode from "react-qr-code";
 import { Check, Circle, Copy, ExternalLink, Loader2 } from "lucide-react";
 import {
   checkEnvironment,
+  getAgentModels,
   getStatus,
   installedNodeVersions,
   switchNodeDefault,
@@ -25,6 +37,7 @@ import type {
   AgentCliStatus,
   EnvironmentStatus,
   NodeInstallOption,
+  PairingInfo,
 } from "../../api/types";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -36,7 +49,7 @@ import {
   type SetupDecision,
 } from "../../lib/setup-state";
 
-type Step = "welcome" | "check" | "node" | "agents" | "done";
+type Step = "welcome" | "check" | "node" | "agents" | "models" | "done";
 
 /// 各 Agent 的官方文档链接（对齐 macOS AgentInstallInfo）。
 const AGENT_DOCS: Record<string, string> = {
@@ -88,7 +101,28 @@ const ROW_BADGE: Record<RowTone, { variant: "success" | "warning" | "secondary" 
   unavailable: { variant: "outline", key: "swStatusUnavailable" },
 };
 
-export function SetupWizard({ onFinish }: { onFinish: () => void }) {
+type SetupWizardProps = {
+  onFinish: () => void;
+  /** 与设置页同源的配对信息（done 步展示二维码 + 地址 + 配对码兜底）。 */
+  pairing: PairingInfo | null;
+  /** 设置弹窗开关 —— 「去配置」回来（关闭设置）后触发模型状态重扫。 */
+  settingsOpen: boolean;
+  /** 手机配对成功事件计数（后端 pair 成功广播 device-paired → App.tsx +1）。 */
+  pairingSuccessCount: number;
+  /** 打开设置弹窗并定位到指定分类（models = 模型配置 / pairing = 配对设置）。 */
+  onOpenSettings: (section: "models" | "pairing") => void;
+  /** 生成配对深链（pairing.url 为 null 时调用；与设置页「显示配对码」同源）。 */
+  onRevealPairing: () => void;
+};
+
+export function SetupWizard({
+  onFinish,
+  pairing,
+  settingsOpen,
+  pairingSuccessCount,
+  onOpenSettings,
+  onRevealPairing,
+}: SetupWizardProps) {
   const { t } = useI18n();
   const [step, setStep] = useState<Step>("welcome");
   const [env, setEnv] = useState<EnvironmentStatus | null>(null);
@@ -98,6 +132,12 @@ export function SetupWizard({ onFinish }: { onFinish: () => void }) {
   const [copiedAgentId, setCopiedAgentId] = useState<string | null>(null);
   const [switchingVersion, setSwitchingVersion] = useState<string | null>(null);
   const [switchError, setSwitchError] = useState<string | null>(null);
+  /// agentId → 是否已配置可用模型（providers 非空）
+  const [modelStatus, setModelStatus] = useState<Record<string, boolean>>({});
+  /// 手机配对成功（终步显示成功态并自动完成向导）
+  const [pairSucceeded, setPairSucceeded] = useState(false);
+  /// 防「成功态 → 1.4s 后 complete」重复触发（对齐 macOS guard !pairSucceeded）
+  const pairHandledRef = useRef(false);
 
   const decision: SetupDecision | null = env ? evaluateSetup(env) : null;
   const nodeOK = env?.node.installed === true && env.node.compatible === true;
@@ -113,6 +153,22 @@ export function SetupWizard({ onFinish }: { onFinish: () => void }) {
       } catch {
         setNodeVersions([]);
       }
+      // 各已装 agent 是否已配置可用模型（providers 非空）
+      // ——models 步的状态行 + 「继续」门槛数据源。
+      const statuses: Record<string, boolean> = {};
+      await Promise.all(
+        status.agents
+          .filter((a) => a.installed)
+          .map(async (a) => {
+            try {
+              const info = await getAgentModels(a.id);
+              statuses[a.id] = info.providers.length > 0;
+            } catch {
+              statuses[a.id] = false;
+            }
+          }),
+      );
+      setModelStatus(statuses);
       SetupState.saveSnapshot(status);
     } catch {
       /* 检测失败保持原状，用户可再点「重新检测」 */
@@ -161,6 +217,52 @@ export function SetupWizard({ onFinish }: { onFinish: () => void }) {
       window.setTimeout(() => setCopiedAgentId((cur) => (cur === agent.id ? null : cur)), 1500);
     }
   };
+
+  // ─── 跨步联动（对齐 macOS SetupWizardView 的 onChange / task(id:)）───────────
+
+  /// 已配置模型的 agent 数（models 步的「继续」门槛）。
+  const configuredAgentCount = Object.values(modelStatus).filter(Boolean).length;
+
+  /// 配对成功：切成功态，短暂停留让用户看到反馈后自动完成向导。
+  const markPairedAndEnter = useCallback(() => {
+    if (pairHandledRef.current) return;
+    pairHandledRef.current = true;
+    setPairSucceeded(true);
+    window.setTimeout(complete, 1400);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /// 「去配置」打开设置 → 用户关掉设置回来 → 重扫模型配置状态
+  /// （对齐 macOS onChange(of: app.settingsOpen)，只在 models 步触发）。
+  const prevSettingsOpen = useRef(settingsOpen);
+  useEffect(() => {
+    const wasOpen = prevSettingsOpen.current;
+    prevSettingsOpen.current = settingsOpen;
+    if (wasOpen && !settingsOpen && step === "models" && !checking) {
+      void scan();
+    }
+  }, [settingsOpen, step, checking, scan]);
+
+  /// 进入终步：配对已发生过（如在 models 步扫码）→ 直接进成功态；
+  /// 否则 pairing.url 需 reveal 才生成（与设置页配对区同语义）。
+  useEffect(() => {
+    if (step !== "done") return;
+    if (pairingSuccessCount > 0 && !pairHandledRef.current) {
+      markPairedAndEnter();
+    } else if (!pairing?.url) {
+      onRevealPairing();
+    }
+    // 仅在 step 变为 done 时执行一次；配对成功路径由下面的计数 effect 负责。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  /// 手机扫码 / 手动输码成功（后端 pair → device-paired 广播 → App.tsx 计数 +1）。
+  useEffect(() => {
+    if (pairingSuccessCount > 0 && step === "done") {
+      markPairedAndEnter();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pairingSuccessCount, step]);
 
   // ─── 通用小件 ───────────────────────────────────────────────────────────────
 
@@ -534,11 +636,83 @@ export function SetupWizard({ onFinish }: { onFinish: () => void }) {
         {env?.agents.map(agentCard)}
       </div>
       <div className="mt-5 flex items-center gap-2">
-        <Button onClick={() => setStep("done")} disabled={!env}>
+        <Button
+          onClick={() => setStep(installedAgents.length > 0 ? "models" : "done")}
+          disabled={!env}
+        >
           {t("swContinue")}
         </Button>
         <Button variant="outline" onClick={() => setStep(nodeOK ? "node" : "check")}>
           {t("swBack")}
+        </Button>
+        <Button variant="outline" onClick={() => void scan()} disabled={checking}>
+          {t("swCheckAgain")}
+        </Button>
+        <Button variant="ghost" onClick={skip} className="ml-auto">
+          {t("swSkipForNow")}
+        </Button>
+      </div>
+    </>,
+  );
+
+  // ─── models（对齐 macOS modelsStep：至少为一个 agent 配好模型才算配置落地）──
+
+  /// 单个已装 agent 的模型配置状态行：已有模型 ✓ / 尚未配置 + 「去配置」。
+  const modelStatusRow = (agent: AgentCliStatus) => {
+    const configured = modelStatus[agent.id] ?? false;
+    return (
+      <div
+        key={agent.id}
+        className="flex items-center gap-2 border-b border-border/40 px-2.5 py-2 last:border-b-0"
+      >
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+          {agent.name}
+        </span>
+        {configured ? (
+          <Badge variant="success" className="shrink-0">
+            {t("swModelConfigured")}
+          </Badge>
+        ) : (
+          <>
+            <Badge variant="warning" className="shrink-0">
+              {t("swModelMissing")}
+            </Badge>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 shrink-0 px-2 text-[10px]"
+              onClick={() => {
+                // 打开设置并定位到该 agent 的模型配置 tab；设置关闭后向导自动重扫。
+                // `brewping.modelTab` 由 model-config-card 读取（对齐 macOS UserDefaults 同键）。
+                try {
+                  localStorage.setItem("brewping.modelTab", agent.id);
+                } catch {
+                  /* localStorage 不可用时仅跳过 tab 定位，设置页仍打开 */
+                }
+                onOpenSettings("models");
+              }}
+            >
+              {t("swGoConfigure")}
+            </Button>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const modelsStep = column(
+    <>
+      {stepHeader(t("swModelsStepTitle"), checking ? t("swChecking") : t("swModelsStepHint"))}
+      <div className="mt-4 overflow-hidden rounded-lg border border-border">
+        {installedAgents.map(modelStatusRow)}
+        {installedAgents.length === 0 && (
+          <p className="px-2.5 py-2 text-xs text-muted-foreground">{t("swNoAgentsTitle")}</p>
+        )}
+      </div>
+      <div className="mt-5 flex items-center gap-2">
+        <Button onClick={() => setStep("agents")}>{t("swBack")}</Button>
+        <Button onClick={() => setStep("done")} disabled={checking || configuredAgentCount === 0}>
+          {t("swContinue")}
         </Button>
         <Button variant="outline" onClick={() => void scan()} disabled={checking}>
           {t("swCheckAgain")}
@@ -572,6 +746,52 @@ export function SetupWizard({ onFinish }: { onFinish: () => void }) {
           </div>
         ))}
       </div>
+      {/* 配对提醒（最后一步：用手机扫码配对）。成功 → 成功态 + 自动进入。 */}
+      {pairSucceeded ? (
+        <div className="flex flex-col items-center gap-1.5 pt-1">
+          <Check size={30} className="text-success" strokeWidth={2.5} />
+          <span className="text-xs font-medium text-foreground">{t("swPairSuccessTitle")}</span>
+          <span className="text-[10px] text-muted-foreground">{t("swPairSuccessHint")}</span>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-1.5 pt-1">
+          <span className="text-xs font-medium text-foreground">{t("swPairStepTitle")}</span>
+          <p className="max-w-[360px] text-[10px] leading-relaxed text-muted-foreground">
+            {t("swPairStepHint")}
+          </p>
+          {pairing?.url ? (
+            <div className="mt-1 rounded-lg border border-border bg-white p-1.5">
+              <QRCode value={pairing.url} size={120} />
+            </div>
+          ) : (
+            <Loader2 size={16} className="mt-2 animate-spin text-muted-foreground" />
+          )}
+          {/* 连接地址 + 配对码兜底：扫码不通时可肉眼核对网段 / 手动输码 */}
+          {pairing && (
+            <>
+              <span className="font-mono text-[11px] text-muted-foreground">
+                http://{pairing.host}:{pairing.port}
+              </span>
+              {pairing.code && (
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {t("swPairCodeFallback")} {pairing.code}
+                </span>
+              )}
+              <p className="max-w-[300px] text-[9px] leading-relaxed text-muted-foreground/80">
+                {t("swPairAddrHint")}
+              </p>
+            </>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-1.5 text-[10px]"
+            onClick={() => onOpenSettings("pairing")}
+          >
+            {t("swOpenPairSettings")}
+          </Button>
+        </div>
+      )}
       <Button className="mt-2 w-full max-w-[320px]" onClick={complete}>
         {t("swStartBrewping")}
       </Button>
@@ -610,7 +830,9 @@ export function SetupWizard({ onFinish }: { onFinish: () => void }) {
             ? nodeStep
             : step === "agents"
               ? agentsStep
-              : doneStep}
+              : step === "models"
+                ? modelsStep
+                : doneStep}
     </div>
   );
 }
