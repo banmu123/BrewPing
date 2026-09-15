@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  BrewPing Desktop（macOS）.app 的包描述。
+
+  这个文件不是 SwiftPM 构建产物的一部分 —— 它由 `Scripts/build-mac-app.sh`
+  拷贝到 Contents/ 下，把裸可执行文件组装成 .app。放在 Scripts/mac/ 而非
+  Sources/BrewPingDesktop/ 下，是为了避开 SwiftPM 的「unhandled resource」警告。
+
+  版本号占位说明：CFBundleShortVersionString / CFBundleVersion 会被打包脚本
+  用 PlistBuddy 覆盖（VERSION / BUILD 环境变量，默认取 git describe），
+  这里的 1.0.0 只是未传参时的兜底值。
+
+  文案本地化：NSLocalNetworkUsageDescription 只提供中文；若要跟随系统语言，
+  可在 Resources 下加 zh.lproj/InfoPlist.strings 与 en.lproj/InfoPlist.strings。
+-->
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>BrewPing</string>
+    <key>CFBundleDisplayName</key>
+    <string>BrewPing</string>
+    <!-- 与 Contents/MacOS 下的可执行文件名必须一致（打包脚本用同名拷贝）。 -->
+    <key>CFBundleExecutable</key>
+    <string>BrewPing</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.brewping.desktop</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <!-- 不带 .icns 后缀，图标放在 Contents/Resources/AppIcon.icns。 -->
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <!-- 与 Package.swift 的 platforms 保持一致（macOS 13）。 -->
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <!-- 主窗口 + 菜单栏项的应用：不是后台 agent，必须保留 Dock 图标。 -->
+    <key>LSUIElement</key>
+    <false/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticTermination</key>
+    <false/>
+    <!-- 桌面端要起本地 HTTP 服务（默认 8787）+ Bonjour 广播供 iPhone 发现，
+         没有这段文案，系统首次弹「本地网络」权限时说明区会是空白的。 -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>BrewPing 需要通过本地网络与同一 Wi-Fi 下的 iPhone 或 Apple Watch 配对，用来接收指令和同步执行状态。</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 BrewPing. All rights reserved.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>BrewPing 需要在终端中驱动你已安装的命令行 Agent（如 opencode、claude、codex）。</string>
+</dict>
+</plist>

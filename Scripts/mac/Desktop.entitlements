@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  BrewPing Desktop 的签名 entitlements。
+
+  前提：只开 Hardened Runtime（公证的硬性要求），**不开 App Sandbox**。
+  桌面端必须能：起本地 HTTP 服务（8787）、Bonjour 广播、spawn/PTY 驱动用户
+  已安装的命令行 Agent、读写用户选定的工作目录 —— 这些与沙箱根本冲突。
+
+  关于 disable-library-validation（默认注释掉）：
+  Hardened Runtime 的库校验会拒绝加载未经 Apple 或同团队签名的 dylib。
+  BrewPing 主进程不加载第三方 dylib，spawn 出去的 node / opencode 是独立进程
+  不受影响；但如果你接入了自带动态库的 Agent，并出现
+  "code signature invalid for ... / library validation failed" 之类的崩溃，
+  就取消下面的注释重新签名（代价是公证时的安全等级略降，仍可正常公证）。
+-->
+<plist version="1.0">
+<dict>
+    <!-- 本地 HTTP 服务（监听 8787，供 iPhone 配对与指令下发）。 -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+    <!-- 访问 Agent 服务 / 检查更新等出站连接。 -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <!-- 按需启用：加载未经 Apple 或本团队签名的第三方 dylib。
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    -->
+</dict>
+</plist>
