@@ -59,7 +59,9 @@ struct ComposerDropdown: View {
         .popover(isPresented: $open, arrowEdge: .bottom) {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach(options, id: \.value) { option in
+                    // 以索引为身份：value 重复时（数据层去重前兜底）不产生
+                    // SwiftUI 重复 ID 的未定义行为。
+                    ForEach(Array(options.enumerated()), id: \.offset) { _, option in
                         item(option)
                     }
                 }

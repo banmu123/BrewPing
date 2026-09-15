@@ -149,10 +149,27 @@ enum AgentConfigDiscovery {
         ]
 
         var models: [BrewPingProtocol.Model] = []
+        // 🚨 同一模型常被多个 tier 映射到（如 sonnet/opus/haiku 全指同一模型，
+        // cc-switch 统一改写就是这种形态）。不去重会让模型选择器出现 N 行完全
+        // 相同的条目，且 key（provider::model）相同 → SwiftUI ForEach 身份冲突、
+        // 选中一行全打勾。语义上「一个模型 = 一个选项」：按 id 去重，
+        // isActive 在任意 tier 命中即为 active（首个 tier 的展示名优先）。
+        var seenModelIds = Set<String>()
         for tier in tiers {
             guard let modelId = env[tier.envId] else { continue }
             let displayName = env[tier.envName] ?? modelId
             let isActive = (activeTier == tier.tierName)
+            if seenModelIds.contains(modelId) {
+                if isActive, let idx = models.firstIndex(where: { $0.id == modelId }) {
+                    models[idx] = BrewPingProtocol.Model(
+                        id: models[idx].id, name: models[idx].name,
+                        providerId: models[idx].providerId,
+                        available: true, isActive: true
+                    )
+                }
+                continue
+            }
+            seenModelIds.insert(modelId)
             models.append(BrewPingProtocol.Model(
                 id: modelId, name: displayName, providerId: "claude-proxy", available: true, isActive: isActive
             ))
