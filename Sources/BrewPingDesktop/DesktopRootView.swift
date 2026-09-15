@@ -65,8 +65,9 @@ struct DesktopRootView: View {
             if app.settingsOpen {
                 SettingsView()
             }
-            // 首次启动 Setup Wizard（在设置之上，保证 Run Setup Again 入口可用）
-            if app.setupWizardOpen {
+            // 首次启动 Setup Wizard。用户在向导里点「去配置」会打开设置页，
+            // 此时向导让位（隐藏），设置关闭后自动回到向导。
+            if app.setupWizardOpen && !app.settingsOpen {
                 SetupWizardView()
             }
         }

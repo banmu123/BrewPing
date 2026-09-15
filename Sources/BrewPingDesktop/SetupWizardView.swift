@@ -16,7 +16,7 @@ struct SetupWizardView: View {
     @EnvironmentObject private var app: DesktopAppState
     @Environment(\.openURL) private var openURL
 
-    enum Step { case welcome, check, node, agents, done }
+    enum Step { case welcome, check, node, agents, models, done }
 
     @State private var step: Step = .welcome
     @State private var env: EnvironmentSetup.EnvironmentStatus?
@@ -24,6 +24,8 @@ struct SetupWizardView: View {
     @State private var copiedAgentId: String?
     /// 本机已装 Node 版本（Node 步的切换清单）
     @State private var nodeVersions: [EnvironmentSetup.NodeInstallOption] = []
+    /// agentId → 是否已配置可用模型（providers 非空）
+    @State private var modelStatus: [String: Bool] = [:]
     @State private var switchingVersion: String?
     @State private var switchError: String?
 
@@ -38,6 +40,18 @@ struct SetupWizardView: View {
                 await scan()
             }
         }
+        // 用户从设置页（去配置模型 / 配对设置）回来 → 重扫以刷新模型配置状态
+        .onChange(of: app.settingsOpen) { open in
+            if !open, step == .models, !checking {
+                Task { await scan() }
+            }
+        }
+        // 终步的扫码配对：pairing.url 需 reveal 才生成（与设置页配对区同语义）
+        .task(id: step) {
+            if step == .done, app.pairing?.url == nil {
+                await app.revealPairing()
+            }
+        }
     }
 
     // MARK: - 各步骤
@@ -49,6 +63,7 @@ struct SetupWizardView: View {
         case .check: checkStep
         case .node: nodeStep
         case .agents: agentsStep
+        case .models: modelsStep
         case .done: doneStep
         }
     }
@@ -460,10 +475,79 @@ struct SetupWizardView: View {
             footer(
                 back: { step = .check },
                 secondary: (i18n.t(.swCheckAgain), { Task { await scan() } }, checking),
-                primary: (i18n.t(.swContinue), { step = .done }, checking || env == nil),
+                primary: (i18n.t(.swContinue), {
+                    step = (env?.agents.contains { $0.installed } ?? false) ? .models : .done
+                }, checking || env == nil),
                 skip: true
             )
         }
+    }
+
+    // MARK: 配置模型（§新增：至少为一个 agent 配好模型才算配置落地）
+
+    private var modelsStep: some View {
+        column {
+            stepHeader(
+                title: i18n.t(.swModelsStepTitle),
+                subtitle: checking ? i18n.t(.swChecking) : i18n.t(.swModelsStepHint)
+            )
+
+            if let env {
+                let installed = env.agents.filter { $0.installed }
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(installed, id: \.id) { agent in
+                        modelStatusRow(agent)
+                    }
+                    if installed.isEmpty {
+                        Text(i18n.t(.swNoAgentsTitle))
+                            .font(LatteFont.xs)
+                            .foregroundStyle(Latte.mutedForeground)
+                            .padding(.vertical, 8)
+                    }
+                }
+                .padding(.top, 14)
+            } else if checking {
+                ProgressView().controlSize(.small).padding(.top, 24)
+            }
+
+            Spacer(minLength: 0)
+            footer(
+                back: { step = .agents },
+                secondary: (i18n.t(.swCheckAgain), { Task { await scan() } }, checking),
+                primary: (i18n.t(.swContinue), { step = .done }, checking || configuredAgentCount == 0),
+                skip: true
+            )
+        }
+    }
+
+    /// 单个已装 agent 的模型配置状态行：已有模型 ✓ / 尚未配置 + 「去配置」。
+    private func modelStatusRow(_ agent: EnvironmentSetup.AgentCliStatus) -> some View {
+        let configured = modelStatus[agent.id] ?? false
+        return HStack(spacing: 8) {
+            Text(verbatim: agent.name)
+                .font(LatteFont.xs.weight(.medium))
+                .foregroundStyle(Latte.foreground)
+                .lineLimit(1)
+            Spacer(minLength: 6)
+            if configured {
+                LatteBadge(variant: .success, text: i18n.t(.swModelConfigured)).fixedSize()
+            } else {
+                LatteBadge(variant: .warning, text: i18n.t(.swModelMissing)).fixedSize()
+                Button {
+                    // 打开设置页并定位到该 agent 的模型配置 tab；
+                    // 设置关闭后向导自动回来（DesktopRootView 的让位逻辑）。
+                    UserDefaults.standard.set(agent.id, forKey: "brewping.modelTab")
+                    app.settingsOpen = true
+                    app.settingsSection = .models
+                } label: {
+                    Text(i18n.t(.swGoConfigure)).font(LatteFont.font10)
+                }
+                .buttonStyle(LatteButtonStyle(variant: .outline))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .overlay(alignment: .bottom) { LatteDivider(opacity: 0.35) }
     }
 
     private func agentCard(_ agent: EnvironmentSetup.AgentCliStatus) -> some View {
@@ -590,6 +674,38 @@ struct SetupWizardView: View {
                         }
                     }
                     .padding(.top, 8)
+
+                    // 配对提醒（§最后一步：用手机扫码配对）
+                    VStack(spacing: 6) {
+                        Text(i18n.t(.swPairStepTitle))
+                            .font(LatteFont.xs.weight(.medium))
+                            .foregroundStyle(Latte.foreground)
+                        Text(i18n.t(.swPairStepHint))
+                            .font(LatteFont.font10)
+                            .foregroundStyle(Latte.mutedForeground)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let url = app.pairing?.url {
+                            QRCodeView(text: url, size: 120)
+                                .padding(6)
+                                .background(Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .strokeBorder(Latte.border, lineWidth: 1)
+                                }
+                        } else {
+                            ProgressView().controlSize(.small)
+                        }
+                        Button {
+                            app.settingsOpen = true
+                            app.settingsSection = .pairing
+                        } label: {
+                            Text(i18n.t(.swOpenPairSettings)).font(LatteFont.font10)
+                        }
+                        .buttonStyle(LatteButtonStyle(variant: .ghost))
+                    }
+                    .padding(.top, 10)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
@@ -809,8 +925,24 @@ struct SetupWizardView: View {
         let status = await DesktopCommands.checkEnvironment()
         env = status
         nodeVersions = await DesktopCommands.installedNodeVersions(activeNodePath: status.node.path)
+
+        // 各已装 agent 是否已配置可用模型（providers 非空）
+        var statuses: [String: Bool] = [:]
+        for agent in status.agents where agent.installed {
+            let info = await Task.detached(priority: .userInitiated) {
+                try? DesktopCommands.getAgentModels(agent.id)
+            }.value
+            statuses[agent.id] = !(info?.providers.isEmpty ?? true)
+        }
+        modelStatus = statuses
+
         SetupState.saveSnapshot(status)
         checking = false
+    }
+
+    /// 已配置模型的 agent 数（models 步的「继续」门槛）。
+    private var configuredAgentCount: Int {
+        modelStatus.values.filter { $0 }.count
     }
 }
 

@@ -394,6 +394,14 @@ public enum LKey: String, CaseIterable {
     case swNodeUpdateTitle = "swNodeUpdateTitle"
     case swNodeSwitchIntro = "swNodeSwitchIntro"
     case swManualInstall = "swManualInstall"
+    case swModelsStepTitle = "swModelsStepTitle"
+    case swModelsStepHint = "swModelsStepHint"
+    case swModelConfigured = "swModelConfigured"
+    case swModelMissing = "swModelMissing"
+    case swGoConfigure = "swGoConfigure"
+    case swPairStepTitle = "swPairStepTitle"
+    case swPairStepHint = "swPairStepHint"
+    case swOpenPairSettings = "swOpenPairSettings"
 }
 
 public enum DesktopStrings {
@@ -784,6 +792,14 @@ public enum DesktopStrings {
         .swNodeUpdateTitle: "升级 Node.js",
         .swNodeSwitchIntro: "你已安装了更新的版本，点「使用」即可切换。",
         .swManualInstall: "或手动安装",
+        .swModelsStepTitle: "配置模型",
+        .swModelsStepHint: "各 Agent 的模型来自其自身配置。至少为一个 Agent 配置好模型，手机端才能开始对话——点「去配置」打开该 Agent 的模型设置。",
+        .swModelConfigured: "已有模型",
+        .swModelMissing: "尚未配置",
+        .swGoConfigure: "去配置",
+        .swPairStepTitle: "用手机扫码配对",
+        .swPairStepHint: "在 iPhone 上打开 BrewPing，扫描二维码与这台电脑配对。",
+        .swOpenPairSettings: "配对设置",
     ]
 
     /// 英文词典（key 集合与中文严格一致）。
@@ -1172,5 +1188,13 @@ public enum DesktopStrings {
         .swNodeUpdateTitle: "Update Node.js",
         .swNodeSwitchIntro: "You already have newer versions installed — tap Use to switch.",
         .swManualInstall: "Or install manually",
+        .swModelsStepTitle: "Configure a Model",
+        .swModelsStepHint: "Agents read models from their own configuration. Configure at least one agent so your phone can start chatting — tap Configure to open that agent's model settings.",
+        .swModelConfigured: "Model ready",
+        .swModelMissing: "No model yet",
+        .swGoConfigure: "Configure",
+        .swPairStepTitle: "Pair Your Phone",
+        .swPairStepHint: "Open BrewPing on your iPhone and scan this code to pair with this computer.",
+        .swOpenPairSettings: "Pairing Settings",
     ]
 }
