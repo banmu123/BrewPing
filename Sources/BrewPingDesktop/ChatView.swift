@@ -479,6 +479,7 @@ struct ComposerTextView: NSViewRepresentable {
         configure(textView)
         textView.delegate = context.coordinator
         context.coordinator.textView = textView
+
         return scrollView
     }
 
@@ -515,7 +516,18 @@ struct ComposerTextView: NSViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.textView = textView
         if textView.string != text {
-            textView.string = text
+            // 🚨 首字母丢失的根因修复：SwiftUI 可能携带**滞后的 binding 快照**
+            // 调用本方法（如 textDidBeginEditing 先于 textDidChange 触发渲染），
+            // 此刻用户刚敲的字符已在 textView 里、但还没经 delegate 推给 binding
+            // —— 若无条件回写就会把刚输入的字母抹掉。
+            // 判据：textView 的内容 ≠ coordinator 最后一次向 binding 推送的值
+            // ⇒ AppKit 侧有更更新的编辑在途 → 以 AppKit 为准，跳过本次回写
+            //（delegate 随后会推送真值，下轮渲染自然对齐）。
+            // 只有 textView 与 lastPushed 一致（AppKit 无在途编辑）时，binding
+            // 的差异才是真正的**外部变更**（发送后清空 / 切对话恢复草稿）→ 回写。
+            if textView.string == context.coordinator.lastPushedToBinding {
+                textView.string = text
+            }
         }
         // 宽度变化（窗口缩放）后重新量高
         context.coordinator.reportHeight()
@@ -534,6 +546,9 @@ struct ComposerTextView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: ComposerTextView
         weak var textView: NSTextView?
+        /// 最后一次经 delegate 推给 binding 的文本（updateNSView 区分「滞后快照」
+        /// 与「外部真变更」的判据，见 updateNSView 内注释）。
+        var lastPushedToBinding = ""
         private var lastReported: CGFloat = 0
 
         init(_ parent: ComposerTextView) { self.parent = parent }
@@ -572,6 +587,7 @@ struct ComposerTextView: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            lastPushedToBinding = textView.string
             parent.text = textView.string
             reportHeight()
         }
