@@ -288,7 +288,7 @@ extension OpenCodeProviderEntry: Identifiable {}
 struct OpenCodeProviderPanel: View {
     @EnvironmentObject private var i18n: I18n
     @State private var info: OpenCodeProvidersInfo?
-    @State private var editing: OpenCodeProviderEntry? = OpenCodeProviderEntry()
+    @State private var editing: OpenCodeProviderEntry?
     @State private var confirmId: String?
     @State private var busy = false
     @State private var error: String?
