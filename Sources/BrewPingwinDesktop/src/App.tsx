@@ -65,6 +65,8 @@ import { ComposerDropdown } from "./components/chat/composer-dropdown";
 import { WorkdirPicker } from "./components/chat/workdir-picker";
 import { EnvironmentCard } from "./components/settings/environment-card";
 import { ModelConfigCard } from "./components/settings/model-config-card";
+import { SetupWizard } from "./components/setup/setup-wizard";
+import { SetupState } from "./lib/setup-state";
 import { cn } from "./lib/utils";
 import { useI18n, intlLocale, type LangMode } from "./i18n";
 import "./styles/app.css";
@@ -231,6 +233,11 @@ export default function App() {
   /// 设置弹窗开关 + 当前分类（托盘「显示配对码」要能直接跳到配对分类）。
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>("general");
+  /// 引导页阶段：wizard = 显示全屏引导；banner = 跳过后的主界面横幅；
+  /// none = 已完成（或从未需要）。持久化在 localStorage（SetupState）。
+  const [setupPhase, setSetupPhase] = useState<"wizard" | "banner" | "none">(() =>
+    SetupState.shouldShowOnLaunch() ? "wizard" : SetupState.isSkipped() ? "banner" : "none",
+  );
   const [terminals, setTerminals] = useState<AgentTerminalState[]>([]);
   /// 草稿态（新对话）选定的 Agent —— 已有对话一律以 `conv.agentId` 为准
   /// （对话级，创建时绑定）；这里只是「下一条新对话用哪个 Agent」。
@@ -1116,6 +1123,21 @@ export default function App() {
           </div>
         )}
 
+        {/* 引导页 Skip 后的轻量横幅（对齐 macOS：只提示，不打断） */}
+        {setupPhase === "banner" && (
+          <div className="flex shrink-0 items-center gap-2 border-b border-warning/20 bg-warning/10 px-4 py-1.5">
+            <span className="text-[11px] text-warning">{t("swBannerIncomplete")}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto h-6 px-2.5 text-[10px]"
+              onClick={() => setSetupPhase("wizard")}
+            >
+              {t("swBannerComplete")}
+            </Button>
+          </div>
+        )}
+
         <>
             {/* 顶栏：与内容同底色、无分隔线（参考 WorkBuddy），标题随对话自动生成 */}
             <div className="flex h-9 shrink-0 items-center gap-2 px-4">
@@ -1270,6 +1292,15 @@ export default function App() {
       </main>
       </div>
 
+      {/* 引导页：全屏覆盖（对齐 macOS 首启向导；完成后 / 跳过后不再出现） */}
+      {setupPhase === "wizard" && (
+        <SetupWizard
+          onFinish={() =>
+            setSetupPhase(SetupState.isSkipped() && !SetupState.isCompleted() ? "banner" : "none")
+          }
+        />
+      )}
+
       {/* 设置弹窗：模态覆盖层（点遮罩 / Esc / 右上角 ✕ 关闭） */}
       {settingsOpen && (
         <SettingsView
@@ -1283,6 +1314,11 @@ export default function App() {
           onRegenerate={handleRegeneratePairing}
           onCopy={handleCopyCode}
           onClose={() => setSettingsOpen(false)}
+          onRunSetup={() => {
+            SetupState.reset();
+            setSettingsOpen(false);
+            setSetupPhase("wizard");
+          }}
         />
       )}
     </div>
@@ -1302,6 +1338,7 @@ function SettingsView({
   onRegenerate,
   onCopy,
   onClose,
+  onRunSetup,
 }: {
   status: DesktopStatus | null;
   pairing: PairingInfo | null;
@@ -1313,6 +1350,7 @@ function SettingsView({
   onRegenerate: () => void;
   onCopy: () => void;
   onClose: () => void;
+  onRunSetup: () => void;
 }) {
   const { t, locale, langMode, setLangMode } = useI18n();
   const expiry = pairing?.expiresAt
@@ -1412,6 +1450,23 @@ function SettingsView({
               ))}
             </div>
           </section>
+            )}
+
+            {/* ── 环境设置（引导页重跑入口，对齐 macOS SettingsView 环境设置卡）── */}
+            {section === "general" && (
+              <section className="rounded-lg border border-border bg-card p-3">
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+                  {t("swSetupCardTitle")}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 text-[11px] leading-relaxed text-muted-foreground">
+                    {t("swSetupCardHint")}
+                  </span>
+                  <Button variant="outline" size="sm" className="shrink-0" onClick={onRunSetup}>
+                    {t("swRunSetupAgain")}
+                  </Button>
+                </div>
+              </section>
             )}
 
             {/* ── 本机信息 ── */}

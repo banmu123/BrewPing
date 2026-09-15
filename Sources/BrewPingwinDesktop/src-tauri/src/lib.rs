@@ -868,6 +868,34 @@ async fn update_agent_cli(
     )
 }
 
+/// 本机已安装的全部 Node 版本（nvm 管理 + 独立安装），含 default/active/compatible
+/// 标记（对齐 macOS `installedNodeVersions`；default = NVM_SYMLINK 当前指向的版本）。
+#[tauri::command]
+async fn installed_node_versions(
+    active_node_path: Option<String>,
+) -> Result<Vec<services::env_setup::NodeInstallOption>, String> {
+    Ok(
+        tokio::task::spawn_blocking(move || {
+            services::env_setup::installed_node_versions(active_node_path.as_deref())
+        })
+        .await
+        .map_err(|e| format!("join error: {e}"))?,
+    )
+}
+
+/// 切换 nvm 启用的 Node 版本（等价 `nvm use <v>`；用户主动触发，可能弹 UAC）。
+/// 日志经 `env-setup-log` / `env-setup-done` 事件流给前端。
+#[tauri::command]
+async fn switch_node_default(
+    core: tauri::State<'_, DesktopCore>,
+    version: String,
+) -> Result<(), String> {
+    let sink = core.state.app_events.clone();
+    tokio::task::spawn_blocking(move || services::env_setup::switch_node(&version, sink.as_ref()))
+        .await
+        .map_err(|e| format!("join error: {e}"))?
+}
+
 // ─── Model providers（设置页「模型配置」；内置 cc-switch 供应商接入 + 转发代理）──
 
 /// 设置页模型配置区块的完整快照（配置列表 + 当前项 + 代理运行态）。
@@ -1463,6 +1491,8 @@ pub fn run() {
             get_node_versions,
             install_nvm,
             install_node,
+            installed_node_versions,
+            switch_node_default,
             install_agent_cli,
             update_agent_cli,
             get_model_providers,

@@ -12,6 +12,7 @@ import type {
   BrowseResultInfo,
   EnvironmentStatus,
   NodeVersionOption,
+  NodeInstallOption,
   AgentCliStatus,
   ModelProviderConfig,
   ModelProvidersInfo,
@@ -342,6 +343,26 @@ export async function installNvm(): Promise<unknown> {
  */
 export async function installNode(version: string): Promise<string> {
   return invoke<string>("install_node", { version });
+}
+
+/**
+ * 本机已安装的全部 Node 版本（nvm 管理 + 独立安装），含 default/active/compatible 标记。
+ * activeNodePath 传当前探测到的 node 路径（EnvironmentStatus.node.path）。
+ */
+export async function installedNodeVersions(
+  activeNodePath: string | null,
+): Promise<NodeInstallOption[]> {
+  return invoke<NodeInstallOption[]>("installed_node_versions", {
+    activeNodePath: activeNodePath ?? null,
+  });
+}
+
+/**
+ * 切换 nvm 启用的 Node 版本（等价 `nvm use <v>`；可能弹 UAC）。
+ * 日志经 `env-setup-log` / `env-setup-done` 事件流给前端。
+ */
+export async function switchNodeDefault(version: string): Promise<void> {
+  return invoke<void>("switch_node_default", { version });
 }
 
 /**

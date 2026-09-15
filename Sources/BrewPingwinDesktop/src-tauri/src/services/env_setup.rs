@@ -808,6 +808,240 @@ fn download_to_file(url: &str, dest: &Path) -> Result<u64, String> {
     std::io::copy(&mut reader, &mut file).map_err(|e| format!("下载中断：{e}"))
 }
 
+// ─── 本机已装 Node 版本（清单 + 切换，对齐 macOS 1c66bf5/52ce1fa）──────────────
+
+/// 本机已安装的一个 Node 版本（nvm 管理 / 独立安装），字段与 macOS `NodeInstallOption` 对齐。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeInstallOption {
+    /// 不带 v 前缀，如 "22.12.0"。
+    pub version: String,
+    pub major: Option<u32>,
+    /// 该版本的 node 目录（nvm 条目）或 node.exe 全路径（独立安装）。
+    pub path: String,
+    /// "nvm" | "system"
+    pub source: String,
+    /// nvm-windows：是否为 `nvm use` 当前启用的版本（NVM_SYMLINK 指向它，
+    /// 新开的进程默认用它）。nvm-windows 没有 macOS 的 default 别名，
+    /// `nvm use` 重建符号链接即等价「设为 default」。
+    pub is_default: bool,
+    /// 是否为当前探测到的激活版本（activeNodePath 所在目录）。
+    pub is_active: bool,
+    pub compatible: bool,
+}
+
+/// 纯函数：解析 nvm-windows 版本目录名（"v22.12.0"）→ 三元组；非法返回 None。
+fn version_dir_components(name: &str) -> Option<(u32, u32, u32)> {
+    let trimmed = name.trim().trim_start_matches('v');
+    let parts: Vec<&str> = trimmed.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    Some((
+        parts[0].parse().ok()?,
+        parts[1].parse().ok()?,
+        parts[2].parse().ok()?,
+    ))
+}
+
+/// 从 canonicalize 后的符号链接路径取版本目录名（`\\?\D:\nvm\v22.12.0` → "22.12.0"）。
+fn symlink_target_version(canonical: &str) -> Option<String> {
+    let name = std::path::Path::new(canonical)
+        .file_name()?
+        .to_string_lossy()
+        .to_string();
+    version_dir_components(&name)?;
+    Some(name.trim_start_matches('v').to_string())
+}
+
+/// 目录等价判断：先比原始路径，再用 canonicalize 解析符号链接/junction 后比较
+/// （NVM_SYMLINK 是指向版本目录的链接，两者路径字符串不同但指向同一目录）。
+fn dirs_match(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(ca), Ok(cb)) => ca == cb,
+        _ => false,
+    }
+}
+
+/// nvm 当前启用的版本（NVM_SYMLINK 指向的版本目录）。
+/// canonicalize 失败时回落 `nvm current`（nvm-windows 输出形如 "v22.12.0"）。
+fn nvm_active_version() -> Option<String> {
+    if let Some(symlink) = agent_discovery::nvm_symlink() {
+        if let Ok(canonical) = std::fs::canonicalize(&symlink) {
+            if let Some(v) = symlink_target_version(&canonical.to_string_lossy()) {
+                return Some(v);
+            }
+        }
+    }
+    let nvm = locate_nvm()?;
+    let out = agent_discovery::run_capture(&nvm, &["current"]);
+    let first = out.lines().next()?.trim().trim_start_matches('v');
+    version_dir_components(first).map(|_| first.to_string())
+}
+
+/// 纯函数：由原始输入组装清单（排序 + default/active/compatible 标记），
+/// 供 `installed_node_versions` 与单元测试共用。
+/// - `nvm_entries`：(目录名 "v22.12.0", 目录路径)，semver 降序排列；
+/// - `extra_entries`：(source, node.exe 全路径)——独立安装；
+/// - `active_node_path`：探测到的激活 node 可执行文件路径；
+/// - `nvm_active`：NVM_SYMLINK 当前指向的版本号。
+fn assemble_node_options(
+    mut nvm_entries: Vec<(String, String)>,
+    extra_entries: Vec<(String, String)>,
+    active_node_path: Option<String>,
+    nvm_active: Option<String>,
+) -> Vec<NodeInstallOption> {
+    nvm_entries.sort_by(|a, b| {
+        let (ca, cb) = (version_dir_components(&a.0), version_dir_components(&b.0));
+        cb.cmp(&ca)
+    });
+    let active_dir = active_node_path
+        .as_deref()
+        .map(Path::new)
+        .and_then(Path::parent)
+        .map(Path::to_path_buf);
+
+    let mut options: Vec<NodeInstallOption> = Vec::new();
+    for (name, dir) in nvm_entries {
+        let version = name.trim_start_matches('v').to_string();
+        let major = version_dir_components(&name).map(|c| c.0);
+        let is_active = active_dir
+            .as_ref()
+            .map(|d| dirs_match(d, Path::new(&dir)))
+            .unwrap_or(false);
+        options.push(NodeInstallOption {
+            is_default: nvm_active.as_deref() == Some(version.as_str()),
+            is_active,
+            version,
+            major,
+            path: dir,
+            source: "nvm".to_string(),
+            compatible: major.is_some_and(|m| m >= MIN_NODE_MAJOR),
+        });
+    }
+    for (source, node_path) in extra_entries {
+        let dir = Path::new(&node_path).parent().map(Path::to_path_buf);
+        let is_active = active_dir
+            .as_ref()
+            .zip(dir.as_ref())
+            .map(|(a, d)| dirs_match(a, d))
+            .unwrap_or(false);
+        let version = agent_discovery::get_version(&node_path, &["--version"])
+            .map(|v| v.trim_start_matches('v').to_string());
+        let major = version.as_deref().and_then(node_major_from_version);
+        options.push(NodeInstallOption {
+            version: version.unwrap_or_else(|| "unknown".to_string()),
+            major,
+            path: node_path,
+            source,
+            is_default: false,
+            is_active,
+            compatible: major.is_some_and(|m| m >= MIN_NODE_MAJOR),
+        });
+    }
+    // 激活版本最前，其余按版本降序（与 macOS 一致；解析失败的排最后）
+    options.sort_by(|a, b| {
+        b.is_active.cmp(&a.is_active).then_with(|| {
+            let ka = version_dir_components(&format!("v{}", a.version));
+            let kb = version_dir_components(&format!("v{}", b.version));
+            kb.cmp(&ka)
+        })
+    });
+    options
+}
+
+/// 枚举本机全部已安装的 Node 版本（nvm 管理 + 独立安装），含 default/active 标记。
+///
+/// - nvm 条目：`NVM_HOME\v*` 里含 node.exe 的目录（semver 降序）；
+/// - 独立安装：`C:\Program Files\nodejs\node.exe`（若该目录不是 NVM_SYMLINK 本体，
+///   nvm-windows 默认把符号链接放这里，指向的版本已在 nvm 扫描里覆盖）→ "system"。
+pub fn installed_node_versions(active_node_path: Option<&str>) -> Vec<NodeInstallOption> {
+    let nvm_entries: Vec<(String, String)> = agent_discovery::nvm_home()
+        .map(|home| {
+            std::fs::read_dir(&home)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|entry| {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if version_dir_components(&name).is_some()
+                        && entry.path().join("node.exe").exists()
+                    {
+                        Some((name, entry.path().to_string_lossy().to_string()))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let symlink_canonical = agent_discovery::nvm_symlink()
+        .and_then(|s| std::fs::canonicalize(s).ok());
+    let extra_entries: Vec<(String, String)> = [r"C:\Program Files\nodejs\node.exe"]
+        .into_iter()
+        .filter(|p| Path::new(p).exists())
+        .filter(|p| {
+            match (
+                symlink_canonical.as_ref(),
+                Path::new(p).parent().and_then(|d| std::fs::canonicalize(d).ok()),
+            ) {
+                (Some(sym), Some(dir)) => *sym != dir,
+                _ => true,
+            }
+        })
+        .map(|p| ("system".to_string(), p.to_string()))
+        .collect();
+
+    assemble_node_options(
+        nvm_entries,
+        extra_entries,
+        active_node_path.map(str::to_string),
+        nvm_active_version(),
+    )
+}
+
+/// 切换 nvm 启用的 Node 版本（等价用户在终端执行 `nvm use <v>`；**用户主动触发**）。
+///
+/// nvm-windows 的 `nvm use` 会重建版本符号链接（NVM_SYMLINK），即全局默认版本；
+/// 符号链接位于受保护目录时会触发 UAC，被拒绝时返回 Err（版本目录本身不受影响）。
+/// 日志走 `env-setup-log` / `env-setup-done` 事件（设置 → 环境可回看）。
+pub fn switch_node(version: &str, sink: Option<&EventSink>) -> Result<(), String> {
+    let task = "node-switch";
+    let result = switch_node_inner(version, sink, task);
+    let ok = result.is_ok();
+    emit_done(sink, task, ok, result.as_ref().err().cloned());
+    result
+}
+
+fn switch_node_inner(version: &str, sink: Option<&EventSink>, task: &str) -> Result<(), String> {
+    let nvm_exe =
+        locate_nvm().ok_or_else(|| "NVM 未安装：无法切换 Node 版本".to_string())?;
+    let version = validate_version_input(version)?;
+    emit_log(sink, task, &format!("nvm use {version}（可能弹出 UAC 授权窗口）…"));
+    run_streamed(
+        task,
+        &[ProcSpec {
+            program: nvm_exe,
+            args: vec!["use".to_string(), version.clone()],
+        }],
+        sink,
+    )?;
+    match nvm_active_version() {
+        Some(current) if current == version => {
+            emit_log(sink, task, &format!("Node {version} 已设为默认版本 ✓"));
+            Ok(())
+        }
+        other => Err(format!(
+            "nvm use 已执行，但当前启用版本为 {}（期望 {version}）",
+            other.as_deref().unwrap_or("未知")
+        )),
+    }
+}
+
 // ─── 流式执行器 ───────────────────────────────────────────────────────────────
 
 /// 逐行执行安装命令并把输出以 `env-setup-log` 事件流给前端。
@@ -1126,6 +1360,89 @@ mod tests {
         }
         // 未知 agent 拒绝
         assert!(build_update_plan("unknown").is_err());
+    }
+
+    // TC-ES-11  版本目录名解析（nvm-windows 固定 v 前缀）
+    #[test]
+    fn version_dir_components_parses() {
+        assert_eq!(version_dir_components("v22.12.0"), Some((22, 12, 0)));
+        assert_eq!(version_dir_components("v9.1.0"), Some((9, 1, 0)));
+        assert_eq!(version_dir_components("22.12.0"), Some((22, 12, 0)));
+        assert_eq!(version_dir_components("nodejs"), None);
+        assert_eq!(version_dir_components("v22"), None);
+        assert_eq!(version_dir_components(""), None);
+    }
+
+    // TC-ES-12  符号链接 canonical 路径 → 版本号
+    #[test]
+    fn symlink_target_version_parses() {
+        assert_eq!(
+            symlink_target_version(r"\\?\D:\programs\nvm\v22.12.0"),
+            Some("22.12.0".to_string())
+        );
+        assert_eq!(
+            symlink_target_version(r"\\?\C:\Program Files\nodejs"),
+            None,
+            "目录名不是版本号时不能误判"
+        );
+    }
+
+    // TC-ES-13  清单组装：激活版本最前 + 其余 semver 降序 + default/active/compatible 标记
+    #[test]
+    fn assemble_node_options_marks_and_sorts() {
+        let options = assemble_node_options(
+            vec![
+                ("v20.15.0".to_string(), r"C:\nvm\v20.15.0".to_string()),
+                ("v22.12.0".to_string(), r"C:\nvm\v22.12.0".to_string()),
+                ("v9.1.0".to_string(), r"C:\nvm\v9.1.0".to_string()),
+            ],
+            vec![],
+            Some(r"C:\nvm\v20.15.0\node.exe".to_string()),
+            Some("20.15.0".to_string()),
+        );
+        let versions: Vec<&str> = options.iter().map(|o| o.version.as_str()).collect();
+        assert_eq!(
+            versions,
+            vec!["20.15.0", "22.12.0", "9.1.0"],
+            "激活版本最前，其余 semver 降序（v9 不能按字符串排到 v22 前面）"
+        );
+        let active = &options[0];
+        assert!(active.is_active && active.is_default);
+        assert!(!active.compatible, "20 < 22 必须标不兼容");
+        assert!(options[1].compatible && !options[1].is_default && !options[1].is_active);
+    }
+
+    // TC-ES-14  清单组装：独立安装条目（system 来源，node.exe 全路径）。
+    // 路径必须不存在：get_version 会对真实文件 spawn `--version`，结果就依赖机器了。
+    #[test]
+    fn assemble_node_options_includes_system_extra() {
+        let options = assemble_node_options(
+            vec![],
+            vec![(
+                "system".to_string(),
+                r"C:\brewping-test-nonexistent\node.exe".to_string(),
+            )],
+            Some(r"C:\brewping-test-nonexistent\node.exe".to_string()),
+            None,
+        );
+        assert_eq!(options.len(), 1);
+        assert_eq!(options[0].source, "system");
+        assert!(options[0].is_active);
+        assert!(!options[0].is_default, "独立安装没有 nvm default 概念");
+        assert!(!options[0].compatible, "版本未知（unknown）按不兼容处理");
+    }
+
+    // TC-ES-15  dirs_match：原始相等 / canonical 相等（真实存在的目录）/ 不同目录
+    #[test]
+    fn dirs_match_resolves_canonical_forms() {
+        let tmp = std::env::temp_dir();
+        assert!(dirs_match(&tmp, &tmp));
+        let canonical = std::fs::canonicalize(&tmp).unwrap();
+        assert!(
+            dirs_match(Path::new(canonical.to_str().unwrap()), &tmp),
+            "canonical 形式与原始形式必须判等"
+        );
+        assert!(!dirs_match(&tmp, &tmp.join("brewping-nonexistent-dir")));
     }
 
     // TC-ES-09  真实环境检测（手工验证用：cargo test print_environment -- --ignored --nocapture）

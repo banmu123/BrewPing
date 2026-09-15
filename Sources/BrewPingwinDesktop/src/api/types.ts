@@ -252,6 +252,22 @@ export interface NodeVersionOption {
   recommended: boolean;
 }
 
+/// 本机已安装的一个 Node 版本（nvm 管理 / 独立安装，对齐 macOS NodeInstallOption）。
+export interface NodeInstallOption {
+  /// 不带 v 前缀，如 "22.12.0"。
+  version: string;
+  major: number | null;
+  /// 该版本的 node 目录（nvm 条目）或 node.exe 全路径（独立安装）。
+  path: string;
+  /// "nvm" | "system"
+  source: string;
+  /// 是否为 `nvm use` 当前启用的版本（NVM_SYMLINK 指向它，即全局默认）。
+  isDefault: boolean;
+  /// 是否为当前探测到的激活版本。
+  isActive: boolean;
+  compatible: boolean;
+}
+
 /// `env-setup-log` 事件载荷：一行安装日志。
 export interface EnvSetupLog {
   task: string;
