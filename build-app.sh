@@ -12,6 +12,17 @@ APP_VERSION="${APP_VERSION:-1.0.0}"
 # 1 = 应用常驻 Dock（不写 LSUIElement）；0 = 纯菜单栏应用，不出现在 Dock
 SHOW_IN_DOCK="${SHOW_IN_DOCK:-1}"
 
+# 构建架构：
+#   arm64     默认，Apple Silicon（与历史行为一致）
+#   x86_64    Intel Mac（交叉编译）
+#   universal arm64 + x86_64（Universal 2，正式发布用）
+BUILD_ARCH="${BUILD_ARCH:-arm64}"
+case "$BUILD_ARCH" in
+    arm64|x86_64|universal) ;;
+    *) echo "error: BUILD_ARCH 必须是 arm64 / x86_64 / universal" >&2; exit 1 ;;
+esac
+echo "BUILD_ARCH=${BUILD_ARCH}"
+
 echo "Building ${EXEC_NAME}..."
 # 🚨 不要用 `swift build --target BrewPingDesktop`：
 #    那只会编译 BrewPingDesktop 这个 target 本身，依赖库 BrewPingCore
@@ -21,21 +32,38 @@ echo "Building ${EXEC_NAME}..."
 #    必须全量构建。
 # 🚨 必须带 --disable-sandbox：本机沙盒会拦截 SwiftPM 的写操作，缺了它构建会静默失败。
 # 🚨 正式发布只允许 Release 构建：失败直接退出，禁止 fallback 到 Debug。
-swift build -c release --disable-sandbox
-
-BIN_DIR="$(swift build -c release --disable-sandbox --show-bin-path 2>/dev/null | tail -n 1)"
-if [ -z "$BIN_DIR" ] || [ ! -f "${BIN_DIR}/${EXEC_NAME}" ]; then
-    echo "error: build product not found (config=release, dir=${BIN_DIR})" >&2
-    exit 1
+# 🚨 universal 不能用 `swift build --arch arm64 --arch x86_64` 直构：
+#    多架构模式需要 xcbuild（完整 Xcode 才有；本机 xcode-select 指向 CLT，
+#    Xcode.app 也是精简安装没有 xcbuild，实测报错）。
+#    改用两次单架构构建 + lipo 合并 —— 与 Xcode Universal 2 产物等价。
+if [ "$BUILD_ARCH" = "universal" ]; then
+    swift build -c release --disable-sandbox --arch arm64
+    ARM_BIN="$(swift build -c release --disable-sandbox --arch arm64 --show-bin-path 2>/dev/null | tail -n 1)/${EXEC_NAME}"
+    swift build -c release --disable-sandbox --arch x86_64
+    X86_BIN="$(swift build -c release --disable-sandbox --arch x86_64 --show-bin-path 2>/dev/null | tail -n 1)/${EXEC_NAME}"
+    [ -f "$ARM_BIN" ] || { echo "error: arm64 slice not found: $ARM_BIN" >&2; exit 1; }
+    [ -f "$X86_BIN" ] || { echo "error: x86_64 slice not found: $X86_BIN" >&2; exit 1; }
+    mkdir -p build
+    SRC_BIN="build/${EXEC_NAME}.universal"
+    lipo -create -output "$SRC_BIN" "$ARM_BIN" "$X86_BIN"
+    echo "lipo merged slices: $(lipo -archs "$SRC_BIN")"
+else
+    swift build -c release --disable-sandbox --arch "$BUILD_ARCH"
+    BIN_DIR="$(swift build -c release --disable-sandbox --arch "$BUILD_ARCH" --show-bin-path 2>/dev/null | tail -n 1)"
+    [ -n "$BIN_DIR" ] && [ -f "${BIN_DIR}/${EXEC_NAME}" ] || {
+        echo "error: build product not found (config=release, arch=${BUILD_ARCH}, dir=${BIN_DIR})" >&2
+        exit 1
+    }
+    SRC_BIN="${BIN_DIR}/${EXEC_NAME}"
 fi
-echo "Using binary: ${BIN_DIR}/${EXEC_NAME}"
+echo "Using binary: ${SRC_BIN}"
 
 echo "Creating ${APP_NAME}.app..."
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
-cp "${BIN_DIR}/${EXEC_NAME}" "$APP_DIR/Contents/MacOS/${EXEC_NAME}"
+cp "$SRC_BIN" "$APP_DIR/Contents/MacOS/${EXEC_NAME}"
 
 # 应用图标：必须在 Resources 里放 .icns，并在 Info.plist 里用 CFBundleIconFile 指过去，
 # 否则 Finder / Dock / 安装包都只会显示系统通用图标。

@@ -39,11 +39,14 @@ cd "$(dirname "$0")"
 
 APP_NAME="BrewPing Desktop"
 APP_DIR="build/${APP_NAME}.app"
+EXEC_NAME="BrewPingDesktop"
 VOL_NAME="BrewPing Desktop"
 BG_IMG="build/dmg-background.png"
 APP_VERSION="${APP_VERSION:-1.0.0}"
+# DMG 文件名后缀：缺省无后缀（universal 主包）；Intel 独立包用 DMG_SUFFIX="-Intel"
+DMG_SUFFIX="${DMG_SUFFIX:-}"
 DIST_DIR="dist"
-OUT_DMG="${DIST_DIR}/BrewPing-${APP_VERSION}.dmg"
+OUT_DMG="${DIST_DIR}/BrewPing-${APP_VERSION}${DMG_SUFFIX}.dmg"
 PRODUCT_PAGE_INSTALL="/Users/banmu/productPage"
 PYTHON="/Users/banmu/.workbuddy/binaries/python/envs/default/bin/python3"
 DMGBUILD="/Users/banmu/.workbuddy/binaries/python/envs/default/bin/dmgbuild"
@@ -130,6 +133,7 @@ fi
 
 # ---------- 6. 校验 ----------
 echo "==> Verifications..."
+echo "    main binary archs: $(lipo -archs "$APP_DIR/Contents/MacOS/${EXEC_NAME}")"
 codesign --verify --deep --strict "$APP_DIR" && echo "    codesign .app: OK"
 spctl --assess --type execute -vv "$APP_DIR" || true
 spctl --assess --type install -vv "$OUT_DMG" || true
@@ -139,10 +143,10 @@ echo "==> SHA256..."
 shasum -a 256 "$OUT_DMG" | tee "${OUT_DMG}.sha256"
 
 echo "==> Syncing to productPage..."
-cp -f "$OUT_DMG" "$PRODUCT_PAGE_INSTALL/install/BrewPing-${APP_VERSION}.dmg"
-cp -f "$OUT_DMG" "$PRODUCT_PAGE_INSTALL/public/install/BrewPing-${APP_VERSION}.dmg"
-cp -f "${OUT_DMG}.sha256" "$PRODUCT_PAGE_INSTALL/install/BrewPing-${APP_VERSION}.dmg.sha256"
-cp -f "${OUT_DMG}.sha256" "$PRODUCT_PAGE_INSTALL/public/install/BrewPing-${APP_VERSION}.dmg.sha256"
+cp -f "$OUT_DMG" "$PRODUCT_PAGE_INSTALL/install/BrewPing-${APP_VERSION}${DMG_SUFFIX}.dmg"
+cp -f "$OUT_DMG" "$PRODUCT_PAGE_INSTALL/public/install/BrewPing-${APP_VERSION}${DMG_SUFFIX}.dmg"
+cp -f "${OUT_DMG}.sha256" "$PRODUCT_PAGE_INSTALL/install/BrewPing-${APP_VERSION}${DMG_SUFFIX}.dmg.sha256"
+cp -f "${OUT_DMG}.sha256" "$PRODUCT_PAGE_INSTALL/public/install/BrewPing-${APP_VERSION}${DMG_SUFFIX}.dmg.sha256"
 
 echo ""
 echo "Done: $OUT_DMG"
