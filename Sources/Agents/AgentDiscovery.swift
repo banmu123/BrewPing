@@ -2,31 +2,49 @@ import Foundation
 
 public enum SystemCommand {
     public static func conventionalSearchPaths() -> [String] {
-        var paths = [
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            "\(FileManager.default.homeDirectoryForCurrentUser.path)/.local/bin"
-        ]
-        let nvmVersions = "\(FileManager.default.homeDirectoryForCurrentUser.path)/.nvm/versions/node"
-        if let contents = try? FileManager.default.contentsOfDirectory(atPath: nvmVersions) {
-            // 🚨 顺序敏感：GUI 进程的 PATH 解析必须与用户终端一致 —— 终端里
-            // 生效的是 nvm default 别名的版本。default 的 bin 排最前，其余按
-            // semver 降序兜底（原来按目录枚举顺序，无序 → 命中任意旧版本，
-            // 实测把 22.12.0 判成 20.15.0）。
-            let defaultVersion = EnvironmentSetup.sanitizedDefaultAlias(
-                try? String(
-                    contentsOf: URL(fileURLWithPath: "\(FileManager.default.homeDirectoryForCurrentUser.path)/.nvm/alias/default"),
-                    encoding: .utf8
-                )
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let nvmVersions = "\(home)/.nvm/versions/node"
+
+        // 🚨 顺序敏感：GUI 进程的 PATH 解析必须与用户终端一致。交互 shell 里
+        // .zshrc 的 `nvm use default` 会把 default 版本的 bin 插到 PATH 最前 ——
+        // 所以这里也要把 nvm default 的 bin 排在最前，其次才是 Homebrew 等常规
+        // 目录，再跟其余 nvm 版本（semver 降序兜底）。
+        // 实测反例：Homebrew Cask 装的 claude-code 2.1.71 曾压过 nvm 里的 2.1.261
+        //（终端实际使用后者）。
+        var nvmBins: [String] = []
+        var defaultBin: String?
+        let defaultVersion = EnvironmentSetup.sanitizedDefaultAlias(
+            try? String(
+                contentsOf: URL(fileURLWithPath: "\(home)/.nvm/alias/default"),
+                encoding: .utf8
             )
+        )
+        if let contents = try? FileManager.default.contentsOfDirectory(atPath: nvmVersions) {
             for version in orderedNvmVersionDirs(contents: contents, defaultVersion: defaultVersion) {
                 let bin = "\(nvmVersions)/\(version)/bin"
                 var isDirectory: ObjCBool = false
-                if FileManager.default.fileExists(atPath: bin, isDirectory: &isDirectory), isDirectory.boolValue {
-                    paths.append(bin)
+                guard FileManager.default.fileExists(atPath: bin, isDirectory: &isDirectory),
+                      isDirectory.boolValue else { continue }
+                if defaultBin == nil,
+                   let defaultVersion,
+                   version.drop(while: { $0 == "v" }) == defaultVersion {
+                    defaultBin = bin
+                } else {
+                    nvmBins.append(bin)
                 }
             }
         }
+
+        var paths: [String] = []
+        if let defaultBin {
+            paths.append(defaultBin)   // 终端语义：nvm default 的工具优先
+        }
+        paths.append(contentsOf: [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "\(home)/.local/bin",
+        ])
+        paths.append(contentsOf: nvmBins)
         return paths
     }
 
