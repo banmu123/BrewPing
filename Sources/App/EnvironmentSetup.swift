@@ -76,6 +76,35 @@ public enum EnvironmentSetup {
         public var agents: [AgentCliStatus]
     }
 
+    /// 本机已安装的一个 Node 版本（nvm 管理 / Homebrew / 系统）。
+    public struct NodeInstallOption: Codable, Equatable {
+        /// 不带 v 前缀，如 "22.12.0"。
+        public var version: String
+        public var major: Int?
+        /// node 所在 bin 目录（nvm 条目）或 node 可执行文件全路径（其它来源）。
+        public var path: String
+        /// "nvm" | "homebrew" | "system"
+        public var source: String
+        /// 是否为 nvm default 别名指向的版本（新开终端即用它）。
+        public var isDefault: Bool
+        /// 是否为当前探测到的激活版本。
+        public var isActive: Bool
+        public var compatible: Bool
+
+        public init(
+            version: String, major: Int?, path: String, source: String,
+            isDefault: Bool, isActive: Bool, compatible: Bool
+        ) {
+            self.version = version
+            self.major = major
+            self.path = path
+            self.source = source
+            self.isDefault = isDefault
+            self.isActive = isActive
+            self.compatible = compatible
+        }
+    }
+
     public struct NodeVersionOption: Codable {
         public var version: String
         public var major: Int?
@@ -142,6 +171,137 @@ public enum EnvironmentSetup {
         }
 
         return EnvironmentStatus(node: node, npm: npm, nvm: nvm, python: python, agents: agents)
+    }
+
+    // MARK: - 本机已装 Node 版本（清单 + 切换）
+
+    /// 纯函数：解析 nvm 版本目录名（"v22.12.0"）→ 可比较三元组；非法返回 nil。
+    static func nodeVersionComponents(_ raw: String) -> (major: Int, minor: Int, patch: Int)? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .drop(while: { $0 == "v" })
+        let parts = trimmed.split(separator: ".").map { String($0) }
+        guard parts.count == 3,
+              let major = Int(parts[0]), let minor = Int(parts[1]), let patch = Int(parts[2]) else {
+            return nil
+        }
+        return (major, minor, patch)
+    }
+
+    /// 纯函数：nvm default 别名文件内容 → 纯数字版本（"22.12.0"）。
+    /// 复合别名（如 `lts/hydrogen`、`iojs`）返回 nil —— 它们由 shell 内的
+    /// `nvm use default` 解析，PATH 排序无法静态处理。
+    static func sanitizedDefaultAlias(_ raw: String?) -> String? {
+        guard var alias = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !alias.isEmpty else { return nil }
+        if alias.hasPrefix("v") { alias.removeFirst() }
+        guard nodeVersionComponents(alias) != nil else { return nil }
+        return alias
+    }
+
+    /// 读取 `~/.nvm/alias/default`（缺文件 = 无 default 别名）。
+    static func readNvmDefaultAlias(nvmDir: String) -> String? {
+        let url = URL(fileURLWithPath: "\(nvmDir)/alias/default")
+        guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return sanitizedDefaultAlias(raw)
+    }
+
+    /// 枚举本机全部 Node 版本（nvm 管理的 + Homebrew / 系统的）。
+    /// `activeNodePath` = 探测到的激活 node 可执行文件路径（用于标 isActive）。
+    public static func installedNodeVersions(activeNodePath: String?) -> [NodeInstallOption] {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser.path
+        let nvmDir = "\(home)/.nvm"
+        let versionsDir = "\(nvmDir)/versions/node"
+        let defaultAlias = readNvmDefaultAlias(nvmDir: nvmDir)
+        // 激活 node 所属的 bin 目录（前缀匹配 isActive 用）
+        let activeBinDir = activeNodePath.map { path -> String in
+            (path as NSString).deletingLastPathComponent
+        }
+
+        var options: [NodeInstallOption] = []
+        if let entries = try? fm.contentsOfDirectory(atPath: versionsDir) {
+            // (major, minor, patch, 目录名)
+            var parsed: [(Int, Int, Int, String)] = []
+            for name in entries {
+                if let c = nodeVersionComponents(name) {
+                    parsed.append((c.major, c.minor, c.patch, name))
+                }
+            }
+            // 降序：新版本在前（与 nvm ls 观感一致）
+            let sorted = parsed.sorted { lhs, rhs in
+                if lhs.0 != rhs.0 { return lhs.0 > rhs.0 }
+                if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
+                return lhs.2 > rhs.2
+            }
+            for item in sorted {
+                let version = String(item.3.drop(while: { $0 == "v" }))
+                let binDir = "\(versionsDir)/\(item.3)/bin"
+                guard fm.fileExists(atPath: "\(binDir)/node") else { continue }
+                options.append(NodeInstallOption(
+                    version: version,
+                    major: item.0,
+                    path: binDir,
+                    source: "nvm",
+                    isDefault: version == defaultAlias,
+                    isActive: activeBinDir == binDir,
+                    compatible: item.0 >= minNodeMajor
+                ))
+            }
+        }
+
+        // 非 nvm 来源：Homebrew / 系统前缀（不在 nvm 目录下才算独立条目）
+        let extras: [(source: String, nodePath: String)] = [
+            ("homebrew", "/opt/homebrew/bin/node"),
+            ("homebrew", "/usr/local/bin/node"),
+            ("system", "/usr/bin/node"),
+        ]
+        for extra in extras {
+            guard fm.fileExists(atPath: extra.nodePath) else { continue }
+            let binDir = (extra.nodePath as NSString).deletingLastPathComponent
+            if activeBinDir == binDir {
+                // 激活中的那个已在 nvm 扫描里覆盖（若属 nvm）；这里只收非 nvm 的
+                let version = activeNodePath.flatMap { probeNodeVersion(nodePath: $0) }
+                options.append(NodeInstallOption(
+                    version: version ?? "unknown",
+                    major: version.flatMap(nodeMajor(from:)),
+                    path: binDir,
+                    source: extra.source,
+                    isDefault: false,
+                    isActive: true,
+                    compatible: (version.flatMap(nodeMajor(from:)) ?? 0) >= minNodeMajor
+                ))
+            }
+        }
+
+        // 激活中的条目浮到最前，其余按版本降序
+        return options.sorted {
+            if $0.isActive != $1.isActive { return $0.isActive }
+            return compareVersions($0.version, $1.version) > 0
+        }
+    }
+
+    /// 直接对指定 node 路径跑 `--version`（仅用于非 nvm 来源的版本标注）。
+    private static func probeNodeVersion(nodePath: String) -> String? {
+        guard let result = SystemCommand.run(
+            executablePath: nodePath,
+            arguments: ["--version"],
+            timeoutSeconds: 5
+        ) else { return nil }
+        let trimmed = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// 切换 nvm default（**用户主动触发**；仅 nvm 管理的版本可切换）。
+    /// 等价于用户在终端执行 `nvm alias default <v> && nvm use <v>`：
+    /// 无 sudo、不改 shell 配置、日志走 envSetupLog 事件（设置→环境 可见）。
+    @discardableResult
+    public static func switchNodeDefault(version: String) -> Bool {
+        let target = version.hasPrefix("v") ? version : "v\(version)"
+        return runStreaming(
+            taskID: "node-switch",
+            script: "nvm alias default \(target) && nvm use \(target)",
+            timeoutSeconds: 60
+        )
     }
 
     /// 可安装的 Node 版本：nodejs.org dist index 按大版本聚合（每大版本取最新），
@@ -336,6 +496,9 @@ public enum EnvironmentSetup {
     private static func probeEnvironment() -> [String: String] {
         let script = """
         emit() { printf '%s=%s\\n' "$1" "$2"; }
+        # 🚨 与用户终端对齐：nvm 存在时激活 default 别名的版本，否则 PATH 里
+        # 无序的 nvm 版本目录会命中任意一个旧版本（实测把 22.12.0 判成 20.15.0）。
+        nvm use --silent default >/dev/null 2>&1 || true
         emit NODE_PATH "$(command -v node 2>/dev/null)"
         emit NODE_VER "$(node --version 2>/dev/null)"
         emit NPM_PATH "$(command -v npm 2>/dev/null)"

@@ -182,3 +182,50 @@ final class SetupWizardTests: XCTestCase {
         XCTAssertNil(AgentInstallInfo.recommendedCommand(for: agent))
     }
 }
+
+// MARK: - Node 版本清单 / 切换（多版本检测与 PATH 对齐）
+
+final class NodeVersionListTests: XCTestCase {
+
+    func testParseVersionDirNames() {
+        XCTAssertEqual(EnvironmentSetup.nodeVersionComponents("v22.12.0")?.major, 22)
+        XCTAssertEqual(EnvironmentSetup.nodeVersionComponents("v22.12.0")?.minor, 12)
+        XCTAssertEqual(EnvironmentSetup.nodeVersionComponents("22.12.0")?.patch, 0)
+        XCTAssertNil(EnvironmentSetup.nodeVersionComponents("iojs"))
+        XCTAssertNil(EnvironmentSetup.nodeVersionComponents("v22"))
+        XCTAssertNil(EnvironmentSetup.nodeVersionComponents(""))
+    }
+
+    func testSanitizeDefaultAlias() {
+        XCTAssertEqual(EnvironmentSetup.sanitizedDefaultAlias("22.12.0\n"), "22.12.0")
+        XCTAssertEqual(EnvironmentSetup.sanitizedDefaultAlias(" v22.12.0 "), "22.12.0")
+        XCTAssertNil(EnvironmentSetup.sanitizedDefaultAlias("lts/hydrogen"))  // 复合别名交给 shell 解析
+        XCTAssertNil(EnvironmentSetup.sanitizedDefaultAlias("iojs"))
+        XCTAssertNil(EnvironmentSetup.sanitizedDefaultAlias(nil))
+        XCTAssertNil(EnvironmentSetup.sanitizedDefaultAlias("  "))
+    }
+
+    func testOrderingPutsDefaultFirstThenDescending() {
+        let ordered = SystemCommand.orderedNvmVersionDirs(
+            contents: ["v14.16.0", "v22.12.0", "v20.15.0", "v18.20.0", "not-a-version"],
+            defaultVersion: "22.12.0"
+        )
+        XCTAssertEqual(ordered, ["v22.12.0", "v20.15.0", "v18.20.0", "v14.16.0", "not-a-version"])
+    }
+
+    func testOrderingWithoutDefaultIsPureDescending() {
+        let ordered = SystemCommand.orderedNvmVersionDirs(
+            contents: ["v14.16.0", "v22.12.0", "v20.15.0"],
+            defaultVersion: nil
+        )
+        XCTAssertEqual(ordered, ["v22.12.0", "v20.15.0", "v14.16.0"])
+    }
+
+    func testOrderingHandlesVAndPlainDefaultAlias() {
+        let ordered = SystemCommand.orderedNvmVersionDirs(
+            contents: ["v20.15.0", "v22.12.0"],
+            defaultVersion: "v22.12.0"  // 别名文件带 v 前缀也能命中
+        )
+        XCTAssertEqual(ordered.first, "v22.12.0")
+    }
+}

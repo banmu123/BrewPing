@@ -9,7 +9,17 @@ public enum SystemCommand {
         ]
         let nvmVersions = "\(FileManager.default.homeDirectoryForCurrentUser.path)/.nvm/versions/node"
         if let contents = try? FileManager.default.contentsOfDirectory(atPath: nvmVersions) {
-            for version in contents {
+            // 🚨 顺序敏感：GUI 进程的 PATH 解析必须与用户终端一致 —— 终端里
+            // 生效的是 nvm default 别名的版本。default 的 bin 排最前，其余按
+            // semver 降序兜底（原来按目录枚举顺序，无序 → 命中任意旧版本，
+            // 实测把 22.12.0 判成 20.15.0）。
+            let defaultVersion = EnvironmentSetup.sanitizedDefaultAlias(
+                try? String(
+                    contentsOf: URL(fileURLWithPath: "\(FileManager.default.homeDirectoryForCurrentUser.path)/.nvm/alias/default"),
+                    encoding: .utf8
+                )
+            )
+            for version in orderedNvmVersionDirs(contents: contents, defaultVersion: defaultVersion) {
                 let bin = "\(nvmVersions)/\(version)/bin"
                 var isDirectory: ObjCBool = false
                 if FileManager.default.fileExists(atPath: bin, isDirectory: &isDirectory), isDirectory.boolValue {
@@ -18,6 +28,36 @@ public enum SystemCommand {
             }
         }
         return paths
+    }
+
+    /// 纯函数：nvm 版本目录名 → PATH 追加顺序。
+    /// default 别名版本排最前，其余 semver 降序；无法解析的目录名垫底。
+    static func orderedNvmVersionDirs(
+        contents: [String], defaultVersion: String?
+    ) -> [String] {
+        var parsed: [(Int, Int, Int, String)] = []
+        var unparsed: [String] = []
+        for name in contents {
+            if let c = EnvironmentSetup.nodeVersionComponents(name) {
+                parsed.append((c.major, c.minor, c.patch, name))
+            } else {
+                unparsed.append(name)
+            }
+        }
+        parsed.sort { lhs, rhs in
+            if lhs.0 != rhs.0 { return lhs.0 > rhs.0 }
+            if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
+            return lhs.2 > rhs.2
+        }
+        var names = parsed.map { $0.3 }
+        if let defaultVersion,
+           let idx = names.firstIndex(where: {
+               $0.drop(while: { $0 == "v" }) == defaultVersion
+           }) {
+            let hit = names.remove(at: idx)
+            names.insert(hit, at: 0)
+        }
+        return names + unparsed
     }
 
     public static func run(

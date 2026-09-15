@@ -381,6 +381,16 @@ public enum LKey: String, CaseIterable {
     case swViaSystem = "swViaSystem"
     case swAgentsSummary = "swAgentsSummary"
     case swServiceReadyDetail = "swServiceReadyDetail"
+    case swNodeVersionsTitle = "swNodeVersionsTitle"
+    case swNodeUse = "swNodeUse"
+    case swNodeInUse = "swNodeInUse"
+    case swNodeDefaultBadge = "swNodeDefaultBadge"
+    case swNodeActiveBadge = "swNodeActiveBadge"
+    case swSwitchHint = "swSwitchHint"
+    case swSwitching = "swSwitching"
+    case swSwitchFailed = "swSwitchFailed"
+    case swSourceHomebrew = "swSourceHomebrew"
+    case swSourceSystem = "swSourceSystem"
 }
 
 public enum DesktopStrings {
@@ -758,6 +768,16 @@ public enum DesktopStrings {
         .swViaSystem: "系统安装",
         .swAgentsSummary: "已安装 {n} / {total}",
         .swServiceReadyDetail: "HTTP 服务运行中 · 可随时配对",
+        .swNodeVersionsTitle: "已安装的 Node 版本",
+        .swNodeUse: "使用",
+        .swNodeInUse: "使用中",
+        .swNodeDefaultBadge: "默认",
+        .swNodeActiveBadge: "当前使用",
+        .swSwitchHint: "「使用」会把该版本设为 nvm 默认（新开终端自动生效），无需管理员权限。",
+        .swSwitching: "切换中…",
+        .swSwitchFailed: "切换失败，详见「设置 → 环境」日志。",
+        .swSourceHomebrew: "Homebrew",
+        .swSourceSystem: "系统",
     ]
 
     /// 英文词典（key 集合与中文严格一致）。
@@ -1133,5 +1153,15 @@ public enum DesktopStrings {
         .swViaSystem: "system installation",
         .swAgentsSummary: "{n} of {total} installed",
         .swServiceReadyDetail: "HTTP service running · ready for pairing",
+        .swNodeVersionsTitle: "Installed Node versions",
+        .swNodeUse: "Use",
+        .swNodeInUse: "In use",
+        .swNodeDefaultBadge: "default",
+        .swNodeActiveBadge: "active",
+        .swSwitchHint: "\"Use\" sets the nvm default version — new terminals pick it up automatically. No admin rights required.",
+        .swSwitching: "Switching…",
+        .swSwitchFailed: "Switch failed — see Settings → Environment for the log.",
+        .swSourceHomebrew: "Homebrew",
+        .swSourceSystem: "system",
     ]
 }

@@ -22,6 +22,10 @@ struct SetupWizardView: View {
     @State private var env: EnvironmentSetup.EnvironmentStatus?
     @State private var checking = false
     @State private var copiedAgentId: String?
+    /// 本机已装 Node 版本（Node 步的切换清单）
+    @State private var nodeVersions: [EnvironmentSetup.NodeInstallOption] = []
+    @State private var switchingVersion: String?
+    @State private var switchError: String?
 
     var body: some View {
         ZStack {
@@ -214,7 +218,31 @@ struct SetupWizardView: View {
             )
 
             if let env {
-                if env.node.installed, let version = env.node.version, !env.node.compatible {
+                if env.node.installed, let version = env.node.version, env.node.compatible {
+                    // 已就绪（切换成功 / 返回本步）：显示成功态而不是误报「未安装」
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 12))
+                            Text(verbatim: "\(i18n.t(.swRowNode)) \(version)")
+                                .font(LatteFont.xs.weight(.medium))
+                            LatteBadge(variant: .success, text: i18n.t(.swStatusReady)).fixedSize()
+                        }
+                        .foregroundStyle(Latte.success)
+                        Text(i18n.t(.swReadySubtitle))
+                            .font(LatteFont.font10)
+                            .foregroundStyle(Latte.mutedForeground)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Latte.success.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Latte.success.opacity(0.35), lineWidth: 1)
+                    }
+                    .padding(.top, 8)
+                } else if env.node.installed, let version = env.node.version {
                     problemBox(
                         state: .needsSetup,
                         title: "\(i18n.t(.swRowNode)) \(version)",
@@ -249,10 +277,115 @@ struct SetupWizardView: View {
                 }
                 .padding(.top, 12)
                 .frame(maxWidth: 320)
+
+                nodeVersionsSection
             }
 
             Spacer(minLength: 0)
             nodeFooter
+        }
+    }
+
+    /// 本机已装 Node 版本清单 + 切换（用户主动点「使用」= 设 nvm default）。
+    @ViewBuilder
+    private var nodeVersionsSection: some View {
+        if !nodeVersions.isEmpty {
+            Text(i18n.t(.swNodeVersionsTitle))
+                .font(LatteFont.font11.weight(.medium))
+                .foregroundStyle(Latte.foreground.opacity(0.85))
+                .padding(.top, 16)
+
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(nodeVersions, id: \.path) { option in
+                    nodeVersionRow(option)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Latte.border, lineWidth: 1)
+            }
+            .padding(.top, 8)
+
+            Text(i18n.t(.swSwitchHint))
+                .font(LatteFont.font10)
+                .foregroundStyle(Latte.mutedForeground.opacity(0.8))
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 6)
+
+            if let switchError {
+                Text(verbatim: switchError)
+                    .font(LatteFont.font10)
+                    .foregroundStyle(Latte.destructive)
+                    .padding(.top, 4)
+            }
+        }
+    }
+
+    private func nodeVersionRow(_ option: EnvironmentSetup.NodeInstallOption) -> some View {
+        HStack(spacing: 8) {
+            Text(verbatim: "v\(option.version)")
+                .font(LatteFont.mono11)
+                .foregroundStyle(option.isActive ? Latte.primary : Latte.foreground)
+            if option.isDefault {
+                LatteBadge(variant: .muted, text: i18n.t(.swNodeDefaultBadge)).fixedSize()
+            }
+            if option.isActive {
+                LatteBadge(variant: .success, text: i18n.t(.swNodeActiveBadge)).fixedSize()
+            }
+            if !option.compatible {
+                LatteBadge(variant: .warning, text: i18n.t(.swStatusNeedsSetup)).fixedSize()
+            }
+            Spacer(minLength: 6)
+            Text(verbatim: sourceLabel(option.source))
+                .font(LatteFont.font9)
+                .foregroundStyle(Latte.mutedForeground.opacity(0.7))
+            if switchingVersion == option.version {
+                HStack(spacing: 4) {
+                    ProgressView().controlSize(.mini).scaleEffect(0.7)
+                    Text(i18n.t(.swSwitching)).font(LatteFont.font10)
+                }
+                .foregroundStyle(Latte.mutedForeground)
+                .fixedSize()
+            } else if option.source == "nvm", !option.isDefault {
+                Button {
+                    switchNode(option.version)
+                } label: {
+                    Text(i18n.t(.swNodeUse)).font(LatteFont.font10)
+                }
+                .buttonStyle(LatteButtonStyle(variant: .outline))
+                .disabled(switchingVersion != nil)
+            } else if option.isDefault {
+                Text(i18n.t(.swNodeInUse))
+                    .font(LatteFont.font10)
+                    .foregroundStyle(Latte.mutedForeground)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .overlay(alignment: .bottom) { LatteDivider(opacity: 0.35) }
+    }
+
+    private func sourceLabel(_ source: String) -> String {
+        switch source {
+        case "nvm": return "nvm"
+        case "homebrew": return i18n.t(.swSourceHomebrew)
+        default: return i18n.t(.swSourceSystem)
+        }
+    }
+
+    private func switchNode(_ version: String) {
+        guard switchingVersion == nil else { return }
+        switchingVersion = version
+        switchError = nil
+        Task {
+            let ok = await DesktopCommands.switchNodeDefault(version)
+            switchingVersion = nil
+            if ok {
+                await scan()
+            } else {
+                switchError = i18n.t(.swSwitchFailed)
+            }
         }
     }
 
@@ -648,6 +781,7 @@ struct SetupWizardView: View {
         checking = true
         let status = await DesktopCommands.checkEnvironment()
         env = status
+        nodeVersions = await DesktopCommands.installedNodeVersions(activeNodePath: status.node.path)
         SetupState.saveSnapshot(status)
         checking = false
     }

@@ -493,6 +493,25 @@ public enum DesktopCommands {
         }
     }
 
+    /// 本机已安装的全部 Node 版本（nvm / Homebrew / 系统，含 default/active 标记）。
+    public static func installedNodeVersions(activeNodePath: String?) async -> [EnvironmentSetup.NodeInstallOption] {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: EnvironmentSetup.installedNodeVersions(activeNodePath: activeNodePath))
+            }
+        }
+    }
+
+    /// 切换 nvm default（用户主动触发；无 sudo，日志走 envSetupLog）。
+    @discardableResult
+    public static func switchNodeDefault(_ version: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: EnvironmentSetup.switchNodeDefault(version: version))
+            }
+        }
+    }
+
     /// `install_nvm`
     public static func installNvm() async {
         await withCheckedContinuation { continuation in
