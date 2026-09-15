@@ -34,3 +34,6 @@ Sources/BrewPingwinDesktop/fbr.txt
 # 本地运行时日志（dev server 持有，删除会失败）
 .workbuddy/tauri-dev*.log
 
+
+# notarized release artifacts
+dist/
