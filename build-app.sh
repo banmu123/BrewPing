@@ -6,6 +6,8 @@ APP_NAME="BrewPing Desktop"
 APP_DIR="build/${APP_NAME}.app"
 EXEC_NAME="BrewPingDesktop"
 APP_ICON="logo/AppIcon.icns"
+# 正式发布版本号（同步写入 Info.plist；DMG 命名见 build-dmg.sh）
+APP_VERSION="${APP_VERSION:-1.0.0}"
 
 # 1 = 应用常驻 Dock（不写 LSUIElement）；0 = 纯菜单栏应用，不出现在 Dock
 SHOW_IN_DOCK="${SHOW_IN_DOCK:-1}"
@@ -18,17 +20,12 @@ echo "Building ${EXEC_NAME}..."
 #    iOS 切授权模式一直没反应，因为 .app 里根本没有 /api/approvals 路由）。
 #    必须全量构建。
 # 🚨 必须带 --disable-sandbox：本机沙盒会拦截 SwiftPM 的写操作，缺了它构建会静默失败。
-BUILD_CONFIG="release"
-if ! swift build -c release --disable-sandbox; then
-    echo "Release build unavailable, falling back to debug..."
-    BUILD_CONFIG="debug"
-    swift build --disable-sandbox
-fi
+# 🚨 正式发布只允许 Release 构建：失败直接退出，禁止 fallback 到 Debug。
+swift build -c release --disable-sandbox
 
-# 从实际构建配置对应的产物目录取二进制（release/debug 路径不同）
-BIN_DIR="$(swift build -c "$BUILD_CONFIG" --disable-sandbox --show-bin-path 2>/dev/null | tail -n 1)"
+BIN_DIR="$(swift build -c release --disable-sandbox --show-bin-path 2>/dev/null | tail -n 1)"
 if [ -z "$BIN_DIR" ] || [ ! -f "${BIN_DIR}/${EXEC_NAME}" ]; then
-    echo "error: build product not found (config=${BUILD_CONFIG}, dir=${BIN_DIR})" >&2
+    echo "error: build product not found (config=release, dir=${BIN_DIR})" >&2
     exit 1
 fi
 echo "Using binary: ${BIN_DIR}/${EXEC_NAME}"
@@ -49,7 +46,7 @@ if [ ! -f "$APP_ICON" ]; then
 fi
 cp "$APP_ICON" "$APP_DIR/Contents/Resources/AppIcon.icns"
 
-cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
+cat > "$APP_DIR/Contents/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -65,9 +62,9 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleVersion</key>
-    <string>0.1</string>
+    <string>${APP_VERSION}</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1</string>
+    <string>${APP_VERSION}</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
