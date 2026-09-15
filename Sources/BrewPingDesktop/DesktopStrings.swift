@@ -391,6 +391,9 @@ public enum LKey: String, CaseIterable {
     case swSwitchFailed = "swSwitchFailed"
     case swSourceHomebrew = "swSourceHomebrew"
     case swSourceSystem = "swSourceSystem"
+    case swNodeUpdateTitle = "swNodeUpdateTitle"
+    case swNodeSwitchIntro = "swNodeSwitchIntro"
+    case swManualInstall = "swManualInstall"
 }
 
 public enum DesktopStrings {
@@ -778,6 +781,9 @@ public enum DesktopStrings {
         .swSwitchFailed: "切换失败，详见「设置 → 环境」日志。",
         .swSourceHomebrew: "Homebrew",
         .swSourceSystem: "系统",
+        .swNodeUpdateTitle: "升级 Node.js",
+        .swNodeSwitchIntro: "你已安装了更新的版本，点「使用」即可切换。",
+        .swManualInstall: "或手动安装",
     ]
 
     /// 英文词典（key 集合与中文严格一致）。
@@ -1130,8 +1136,8 @@ public enum DesktopStrings {
         .swNvmOptionalHint: "Node is already working — NVM is optional.",
         .swNodeStepTitle: "Set up Node.js",
         .swNodeStepHint: "BrewPing does not run install scripts for you. Open the official page, install, then Check Again.",
-        .swOpenNvmGuide: "Install NVM",
-        .swOpenNodeDownload: "Open Node.js",
+        .swOpenNvmGuide: "Open NVM Guide",
+        .swOpenNodeDownload: "Open Node.js Website",
         .swAgentsStepTitle: "Coding Agents",
         .swAgentsStepHint: "Agents found on this computer are listed below. Install missing ones with the official command, then Check Again.",
         .swAgentNotInstalled: "Not installed",
@@ -1163,5 +1169,8 @@ public enum DesktopStrings {
         .swSwitchFailed: "Switch failed — see Settings → Environment for the log.",
         .swSourceHomebrew: "Homebrew",
         .swSourceSystem: "system",
+        .swNodeUpdateTitle: "Update Node.js",
+        .swNodeSwitchIntro: "You already have newer versions installed — tap Use to switch.",
+        .swManualInstall: "Or install manually",
     ]
 }

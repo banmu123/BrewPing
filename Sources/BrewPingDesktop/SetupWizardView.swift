@@ -210,10 +210,23 @@ struct SetupWizardView: View {
 
     // MARK: Node 指引（§6，只在缺/旧 Node 时进入）
 
+    /// Node 步标题随场景变化：已装但过旧 =「升级」，完全没装 =「配置」。
+    private var nodeStepTitle: String {
+        if let env, env.node.installed, !env.node.compatible {
+            return i18n.t(.swNodeUpdateTitle)
+        }
+        return i18n.t(.swNodeStepTitle)
+    }
+
+    /// 是否存在「已装、兼容、可一键切换」的版本 —— 有则切换是本步的主操作。
+    private var hasSwitchableNewer: Bool {
+        nodeVersions.contains { $0.compatible && $0.source == "nvm" && !$0.isDefault }
+    }
+
     private var nodeStep: some View {
         column {
             stepHeader(
-                title: i18n.t(.swNodeStepTitle),
+                title: nodeStepTitle,
                 subtitle: checking ? i18n.t(.swChecking) : nil
             )
 
@@ -259,11 +272,27 @@ struct SetupWizardView: View {
                     )
                 }
 
+                // 🚀 信息层级：有可一键切换的新版本时，切换是主操作，
+                // 「打开官网安装」降级为次分区（避免误导已装好环境的用户）。
+                if hasSwitchableNewer {
+                    Text(i18n.t(.swNodeSwitchIntro))
+                        .font(LatteFont.xs)
+                        .foregroundStyle(Latte.foreground.opacity(0.85))
+                        .padding(.top, 10)
+                }
+                nodeVersionsSection
+
+                if !nodeVersions.isEmpty {
+                    Text(i18n.t(.swManualInstall))
+                        .font(LatteFont.font11.weight(.medium))
+                        .foregroundStyle(Latte.foreground.opacity(0.85))
+                        .padding(.top, 16)
+                }
                 Text(i18n.t(.swNodeStepHint))
                     .font(LatteFont.xs)
                     .foregroundStyle(Latte.mutedForeground)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 10)
+                    .padding(.top, 6)
 
                 VStack(spacing: 8) {
                     wizardLinkButton(
@@ -277,8 +306,6 @@ struct SetupWizardView: View {
                 }
                 .padding(.top, 12)
                 .frame(maxWidth: 320)
-
-                nodeVersionsSection
             }
 
             Spacer(minLength: 0)
