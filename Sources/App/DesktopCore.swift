@@ -111,6 +111,12 @@ public final class DesktopCore: ObservableObject {
     /// `ios/BrewPing/ContentView.swift` 的 `consumePairAction`）。
     /// 取值固定为字符串 `mac`（与 iOS `DeviceOSType.rawValue` 对齐，此处不引用 iOS 类型）。
     public func pairingURL(code: String? = nil) -> URL? {
+        // 🚨 每次生成配对 URL 都**重新探测** LAN IP：start() 时缓存的 lanIP 在
+        // 网络/网段切换后会过期（实测 Mac 从 192.168.0.x 切到 192.168.5.x 后，
+        // QR 里仍是旧 IP → iPhone 配对请求根本到不了 Mac，表现为一直转圈）。
+        if let fresh = LANAddress.primaryLAN(), fresh.ip != lanIP {
+            lanIP = fresh.ip
+        }
         guard let lanIP, let httpPort else { return nil }
         var comps = URLComponents()
         comps.scheme = "brewping"

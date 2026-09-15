@@ -697,6 +697,23 @@ struct SetupWizardView: View {
                         } else {
                             ProgressView().controlSize(.small)
                         }
+                        // 连接地址 + 配对码兜底：扫码不通时用户可肉眼核对网段 / 手动输码
+                        if let pairing = app.pairing {
+                            Text(verbatim: "http://\(pairing.host):\(pairing.port)")
+                                .font(LatteFont.mono11)
+                                .foregroundStyle(Latte.mutedForeground)
+                            if let code = pairing.code {
+                                Text(verbatim: "\(i18n.t(.swPairCodeFallback)) \(code)")
+                                    .font(LatteFont.mono11)
+                                    .foregroundStyle(Latte.mutedForeground)
+                            }
+                            Text(i18n.t(.swPairAddrHint))
+                                .font(LatteFont.font9)
+                                .foregroundStyle(Latte.mutedForeground.opacity(0.8))
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 24)
+                        }
                         Button {
                             app.settingsOpen = true
                             app.settingsSection = .pairing
