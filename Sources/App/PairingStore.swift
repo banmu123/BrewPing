@@ -19,6 +19,10 @@ import Foundation
 public final class PairingStore {
     public static let shared = PairingStore()
 
+    /// 设备配对成功通知（`POST /api/pair` 换取 token 成功后发出，主线程无关）。
+    /// UI 层（Setup Wizard 终步）监听它：配对成功 → 显示成功态并自动进入主界面。
+    public static let devicePairedNotification = Notification.Name("brewping.device.paired")
+
     /// 鉴权结论。放在这里而不是抛错，是为了让 `HTTPAPI` 的调用点保持扁平。
     enum Decision {
         case allowed

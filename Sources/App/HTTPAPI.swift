@@ -104,6 +104,9 @@ enum HTTPAPI {
             ])
         }
 
+        // 配对码此刻已被消费（一次性）。UI 层靠这条通知得知「有设备配对成功」，
+        // 否则向导终步只会看到 QR 消失（url=nil）而没有任何成功反馈。
+        NotificationCenter.default.post(name: PairingStore.devicePairedNotification, object: nil)
         let identity = DeviceIdentity.loadOrCreate()
         let deviceName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
         return .json(200, "OK", [

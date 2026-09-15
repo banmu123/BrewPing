@@ -28,6 +28,8 @@ struct SetupWizardView: View {
     @State private var modelStatus: [String: Bool] = [:]
     @State private var switchingVersion: String?
     @State private var switchError: String?
+    /// 手机配对成功（终步显示成功态并自动完成向导）
+    @State private var pairSucceeded = false
 
     var body: some View {
         ZStack {
@@ -48,8 +50,19 @@ struct SetupWizardView: View {
         }
         // 终步的扫码配对：pairing.url 需 reveal 才生成（与设置页配对区同语义）
         .task(id: step) {
-            if step == .done, app.pairing?.url == nil {
-                await app.revealPairing()
+            if step == .done {
+                if app.pairingSuccessCount > 0, !pairSucceeded {
+                    // 配对发生在到达终步之前（如在 models 步时扫码）→ 直接进成功态
+                    markPairedAndEnter()
+                } else if app.pairing?.url == nil {
+                    await app.revealPairing()
+                }
+            }
+        }
+        // 手机扫码 / 手动输码成功（HTTPAPI pair 处理器 → AppState 计数 +1）
+        .onChange(of: app.pairingSuccessCount) { count in
+            if count > 0, step == .done {
+                markPairedAndEnter()
             }
         }
     }
@@ -650,6 +663,16 @@ struct SetupWizardView: View {
 
     // MARK: Ready / No agents（§10-11）
 
+    /// 配对成功：切换成功态，短暂停留让用户看到反馈后自动完成向导（直接进入主界面）。
+    private func markPairedAndEnter() {
+        guard !pairSucceeded else { return }
+        pairSucceeded = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_400_000_000)
+            app.completeSetup()
+        }
+    }
+
     private var doneStep: some View {
         column {
             if let env, SetupWizardModel.evaluate(env) == .ready {
@@ -675,54 +698,69 @@ struct SetupWizardView: View {
                     }
                     .padding(.top, 8)
 
-                    // 配对提醒（§最后一步：用手机扫码配对）
-                    VStack(spacing: 6) {
-                        Text(i18n.t(.swPairStepTitle))
-                            .font(LatteFont.xs.weight(.medium))
-                            .foregroundStyle(Latte.foreground)
-                        Text(i18n.t(.swPairStepHint))
-                            .font(LatteFont.font10)
-                            .foregroundStyle(Latte.mutedForeground)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if let url = app.pairing?.url {
-                            QRCodeView(text: url, size: 120)
-                                .padding(6)
-                                .background(Color.white)
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .strokeBorder(Latte.border, lineWidth: 1)
-                                }
-                        } else {
-                            ProgressView().controlSize(.small)
-                        }
-                        // 连接地址 + 配对码兜底：扫码不通时用户可肉眼核对网段 / 手动输码
-                        if let pairing = app.pairing {
-                            Text(verbatim: "http://\(pairing.host):\(pairing.port)")
-                                .font(LatteFont.mono11)
+                    // 配对提醒（§最后一步：用手机扫码配对）。成功 → 成功态 + 自动进入。
+                    if pairSucceeded {
+                        VStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 30))
+                                .foregroundStyle(Latte.success)
+                            Text(i18n.t(.swPairSuccessTitle))
+                                .font(LatteFont.xs.weight(.medium))
+                                .foregroundStyle(Latte.foreground)
+                            Text(i18n.t(.swPairSuccessHint))
+                                .font(LatteFont.font10)
                                 .foregroundStyle(Latte.mutedForeground)
-                            if let code = pairing.code {
-                                Text(verbatim: "\(i18n.t(.swPairCodeFallback)) \(code)")
-                                    .font(LatteFont.mono11)
-                                    .foregroundStyle(Latte.mutedForeground)
-                            }
-                            Text(i18n.t(.swPairAddrHint))
-                                .font(LatteFont.font9)
-                                .foregroundStyle(Latte.mutedForeground.opacity(0.8))
+                        }
+                        .padding(.top, 10)
+                    } else {
+                        VStack(spacing: 6) {
+                            Text(i18n.t(.swPairStepTitle))
+                                .font(LatteFont.xs.weight(.medium))
+                                .foregroundStyle(Latte.foreground)
+                            Text(i18n.t(.swPairStepHint))
+                                .font(LatteFont.font10)
+                                .foregroundStyle(Latte.mutedForeground)
                                 .multilineTextAlignment(.center)
                                 .fixedSize(horizontal: false, vertical: true)
-                                .padding(.horizontal, 24)
+                            if let url = app.pairing?.url {
+                                QRCodeView(text: url, size: 120)
+                                    .padding(6)
+                                    .background(Color.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .strokeBorder(Latte.border, lineWidth: 1)
+                                    }
+                            } else {
+                                ProgressView().controlSize(.small)
+                            }
+                            // 连接地址 + 配对码兜底：扫码不通时可肉眼核对网段 / 手动输码
+                            if let pairing = app.pairing {
+                                Text(verbatim: "http://\(pairing.host):\(pairing.port)")
+                                    .font(LatteFont.mono11)
+                                    .foregroundStyle(Latte.mutedForeground)
+                                if let code = pairing.code {
+                                    Text(verbatim: "\(i18n.t(.swPairCodeFallback)) \(code)")
+                                        .font(LatteFont.mono11)
+                                        .foregroundStyle(Latte.mutedForeground)
+                                }
+                                Text(i18n.t(.swPairAddrHint))
+                                    .font(LatteFont.font9)
+                                    .foregroundStyle(Latte.mutedForeground.opacity(0.8))
+                                    .multilineTextAlignment(.center)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.horizontal, 24)
+                            }
+                            Button {
+                                app.settingsOpen = true
+                                app.settingsSection = .pairing
+                            } label: {
+                                Text(i18n.t(.swOpenPairSettings)).font(LatteFont.font10)
+                            }
+                            .buttonStyle(LatteButtonStyle(variant: .ghost))
                         }
-                        Button {
-                            app.settingsOpen = true
-                            app.settingsSection = .pairing
-                        } label: {
-                            Text(i18n.t(.swOpenPairSettings)).font(LatteFont.font10)
-                        }
-                        .buttonStyle(LatteButtonStyle(variant: .ghost))
+                        .padding(.top, 10)
                     }
-                    .padding(.top, 10)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 

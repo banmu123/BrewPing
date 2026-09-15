@@ -404,6 +404,8 @@ public enum LKey: String, CaseIterable {
     case swOpenPairSettings = "swOpenPairSettings"
     case swPairAddrHint = "swPairAddrHint"
     case swPairCodeFallback = "swPairCodeFallback"
+    case swPairSuccessTitle = "swPairSuccessTitle"
+    case swPairSuccessHint = "swPairSuccessHint"
 }
 
 public enum DesktopStrings {
@@ -804,6 +806,8 @@ public enum DesktopStrings {
         .swOpenPairSettings: "配对设置",
         .swPairAddrHint: "若扫码无法连接，请确认 iPhone 与下面地址在同一 Wi-Fi 网段；也可以在手机端手动输入配对码。",
         .swPairCodeFallback: "或手动输入配对码：",
+        .swPairSuccessTitle: "配对成功！",
+        .swPairSuccessHint: "正在进入 BrewPing…",
     ]
 
     /// 英文词典（key 集合与中文严格一致）。
@@ -1202,5 +1206,7 @@ public enum DesktopStrings {
         .swOpenPairSettings: "Pairing Settings",
         .swPairAddrHint: "If scanning doesn't connect, make sure the iPhone is on the same Wi-Fi as this address, or enter the code manually.",
         .swPairCodeFallback: "Or enter pairing code:",
+        .swPairSuccessTitle: "Paired!",
+        .swPairSuccessHint: "Entering BrewPing…",
     ]
 }

@@ -87,6 +87,9 @@ public final class DesktopAppState: ObservableObject {
     @Published public var draftAgentId = AgentManager.sessionAgentID
     @Published public var loading = true
     @Published public var pairing: PairingInfo?
+    /// 设备配对成功次数（每次 `POST /api/pair` 成功 +1）。
+    /// 向导终步监听它：配对成功 → 成功态 UI + 自动完成向导进入主界面。
+    @Published public var pairingSuccessCount = 0
     /// 全局默认授权档位（`~/.brewping/approval.json`，轮询只更新它）。
     @Published public var globalApprovalMode = ApprovalMode.safe.rawValue
     /// 草稿里手动选过的档位（nil = 未选过，跟随全局默认）。
@@ -140,6 +143,11 @@ public final class DesktopAppState: ObservableObject {
             .sink { [weak self] _ in
                 Task { await self?.refreshStatus() }
             }
+            .store(in: &cancellables)
+        // 手机扫码 / 手动输码配对成功（HTTPAPI pair 处理器发出）
+        NotificationCenter.default.publisher(for: PairingStore.devicePairedNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.pairingSuccessCount += 1 }
             .store(in: &cancellables)
     }
 
