@@ -465,19 +465,27 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     /// 拉取一条对话的转录（迷你对话页）。
-    func requestConversation(id: String) {
+    ///
+    /// - Parameter silent: 页面停留期间的**静默轮询**刷新——屏上已有该对话内容时
+    ///   不闪 loading、失败不覆盖旧转录（旧内容总比错误页好，下一轮会再试）。
+    ///   打开页面的首次加载仍走非静默，用户要看到 loading / 错误态。
+    func requestConversation(id: String, silent: Bool = false) {
         DispatchQueue.main.async {
             self.requestedDetailId = id
             // 换了一条对话就先清掉上一条的内容，避免先闪一下旧转录
             if self.conversationDetail?.id != id { self.conversationDetail = nil }
-            self.detailLoading = true
-            self.detailError = nil
+            // 静默刷新只有在「内容已在屏上」时才跳过 loading/错误位：
+            // detail == nil 时必须走正常路径，否则会闪空白。
+            if !(silent && self.conversationDetail?.id == id) {
+                self.detailLoading = true
+                self.detailError = nil
+            }
         }
         sendWatchRequest(["type": "requestConversation", "conversationId": id]) { [weak self] reply in
-            self?.applyConversationDetail(reply)
+            self?.applyConversationDetail(reply, silent: silent)
         } onTimeout: { [weak self] in
             self?.detailLoading = false
-            self?.detailError = LW("iPhone Not Connected")
+            if !silent { self?.detailError = LW("iPhone Not Connected") }
         }
     }
 
@@ -485,12 +493,13 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     /// 否则用户从 A 退回目录再点进 B，A 的转录可能后到，把 B 的内容覆盖掉。
     private var requestedDetailId: String?
 
-    private func applyConversationDetail(_ reply: [String: Any]) {
+    private func applyConversationDetail(_ reply: [String: Any], silent: Bool = false) {
         DispatchQueue.main.async {
             self.detailLoading = false
             guard reply["ok"] as? Bool == true,
                   let list = reply["messages"] as? [[String: Any]] else {
-                self.detailError = LW("Can't open conversation")
+                // 静默轮询失败：保留旧转录、不打错误页（下一轮会再试）
+                if !silent { self.detailError = LW("Can't open conversation") }
                 return
             }
             let detailId = reply["id"] as? String ?? ""

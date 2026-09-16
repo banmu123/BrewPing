@@ -131,6 +131,8 @@ struct WatchConversationListView: View {
 struct WatchConversationDetailView: View {
     @ObservedObject var sessionManager: WatchSessionManager
     let conversation: WatchConversation
+    /// 停留期间的静默轮询定时器（见 startAutoRefresh）
+    @State private var refreshTimer: Timer?
 
     var body: some View {
         Group {
@@ -157,7 +159,31 @@ struct WatchConversationDetailView: View {
         .onAppear {
             // 从目录点进来时拉最新转录；返回再进来也会刷新
             sessionManager.requestConversation(id: conversation.id)
+            startAutoRefresh()
         }
+        .onDisappear {
+            refreshTimer?.invalidate()
+            refreshTimer = nil
+        }
+    }
+
+    /// 页面停留期间的自动刷新。
+    ///
+    /// 🚨 背景：此前只有「打开页面」与「手动 Refresh」两个刷新时机，而 iPhone 只在
+    /// **手表发出的命令**完成时推一次 commandResult（与 Mac 端落库还有竞态），
+    /// 命令在 Mac / iPhone 上发出时更没有任何推送 —— 结果就是 Mac 已经回复了，
+    /// 手表页面却停在旧转录 / loading，必须手动点 Refresh。
+    /// 解法：停留期间每 5s 静默重拉一次转录（不闪 loading、失败不覆盖旧内容），
+    /// 覆盖全部命令来源；手表自己的命令完成时 composer 的即时刷新仍然生效。
+    private func startAutoRefresh() {
+        refreshTimer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak sessionManager] _ in
+            guard let sessionManager,
+                  sessionManager.reachable,
+                  !sessionManager.detailLoading else { return }
+            sessionManager.requestConversation(id: conversation.id, silent: true)
+        }
+        refreshTimer = timer
     }
 
     private var displayTitle: String {
