@@ -753,9 +753,20 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
     /// `audioURL` 必须是已经落在本 App 临时目录、不会被系统回收的文件。
     private func transcribeAndForward(audioURL: URL, agentId: String?, localeIdentifier: String? = nil, conversationId: String? = nil) {
         // 权限先行：否则后台唤醒时识别必然失败，且错误信息没有指向性。
-        guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
-            let status = SFSpeechRecognizer.authorizationStatus()
-            BrewPingLog.audio.error("Speech recognition not authorized (status=\(status.rawValue, privacy: .public))")
+        //
+        // 🚨 权限**未决**时在这里按需请求，而不是 App 启动时（旧行为）：语音指令本身就是
+        // 用户的直接动作，此刻弹窗有上下文；放在启动期会与「进设备页的本地网络弹窗」
+        // 「点扫码的相机弹窗」连成三连弹。仅前台可弹窗，后台唤醒只能照旧失败。
+        let speechStatus = SFSpeechRecognizer.authorizationStatus()
+        if speechStatus == .notDetermined, appIsActive {
+            requestSpeechAuthorizationIfNeeded()
+            BrewPingLog.audio.info("Speech authorization requested on demand")
+            try? FileManager.default.removeItem(at: audioURL)
+            sendCommandResult(status: "failed", text: "Speech recognition permission requested — please allow it, then try again.")
+            return
+        }
+        guard speechStatus == .authorized else {
+            BrewPingLog.audio.error("Speech recognition not authorized (status=\(speechStatus.rawValue, privacy: .public))")
             try? FileManager.default.removeItem(at: audioURL)
             sendCommandResult(status: "failed", text: "Speech recognition not authorized")
             return

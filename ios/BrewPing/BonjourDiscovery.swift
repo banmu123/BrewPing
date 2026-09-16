@@ -2,6 +2,29 @@ import Foundation
 import Network
 import Darwin
 
+/// 本地网络（Bonjour 浏览）权限的**可见**状态。
+///
+/// iOS 没有「查询本地网络权限」的公开 API，只能从 `NWBrowser` 的状态推断：
+/// - 已授权 → `.ready`
+/// - 被拒 / 被系统策略拦截 → `.waiting` 或 `.failed`，错误为
+///   `kDNSServiceErr_PolicyDenied`（-65555）
+/// - 授权框还没被回答 → 状态停在 `.waiting`，此时**无法**与「被拒」区分
+///   （所以这一档归到 `.requesting`；UI 上同时提供「重试」与「去系统设置」两条出路，
+///   因为用户拒绝后系统不会再弹窗，只能去设置里打开）。
+enum LocalNetworkAccess: Equatable {
+    /// 还没探测过（首次进入页面、用户尚未点「授权」）
+    case unknown
+    /// 已发起探测，结果未明（授权框可能正在显示）
+    case requesting
+    /// 已确认可浏览
+    case granted
+    /// 已拒绝 / 被策略拦截 —— 系统不会再弹窗，必须去设置里手动打开
+    case denied
+
+    var isGranted: Bool { self == .granted }
+    var isDenied: Bool { self == .denied }
+}
+
 /// iPhone 端 Bonjour 自动发现：扫描局域网上的 BrewPing Mac Agent。
 /// 通过 NetService 解析出真实 IP + 端口，用户无需手动输入。
 ///
@@ -18,8 +41,27 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         let osType: DeviceOSType
     }
 
+    /// `kDNSServiceErr_PolicyDenied`（见 `dns_sd.h`）。
+    /// 该常量是 C 匿名枚举成员，Swift 不可见，故用字面值并在此注明来源。
+    static let policyDeniedCode = DNSServiceErrorType(-65555)
+
+    /// 「曾经成功拿到过本地网络权限」的持久标记。
+    ///
+    /// 用途：决定进入设备页时**能否自动探测**。权限未决（notDetermined）时自动探测会
+    /// 未经交互地弹出系统授权框 —— 用户反馈过「弹窗一闪而过没来得及点」，
+    /// 因此首次必须由用户点按钮触发；只有确认授权过（或曾拒绝过，拒后系统不会再弹窗）
+    /// 才可以静默自动探测。
+    static let grantedDefaultsKey = "BrewPing.LocalNetworkGranted"
+    static var hasEverBeenGranted: Bool {
+        UserDefaults.standard.bool(forKey: grantedDefaultsKey)
+    }
+
     @Published var discoveredHosts: [DiscoveredHost] = []
     @Published var isSearching = false
+    /// 本地网络权限状态（用于 UI 区分「权限被拒」与「网络拦多播」）
+    @Published private(set) var localNetwork: LocalNetworkAccess = .unknown
+    /// 最近一次浏览错误（只用于展示与日志，不含用户数据）
+    @Published private(set) var lastBrowseError: String?
 
     /// 是否仍有服务在解析中（浏览停止后，已发现的服务可能还在解析）
     var isResolving: Bool { !resolvers.isEmpty }
@@ -37,6 +79,8 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         isSearching = true
         discoveredHosts = []
         pendingOS = [:]
+        // 未确认授权时先标记「探测中」：UI 据此显示进度，而不是停在空白态让人误以为没反应
+        if localNetwork != .granted { localNetwork = .requesting }
 
         let params = NWParameters()
         params.includePeerToPeer = true
@@ -44,9 +88,8 @@ final class BonjourDiscovery: NSObject, ObservableObject {
 
         browser.stateUpdateHandler = { [weak self] state in
             DispatchQueue.main.async {
-                if case .failed = state {
-                    self?.isSearching = false
-                }
+                guard let self else { return }
+                self.handleBrowserState(state)
             }
         }
 
@@ -62,6 +105,51 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         // 8 秒后停止「浏览」；已发现服务的解析会继续跑完，不会被中断
         timer = Timer.scheduledTimer(withTimeInterval: 8.0, repeats: false) { [weak self] _ in
             self?.stopBrowsing()
+        }
+    }
+
+    /// 把 `NWBrowser` 的状态翻译成「权限状态 + 可展示的原因」。
+    ///
+    /// 旧实现只判 `.failed` 且把 `NWError` 整个丢掉，于是「权限被拒」与「网络拦多播」
+    /// 在界面上完全同形（都只是「扫不到」），只能靠猜 —— 这是本轮问题的核心成因之一。
+    private func handleBrowserState(_ state: NWBrowser.State) {
+        switch state {
+        case .ready:
+            localNetwork = .granted
+            lastBrowseError = nil
+            UserDefaults.standard.set(true, forKey: Self.grantedDefaultsKey)
+        case .waiting(let error), .failed(let error):
+            if Self.isPolicyDenied(error) {
+                localNetwork = .denied
+                lastBrowseError = "policy-denied"
+                isSearching = false
+            } else {
+                localNetwork = .requesting
+                lastBrowseError = Self.describe(error)
+            }
+            BrewPingLog.discovery.error(
+                "Browser \(String(describing: state), privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
+        case .cancelled:
+            break
+        case .setup:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    /// 是否「权限被拒 / 被策略拦截」。这是 iOS 上判断本地网络被拒的**唯一**可靠信号。
+    static func isPolicyDenied(_ error: NWError) -> Bool {
+        if case let .dns(code) = error, code == policyDeniedCode { return true }
+        return false
+    }
+
+    private static func describe(_ error: NWError) -> String {
+        switch error {
+        case .dns(let code): return "dns(\(code))"
+        case .posix(let code): return "posix(\(code.rawValue))"
+        default: return String(describing: error)
         }
     }
 

@@ -60,6 +60,8 @@ struct ContentView: View {
     @StateObject private var watchBridge = WatchConnectivityManager.shared
     @StateObject private var submitter = CommandSubmitter.shared
     @StateObject private var bonjour = BonjourDiscovery()
+    /// 权限协调器：集中管理三项权限，保证系统弹窗一次只出现一个（见 PermissionCenter）
+    @StateObject private var permissions = PermissionCenter()
     /// 当前 Agent 的可切换模型（数据源是 Mac 端 `/api/agents/<id>/models`）。
     @StateObject private var modelStore = ModelStore.shared
     /// 授权模式（safe / askAll / auto），读写 Mac 端 `/api/approvals/mode`。
@@ -147,7 +149,12 @@ struct ContentView: View {
                     // （对着一台就在跟前的电脑说"添加第一台电脑/去下载"是噪音）。
                     ScrollView {
                         VStack(spacing: 16) {
-                            if bonjour.discoveredHosts.isEmpty {
+                            // 权限没齐时，权限卡就是当前最该看的东西：自动发现被挡住的
+                            // 原因只有它说得清（本地网络一旦被拒，系统不再弹窗）。
+                            if !permissions.allGranted {
+                                permissionCard
+                            }
+                            if bonjour.discoveredHosts.isEmpty, permissions.allGranted {
                                 emptyStateCard
                             }
                             nearbyCard
@@ -156,7 +163,14 @@ struct ContentView: View {
                     }
                     .background(Color.bpBackground)
                     .tint(Color.bpPrimary)
-                    .onAppear { bonjour.startSearching(); didAttemptDiscovery = true }
+                    .onAppear {
+                        permissions.attach(bonjour)
+                        // 🚨 只有「确认授权过」才自动探测：权限未决时自动探测会**未经交互**
+                        // 地弹出系统本地网络授权框（用户反馈过弹窗一闪而过、没来得及点），
+                        // 所以首次必须由权限卡里的按钮触发。
+                        if BonjourDiscovery.hasEverBeenGranted { bonjour.startSearching() }
+                        didAttemptDiscovery = true
+                    }
                     .onDisappear { bonjour.stopSearching() }
                 } else {
                     Form {
@@ -232,6 +246,16 @@ struct ContentView: View {
                 // 让 WCSession 知道 App 是否在前台：
                 // 决定收到手表语音后要不要在本机回放（后台唤醒时不出声）。
                 watchBridge.appIsActive = (newPhase == .active)
+
+                // 回到前台刷新权限状态。若本地网络「已确认授权过」或「已确认被拒」就重新探测：
+                // 前者无声（本来就通），后者也不会再弹窗（iOS 拒绝后不再询问），
+                // 于是用户在系统设置里手动打开权限后回来，能立刻接上 —— 这条恢复路径必须自动。
+                // 权限**未决**时不探测：那会未经交互弹窗，正是要避免的行为。
+                guard newPhase == .active, deviceStore.devices.isEmpty else { return }
+                permissions.refresh()
+                if BonjourDiscovery.hasEverBeenGranted || bonjour.localNetwork.isDenied {
+                    bonjour.startSearching()
+                }
             }
             .onChange(of: submitter.phase) { _, newPhase in
                 // 手动发送成功投递后才清空输入框（与旧行为一致），
@@ -433,11 +457,173 @@ struct ContentView: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(Color.bpBorder, lineWidth: 1)
             }
-        } else if didAttemptDiscovery, !bonjour.isSearching, !bonjour.isResolving {
+        } else if didAttemptDiscovery, !bonjour.isSearching, !bonjour.isResolving,
+                  bonjour.localNetwork.isGranted {
             // 搜过一轮却一无所获：多播被拦（AP 隔离/访客网络/跨网段）或本地网络
             // 权限被拒时都会走到这里 —— 此时必须给可执行的下一步，否则用户无从下手。
             discoveryHintCard
         }
+    }
+
+    /// 权限卡：三项权限的状态 + 单项「授权」+「一键授权全部」。
+    ///
+    /// 设计约束（来自用户反馈）：**不允许把三个系统授权框连着弹出来**。
+    /// 所以每个按钮都对应一次显式点击；「一键授权全部」交给 PermissionCenter 做
+    /// 串行编排（语音 → 相机 → 本地网络），一步落定再进下一步，弹窗不会重叠。
+    private var permissionCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(L("Permissions"), systemImage: "lock.shield")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.bpForeground)
+            Text(L("BrewPing needs these permissions to find your computer on the local network. Grant them one by one, or all at once."))
+                .font(.system(size: 12))
+                .foregroundStyle(Color.bpMutedForeground)
+                .fixedSize(horizontal: false, vertical: true)
+
+            permissionRow(
+                icon: "wifi",
+                title: L("Local Network"),
+                detail: L("Used to discover your computer over Bonjour."),
+                status: localNetworkStatus,
+                step: .localNetwork
+            ) {
+                permissions.requestLocalNetwork()
+            }
+            permissionRow(
+                icon: "camera",
+                title: L("Camera"),
+                detail: L("Only for scanning the pairing QR code."),
+                status: permissions.camera,
+                step: .camera
+            ) {
+                permissions.requestCamera()
+            }
+            permissionRow(
+                icon: "waveform",
+                title: L("Speech Recognition"),
+                detail: L("Transcribes the voice commands you send from your Watch."),
+                status: permissions.speech,
+                step: .speech
+            ) {
+                permissions.requestSpeech()
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    permissions.requestAll()
+                } label: {
+                    HStack(spacing: 6) {
+                        if permissions.requestingAll {
+                            ProgressView().controlSize(.small)
+                        }
+                        Text(L("Grant All")).font(.system(size: 13, weight: .semibold))
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(Color.bpPrimary)
+                .disabled(permissions.requestingAll)
+
+                // 被拒的权限只能去系统设置里打开（iOS 只弹一次授权框）
+                if permissions.hasDenied || !bonjour.localNetwork.isGranted {
+                    Button {
+                        PermissionCenter.openSystemSettings()
+                    } label: {
+                        Label(L("Open Settings"), systemImage: "gear")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(Color.bpPrimary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 2)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.bpCard)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.bpBorder, lineWidth: 1)
+        }
+    }
+
+    /// 本地网络状态映射成 `PermissionCenter.Status`：它来自 Bonjour 探测而不是系统 API，
+    /// `.requesting`（尚未落定）在 UI 上按「未授权」呈现，同时仍保留「授权」按钮可重试。
+    private var localNetworkStatus: PermissionCenter.Status {
+        switch bonjour.localNetwork {
+        case .granted: return .granted
+        case .denied: return .denied
+        case .unknown, .requesting: return .notDetermined
+        }
+    }
+
+    private func permissionRow(icon: String, title: String, detail: String,
+                               status: PermissionCenter.Status,
+                               step: PermissionCenter.Step,
+                               request: @escaping () -> Void) -> some View {
+        let isCurrent = permissions.requestingAll && permissions.currentStep == step
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 15))
+                .foregroundStyle(Color.bpPrimary)
+                .frame(width: 22)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.bpForeground)
+                    permissionStatusBadge(status)
+                }
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.bpMutedForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 6)
+            if status == .granted {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color.bpPrimary)
+            } else if isCurrent {
+                ProgressView().controlSize(.small)
+            } else {
+                Button(action: request) {
+                    Text(L("Grant")).font(.system(size: 12, weight: .semibold))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(Color.bpPrimary)
+                .disabled(permissions.requestingAll)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func permissionStatusBadge(_ status: PermissionCenter.Status) -> some View {
+        // 注意：不能在 @ViewBuilder 里写赋值语句（每个 case 体都会被当成 View 表达式），
+        // 所以这里按 case 直接返回，具体样式交给 badge(_:fill:fg:)。
+        switch status {
+        case .granted:
+            permissionBadge(L("Allowed"), fill: Color.bpPrimary.opacity(0.15), fg: Color.bpPrimary)
+        case .denied:
+            permissionBadge(L("Denied"), fill: Color.orange.opacity(0.18), fg: Color.orange)
+        case .notDetermined:
+            permissionBadge(L("Not granted"), fill: Color.bpBorder.opacity(0.5), fg: Color.bpMutedForeground)
+        }
+    }
+
+    private func permissionBadge(_ text: String, fill: Color, fg: Color) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(fill))
+            .foregroundStyle(fg)
     }
 
     /// 自动发现扫不到时的排查引导。
@@ -932,6 +1118,8 @@ struct ContentView: View {
             editName = host.name
             editOS = host.osType   // platform 取自 TXT 记录，否则回落默认 Mac（"幽灵 Mac"）
             discoveryMessage = L("Found: %@ (%@:%@)", host.name, host.host, String(host.port))
+        } else if bonjour.localNetwork.isDenied {
+            discoveryMessage = L("Local Network permission is denied. Enable it in Settings → Privacy & Security → Local Network.")
         } else {
             discoveryMessage = L("No BrewPing agent found. Make sure %@ is running and on the same Wi-Fi.",
                                  BrewPingConfig.macAppName)
@@ -1144,9 +1332,10 @@ struct ContentView: View {
     /// 若按 `.active` 判定，循环会在弹窗期间直接返回、界面停在"离线"不再刷新，
     /// 直到用户手动关闭弹窗才恢复 —— 实机复现过这个卡死。
     private func runStatusLoop() async {
-        // 语音识别权限只能在前台弹窗，先在这里定下来，
-        // 否则手表在后台发来的语音会因为权限未决而识别失败。
-        watchBridge.requestSpeechAuthorizationIfNeeded()
+        // 🚨 这里**不再**自动请求语音权限：原来的「启动即请求」会让用户一打开 App
+        // 就吃到系统弹窗，与「进设备页的本地网络弹窗」「点扫码的相机弹窗」连成三连弹，
+        // 正是用户反馈的问题。现在改为：权限卡里由用户点击授权，
+        // 或手表语音送达时按需请求（见 WatchConnectivityManager 的识别入口）。
         watchBridge.appIsActive = (scenePhase == .active)
 
         guard !isInBackground else { return }

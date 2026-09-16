@@ -266,3 +266,20 @@
 "Nearby Mac not showing up?" = "Nearby Mac not showing up?";
 "Make sure your iPhone and your computer are on the same Wi-Fi (same subnet), and that Local Network access is allowed: Settings → Privacy & Security → Local Network → BrewPing. Some routers block device discovery (AP isolation or guest networks) — in that case add the IP manually." = "Make sure your iPhone and your computer are on the same Wi-Fi (same subnet), and that Local Network access is allowed: Settings → Privacy & Security → Local Network → BrewPing. Some routers block device discovery (AP isolation or guest networks) — in that case add the IP manually.";
 "Enter IP Manually" = "Enter IP Manually";
+
+/* MARK: - Permissions card (逐一授权 / 一键授权) */
+"Permissions" = "Permissions";
+"BrewPing needs these permissions to find your computer on the local network. Grant them one by one, or all at once." = "BrewPing needs these permissions to find your computer on the local network. Grant them one by one, or all at once.";
+"Local Network" = "Local Network";
+"Used to discover your computer over Bonjour." = "Used to discover your computer over Bonjour.";
+"Camera" = "Camera";
+"Only for scanning the pairing QR code." = "Only for scanning the pairing QR code.";
+"Speech Recognition" = "Speech Recognition";
+"Transcribes the voice commands you send from your Watch." = "Transcribes the voice commands you send from your Watch.";
+"Grant" = "Grant";
+"Grant All" = "Grant All";
+"Allowed" = "Allowed";
+"Denied" = "Denied";
+"Not granted" = "Not granted";
+"Open Settings" = "Open Settings";
+"Local Network permission is denied. Enable it in Settings → Privacy & Security → Local Network." = "Local Network permission is denied. Enable it in Settings → Privacy & Security → Local Network.";
