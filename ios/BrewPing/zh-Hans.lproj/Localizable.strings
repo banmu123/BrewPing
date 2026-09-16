@@ -284,3 +284,6 @@
 
 /* MARK: - 扫码结果回显（含识别到的主机类型） */
 "Scanned (%@). Tap Pair to finish." = "已读取（%@）。点「配对」完成。";
+
+/* MARK: - 搜索中占位（与「搜过了没有」区分） */
+"Searching for nearby computers…" = "正在查找附近的电脑…";

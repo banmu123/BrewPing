@@ -126,6 +126,15 @@ struct ContentView: View {
     /// 只有真正进入后台才停轮询（`.inactive` 包含系统弹窗等瞬时状态，不应停）。
     private var isInBackground: Bool { scenePhase == .background }
 
+    /// 自动发现是否**已跑完一轮**（不管有没有结果）。
+    ///
+    /// 用途：区分「还在找」与「找过了、没有」。只有后者才允许显示
+    /// 「下载桌面端」引导卡 / 「扫不到」排查卡 —— 否则开机那一段搜索窗口里，
+    /// 明明电脑就在网络上，界面却先喊「还没有桌面端？去下载」，看着像闪了一下。
+    private var discoverySettled: Bool {
+        didAttemptDiscovery && !bonjour.isSearching && !bonjour.isResolving
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -151,10 +160,16 @@ struct ContentView: View {
                         VStack(spacing: 16) {
                             // 权限没齐时，权限卡就是当前最该看的东西：自动发现被挡住的
                             // 原因只有它说得清（本地网络一旦被拒，系统不再弹窗）。
-                            if !permissions.allGranted {
+                            // 🚨 必须等状态**读过一次**（`hasRefreshed`）才允许渲染：首帧三项
+                            // 权限都还是初始值，「未确定」会被当成「没授权」，卡片闪一下再消失。
+                            if permissions.hasRefreshed, !permissions.allGranted {
                                 permissionCard
                             }
-                            if bonjour.discoveredHosts.isEmpty, permissions.allGranted {
+                            // 🚨 「下载桌面端」引导卡只在**确实搜过一轮且一无所获**后才出现。
+                            // 早先只判 `discoveredHosts.isEmpty`，于是自动发现还在跑的窗口里
+                            //（此刻用户的电脑就在网络上）这张卡会先渲染出来，等「附近」列表
+                            // 出来才消失 —— 表现为每次进页面都「闪一下下载桌面端」。
+                            if discoverySettled, bonjour.discoveredHosts.isEmpty, permissions.allGranted {
                                 emptyStateCard
                             }
                             nearbyCard
@@ -457,11 +472,35 @@ struct ContentView: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(Color.bpBorder, lineWidth: 1)
             }
-        } else if didAttemptDiscovery, !bonjour.isSearching, !bonjour.isResolving,
-                  bonjour.localNetwork.isGranted {
+        } else if bonjour.isSearching || bonjour.isResolving {
+            // 正在找：只给一行中性占位。这段窗口里**不能**出现「没有桌面端」的断言
+            //（见 `discoverySettled`）—— 之前正是这里让「下载桌面端」卡闪了一下。
+            searchingCard
+        } else if discoverySettled, bonjour.localNetwork.isGranted {
             // 搜过一轮却一无所获：多播被拦（AP 隔离/访客网络/跨网段）或本地网络
             // 权限被拒时都会走到这里 —— 此时必须给可执行的下一步，否则用户无从下手。
             discoveryHintCard
+        }
+    }
+
+    /// 搜索期间的占位卡：把「正在找」与「找过了没有」在视觉上分开。
+    private var searchingCard: some View {
+        HStack(spacing: 10) {
+            ProgressView().controlSize(.small)
+            Text(L("Searching for nearby computers…"))
+                .font(.system(size: 12))
+                .foregroundStyle(Color.bpMutedForeground)
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.bpCard)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.bpBorder, lineWidth: 1)
         }
     }
 

@@ -102,6 +102,8 @@ fun HomeScreen(viewModel: HomeViewModel) {
     val agents by viewModel.agents.collectAsState()
     val route by viewModel.conversationRoute.collectAsState()
     val desktopDevice by viewModel.desktopDevice.collectAsState()
+    /** 局域网扫描是否进行中：在进行中时不能断言「没有桌面端」（见下方 when 的说明） */
+    val discoveryRunning by viewModel.discoveryRunning.collectAsState()
     val conversationsLoading by viewModel.conversationStore.loading.collectAsState()
 
     var showAddDevice by remember { mutableStateOf(false) }
@@ -241,12 +243,18 @@ fun HomeScreen(viewModel: HomeViewModel) {
                             },
                         )
                         // 附近已发现可添加的设备 → 只显示"附近的设备"卡；
-                        // 查不到附近设备（或桌面端已关闭）→ 才提示去获取桌面端
-                        if (discovered.isEmpty()) {
+                        // 扫描结束仍没发现（桌面端没开 / 不在同一网络）→ 才提示去获取桌面端。
+                        // 🚨 扫描**进行中**时不能断言「没有桌面端」：那会让「下载桌面端」卡先
+                        // 渲染出来，等附近列表出来才消失（与 iOS 侧同一个坑，两侧同构修）。
+                        if (discovered.isEmpty() && !discoveryRunning) {
                             EmptyStateCard(modifier = Modifier.padding(16.dp))
                         }
                     }
-                    device == null -> EmptyStateCard(modifier = Modifier.padding(16.dp))
+                    // 🚨 设备列表非空、但当前设备还没物化完（activeDeviceID 的收集器会先
+                    // resetState() 把 desktopDevice 置空，再 connectToDevice）——这是
+                    // 「瞬时未就绪」，不是「没有桌面端」。早先这里直接渲染 EmptyStateCard，
+                    // 于是每次退出再进来都会闪一下「下载桌面端」。
+                    device == null -> PreparingDeviceCard(modifier = Modifier.padding(16.dp))
                     showDetail -> ConversationDetailScreen(
                         conversationId = detailId,
                         device = device,
@@ -430,6 +438,29 @@ fun HomeScreen(viewModel: HomeViewModel) {
                 }
                 qrTarget = ""
             },
+        )
+    }
+}
+
+// ─── 连接中占位（设备已添加，只是当前设备还在物化）────────────────────────────
+/// 中性占位：**不能**用 EmptyStateCard —— 那等于告诉用户「还没有桌面端」，
+/// 与他明明已经添加过设备的事实矛盾。
+@Composable
+private fun PreparingDeviceCard(modifier: Modifier = Modifier) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(16.dp),
+            strokeWidth = 2.dp,
+            color = LattePrimary,
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = stringResource(R.string.preparing_device),
+            fontSize = 12.sp,
+            color = LatteOnSurfaceVariant,
         )
     }
 }

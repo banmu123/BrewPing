@@ -92,8 +92,10 @@ final class DeviceStore: ObservableObject {
             devices = decoded
         }
         activeDeviceID = UserDefaults.standard.string(forKey: activeKey) ?? ""
-        // 如果 activeID 无效，回退到第一个
-        if !activeDeviceID.isEmpty, !devices.contains(where: { $0.id == activeDeviceID }) {
+        // 空串或指向已不存在的设备都回退到第一台。
+        // 🚨 空串也必须回退：否则「有设备但 activeID 为空」会让主页落到「未配对」分支，
+        // 而设备列表其实是好的 —— 同一类「瞬时未就绪被当成定论」的坑。
+        if activeDeviceID.isEmpty || !devices.contains(where: { $0.id == activeDeviceID }) {
             activeDeviceID = devices.first?.id ?? ""
         }
     }

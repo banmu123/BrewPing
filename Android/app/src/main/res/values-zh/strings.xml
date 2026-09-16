@@ -125,4 +125,6 @@
     <string name="approval_approve_once">批准一次</string>
     <string name="approval_always_allow">总是允许此类型</string>
     <string name="approval_deny">拒绝</string>
+    <!-- 设备已添加、当前设备正在物化：这是「瞬时未就绪」，不是「没有桌面端」 -->
+    <string name="preparing_device">正在连接你的电脑…</string>
 </resources>

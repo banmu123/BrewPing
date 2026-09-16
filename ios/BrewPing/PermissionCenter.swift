@@ -30,16 +30,31 @@ final class PermissionCenter: ObservableObject {
 
     @Published private(set) var speech: Status = .notDetermined
     @Published private(set) var camera: Status = .notDetermined
-    /// 本地网络状态来自 `BonjourDiscovery` 的探测（iOS 无公开查询 API）
-    @Published private(set) var localNetwork: LocalNetworkAccess = .unknown
+    /// 本地网络状态来自 `BonjourDiscovery` 的探测（iOS 无公开查询 API）。
+    /// 首帧用持久化的「曾授权」标记做近似值：若照实写成 `.unknown`，则已经授权过的
+    /// 用户每次进来都会先被判成「未授权」→ 权限卡闪现一下再消失。
+    @Published private(set) var localNetwork: LocalNetworkAccess =
+        BonjourDiscovery.hasEverBeenGranted ? .granted : .unknown
     /// 正在跑「一键授权全部」
     @Published private(set) var requestingAll = false
     /// 当前正在请求的权限（仅一键流程里有值）
     @Published private(set) var currentStep: Step?
+    /// 是否已经读过一次真实状态（`refresh()` 跑过）。
+    ///
+    /// 用途：UI 用它决定**能不能**渲染权限卡 —— 首帧还没读到系统状态时，
+    /// 「未确定」会被误判成「没授权」，卡片会闪一下再消失。
+    @Published private(set) var hasRefreshed = false
 
     /// 仅弱引用：`BonjourDiscovery` 由视图持有
     private weak var discovery: BonjourDiscovery?
     private var settleTimer: Timer?
+
+    init() {
+        // 这三项系统的「查询状态」API 都是同步的、**不会弹窗**，直接在 init 里读，
+        // 首帧就能拿到真实值（否则相机/语音要等到 onAppear 的 refresh 才更新）。
+        speech = Self.map(SFSpeechRecognizer.authorizationStatus())
+        camera = Self.map(AVCaptureDevice.authorizationStatus(for: .video))
+    }
 
     /// 绑定发现器（幂等）。本地网络状态只能从它那儿取。
     func attach(_ discovery: BonjourDiscovery) {
@@ -53,7 +68,12 @@ final class PermissionCenter: ObservableObject {
     func refresh() {
         speech = Self.map(SFSpeechRecognizer.authorizationStatus())
         camera = Self.map(AVCaptureDevice.authorizationStatus(for: .video))
-        localNetwork = discovery?.localNetwork ?? .unknown
+        // 本地网络：只在发现器**已有结论**时覆盖。它还没有结论（`.unknown`）时保留现值
+        //（可能来自持久标记），否则会把「已授权」误降级成未知，权限卡又闪一下。
+        if let live = discovery?.localNetwork, live != .unknown {
+            localNetwork = live
+        }
+        hasRefreshed = true
     }
 
     var hasDenied: Bool {

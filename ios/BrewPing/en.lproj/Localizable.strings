@@ -286,3 +286,6 @@
 
 /* MARK: - 扫码结果回显（含识别到的主机类型） */
 "Scanned (%@). Tap Pair to finish." = "Scanned (%@). Tap Pair to finish.";
+
+/* MARK: - 搜索中占位（与「搜过了没有」区分） */
+"Searching for nearby computers…" = "Searching for nearby computers…";
