@@ -43,7 +43,7 @@ git clone https://github.com/banmu123/BrewPing.git && cd BrewPing && ./build-app
 
 | macOS — 主窗口 | iPhone — 已配对对话 |
 |---|---|
-| ![BrewPing macOS](docs/screenshots/macos-main-en.png) | ![BrewPing iPhone](docs/screenshots/ios-main-en.png) |
+| ![BrewPing macOS](docs/screenshots/macos-main-en.png) | ![BrewPing iPhone](docs/screenshots/ios-main.png) |
 
 ---
 
