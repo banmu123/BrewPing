@@ -237,7 +237,7 @@ BrewPing keeps its state in `~/.brewping/`:
 
 Local-network pairing is BrewPing's starting point, not its final shape.
 
-`relay-server/` contains a TypeScript relay that is **not wired into the clients yet**. Until it is connected, BrewPing stays deliberately local: no accounts, no analytics, no third-party SDKs, and no traffic leaving the network you own. Commands, agent output, and voice audio stay on your phone and your own computer.
+`relay-server/` contains a TypeScript relay that is **not wired into the clients yet** — it is experimental, has **no authentication**, and logs relayed payloads. Do not deploy it on a public or untrusted network until both are fixed (see `relay-server/README.md`). Until it is connected, BrewPing stays deliberately local: no accounts, no analytics, no third-party SDKs, and no traffic leaving the network you own. Commands, agent output, and voice audio stay on your phone and your own computer.
 
 Approval gating is also scoped on purpose: it intercepts commands at the point where they enter the agent, so an agent that later pushes a shell command on its own is not covered by this release.
 
@@ -282,4 +282,6 @@ BrewPing connects only to devices **you configured**, on your own local network.
 
 ## License
 
-MIT
+BrewPing is released under the [MIT License](./LICENSE).
+
+BrewPing does not bundle or redistribute any third-party agent. It only detects and runs the command-line tools you have already installed on your own computer (see [Trademarks](#trademarks)).

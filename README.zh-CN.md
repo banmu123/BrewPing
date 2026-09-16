@@ -282,4 +282,6 @@ BrewPing 只连接**你自己配置**的、位于同一局域网的设备，不�
 
 ## License
 
-MIT
+BrewPing 基于 [MIT 许可证](./LICENSE) 发布。
+
+BrewPing 不打包、不再分发任何第三方 Agent，只检测并调用你本机已安装的命令行工具（见上文商标声明）。
