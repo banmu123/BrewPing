@@ -1,3 +1,4 @@
+use crate::services::proc::hide_console;
 use serde::Serialize;
 use std::process::Command;
 
@@ -137,10 +138,11 @@ pub(crate) fn locate_command(command: &str) -> Option<String> {
 
 /// Find a command in npm's global bin directory.
 fn find_npm_global_command(command: &str) -> Option<String> {
-    let output = Command::new("npm")
-        .args(["config", "get", "prefix"])
-        .output()
-        .ok()?;
+    let mut cmd = Command::new("npm");
+    cmd.args(["config", "get", "prefix"]);
+    // npm 在 Windows 上是 npm.cmd → 不加标志会弹黑框
+    hide_console(&mut cmd);
+    let output = cmd.output().ok()?;
     let prefix = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if prefix.is_empty() {
         return None;
@@ -198,7 +200,11 @@ fn check_common_locations(command: &str) -> Option<String> {
 ///
 /// `pub(crate)`：供 `env_setup` 的环境检测复用（同一定位、同一版本提取规则）。
 pub(crate) fn get_version(path: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(path).args(args).output().ok()?;
+    let mut cmd = Command::new(path);
+    cmd.args(args);
+    // 启动时 discover() 会对每个 agent 调一次 —— 这里不加标志就是「打开应用满屏 cmd」
+    hide_console(&mut cmd);
+    let output = cmd.output().ok()?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let raw = if !stdout.trim().is_empty() {
@@ -409,9 +415,11 @@ pub(crate) fn catalog_definition(agent_id: &str) -> Option<(&'static str, &'stat
 
 /// 捕获式运行一个命令（stdout+stderr 合并、trim），失败返回 None。
 pub(crate) fn run_capture(program: &str, args: &[&str]) -> String {
-    Command::new(program)
-        .args(args)
-        .output()
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    // 供 nvm / 环境检测复用，同样不能弹窗
+    hide_console(&mut cmd);
+    cmd.output()
         .map(|out| {
             let mut text = String::from_utf8_lossy(&out.stdout).to_string();
             text.push_str(&String::from_utf8_lossy(&out.stderr));

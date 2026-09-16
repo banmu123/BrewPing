@@ -46,6 +46,13 @@ windows-sys = { version = "0.52", features = [
     "Win32_Foundation",
     "Win32_Storage_FileSystem",
     "Win32_System_WindowsProgramming",
+    # 单实例守卫（services/single_instance.rs）：
+    #   Win32_Security             -> CreateMutexW 的 SECURITY_ATTRIBUTES 形参类型
+    #   Win32_System_Threading     -> CreateMutexW
+    #   Win32_UI_WindowsAndMessaging -> FindWindowW / ShowWindow / SetForegroundWindow
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 [features]

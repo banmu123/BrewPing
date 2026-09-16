@@ -2219,11 +2219,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("brewping-cwd-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
 
-        let out = std::process::Command::new("cmd")
-            .args(["/c", "cd"])
-            .current_dir(&dir)
-            .output()
-            .expect("cmd 应能启动");
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.args(["/c", "cd"]).current_dir(&dir);
+        crate::services::proc::hide_console(&mut cmd);
+        let out = cmd.output().expect("cmd 应能启动");
 
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert_eq!(

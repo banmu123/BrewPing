@@ -18,6 +18,7 @@
 
 use crate::services::agent_discovery;
 use crate::services::http_server::EventSink;
+use crate::services::proc::hide_console;
 use regex::Regex;
 use serde::Serialize;
 use std::io::{BufRead, BufReader};
@@ -33,9 +34,6 @@ const WINGET_NVM_ID: &str = "CoreyButler.NVMforWindows";
 const NVM_SETUP_URL: &str =
     "https://github.com/coreybutler/nvm-windows/releases/latest/download/nvm-setup.exe";
 const NODE_DIST_INDEX_URL: &str = "https://nodejs.org/dist/index.json";
-/// 子进程隐藏窗口（npm/winget 等控制台程序不要闪黑框）。
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 // ─── 检测结果结构（serde 契约与前端 types.ts 一一对应，全部 camelCase）────────
 
@@ -1065,11 +1063,8 @@ pub fn run_streamed(task: &str, plan: &[ProcSpec], sink: Option<&EventSink>) -> 
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         patch_path(&mut cmd);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
+        // 统一走 proc::hide_console（npm / winget / nvm 等控制台程序不要闪黑框）
+        hide_console(&mut cmd);
 
         let mut child = cmd
             .spawn()

@@ -1238,6 +1238,15 @@ async fn fetch_provider_models(
 pub fn run() {
     env_logger::init();
 
+    // ── 单实例闸门（必须在建窗口 / 起 HTTP 服务之前）─────────────────────────
+    // 没有它，重复双击会起第二个进程，8787 被占后它静默回落到别的端口，
+    // 于是手机端可能连到旧的实例（历史坑：「8787 被旧进程占」）。
+    if !services::single_instance::acquire() {
+        log::info!("已有实例在运行，把它的窗口拎到前台后退出本进程");
+        services::single_instance::focus_existing();
+        return;
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {

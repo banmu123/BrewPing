@@ -362,6 +362,9 @@ pub async fn execute_agent_command(
             }
         }
 
+        // ★ 不留控制台窗口：CLI 多为 .cmd 包装，未加标志时每条命令弹一个黑窗。
+        crate::services::proc::hide_console(&mut cmd);
+
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {

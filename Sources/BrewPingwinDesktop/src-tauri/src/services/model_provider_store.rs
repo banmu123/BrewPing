@@ -507,21 +507,18 @@ fn save(path: &PathBuf, stored: &Stored) {
 fn harden_permissions(path: &std::path::Path) {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         let user = std::env::var("USERNAME").unwrap_or_default();
         if user.is_empty() {
             return;
         }
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let _ = std::process::Command::new("icacls")
-            .arg(path)
+        let mut cmd = std::process::Command::new("icacls");
+        cmd.arg(path)
             .arg("/inheritance:r")
             .arg("/grant:r")
             .arg(format!("{user}:F"))
             .arg("/grant:r")
-            .arg("SYSTEM:F")
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
+            .arg("SYSTEM:F");
+        let _ = crate::services::proc::hide_console(&mut cmd).output();
     }
     #[cfg(not(windows))]
     {
