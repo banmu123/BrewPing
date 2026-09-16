@@ -34,6 +34,37 @@
 ## Windows 桌面端
 - 🚨 tokio Mutex 不可重入；HTTP 错误体永远 JSON（query 用 `Option<String>` 手工解析）。
 - ⚠️ 两处 `Command::new`（http_server.rs / lib.rs）同批改；cargo test 不链 tauri GUI（EventSink）；改 capabilities 后 `cargo clean -p brewping-desktop`；重启走 PowerShell `npm run tauri dev` + `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--no-sandbox`。
+- 🚨 **子进程一律走 `services::proc::hide_console(&mut cmd)`**（唯一入口，别再加 `creation_flags`）：
+  否则 CLI（`.cmd` 包装）每 spawn 一次弹一个 cmd 黑窗；启动时 `discover()` 对 4 个 agent
+  各探测一次版本 → 「打开应用满屏黑框」。`CREATE_NO_WINDOW` 语义是「**不新建**控制台」而非
+  「剥离控制台」→ **只在安装包/GUI 进程复现，dev 模式与单元测试都看不出来**，改完必须装包实测。
+  ⚠️ debug 构建应用自身会带控制台（`windows_subsystem` 仅 release 生效）。
+- 🚨 **单实例**：`services/single_instance.rs` 用 `CreateMutexW` 具名互斥体挡住第二个实例
+  （拿到 EXISTS 就把已有窗口拎到前台再自己退出），接在 `run()` 最前面。无新依赖（只用
+  `windows-sys`）。⚠️ `MAIN_WINDOW_TITLE` 与 `tauri.conf.json` 的窗口标题**必须同批改**。
+- 🚨 **「图标没换」先查 Windows 图标缓存，别急着改代码**：取证顺序 =
+  ① 直接渲染 `icons/*.png` 与 `icon.ico` 各帧 ② `git log --follow -- icons/icon.ico` 看是否换过图标
+  ③ **`icon.ico` 的 PNG 帧原样嵌在 PE 的 RT_ICON 里 → 对 exe 做字节子串比对即可判定它用的是哪个图**
+  （NSIS 的 setup.exe 自身压缩，比对不到属正常）④ 解析 `.lnk` 原始字节看 target/IconLocation
+  ⑤ 查 `%LOCALAPPDATA%\Microsoft\Windows\Explorer\iconcache_*.db` 的 **mtime** ——
+  比安装时间旧就说明任务栏/开始菜单读的是旧缓存（`ie4uinit.exe -show` 常常**刷新不掉**，
+  得删缓存 + 重启 explorer）。
+- 🚨 **`src-tauri/src/lib.rs:1` 有 `#![allow(dead_code, unused_variables)]`（crate 级）** → `cargo check` 的
+  「零警告」不能作为 Rust 侧没有死代码的依据。查 Rust 死代码前先看这行是否还在。
+- 🚨 **Swift 死代码审查方法**：正则抽符号 + 全仓词频交叉引用（别靠文件名猜）。**三个盲区必须人工补**：
+  ① 带缩进的 `var/let` 属性抓不到；② XCTest / `@main` / SwiftUI `body` / `NSViewRepresentable` /
+  `Layout.placeSubviews` / `URLProtocol` 覆写 / `NetServiceDelegate` / Compose / CameraX 全是动态调用，
+  一律显示「零引用」但**一条都不能删**；③ 不同 target 的同名类型不算重复（`ConversationStore`/`ContentView`/
+  `LatteTheme` 分属不同编译单元）。`Sources/Protocol/` **是活的**（`Provider`/`Model` 被 AgentConfigDiscovery、
+  `FailureReason` 被 ErrorClassifier、`ProtocolStateService.snapshot` 被 HTTPAPI 用），只有 `Protocol/Model.swift` 死了。
+- 🚨 **macOS `SystemCommand.run`（`Sources/Agents/AgentDiscovery.swift:107-131`）先 `waitUntilExit()` 再读 pipe**
+  → 子进程输出超 64KB 管道缓冲即阻塞 → 超时返回 nil → 被报成「Failed to launch」（**误导性错误**）。
+  Windows 同款坑已在 `command_runner.rs:378` 修好（注释写明「stderr 必须与 stdout 并发读」）——**macOS 未修**。
+- 🚨 厂商配置「路径表」被手工复制：Swift 4 份（`AgentConfigDiscovery.configPaths` + 三个 `*ProviderConfig.configPaths`）、
+  Rust 6 处；两端注释都自述「要保持一致」。另 Rust `config_lock()` **4 份各自独立 `OnceLock<Mutex<()>>`、互不相通**
+  → 名为配置锁却挡不住跨模块并发写（隐藏缺陷）。
+- ⚠️ `Package.swift` 的 `BrewPingCore` 用 `path: "Sources"` 只 `exclude: ["BrewPing","BrewPingDesktop"]`，
+  **`Sources/BrewPingwinDesktop` 在其递归路径内** → 往那儿放 .swift 会被编进 macOS 核心库。
 - 鉴权 `route_layer` 全表；白名单仅 `POST /api/pair` + `GET /api/status`；GET 免 nonce。
 - 🚨 serde：`base_url` 必须显式 `rename="baseURL"`（否则派生 baseUrl → 白屏）。
 - 🚨 同 commandId 双条目：转录 user/assistant 共用 commandId；撤流式占位只认 assistant/error，否则 700ms 轮询误删气泡。
@@ -58,6 +89,12 @@
 ## 其他
 - BOM：`strip_prefix('\u{feff}')`，不只 JSON —— TOML/YAML 行首 BOM 会静默丢整段配置。
 - 已知坑：8787 被旧进程占 → curl 静默打旧进程（先 `Get-NetTCPConnection` 核对）；canonicalize 出 `\\?\` → `dunce::simplified`；进程名 `brewping-desktop`。
+- 🚨 **GitKraken 动过的仓库会出现「悬空 remote-tracking ref」**：`.git/packed-refs` 缺失 +
+  `.git/refs/remotes/origin/` 空目录 → `fetch` 报 `cannot lock ref ... unable to resolve reference`，
+  `origin/main` 整个消失（`for-each-ref` 只剩 `refs/heads/main`），但 objects/FETCH_HEAD 其实已下全。
+  **修法**：直接写回 `.git/refs/remotes/origin/<branch>` = 远程 sha（UTF8 no-BOM，末尾 `\n`），
+  再 `fetch --all --prune` 即恢复；**不要**先上 `git remote prune` / `fetch --force` 折腾。
+  排查入口：`.git/gk/config` 的 `gk-last-accessed`（能看出 GitKraken 何时动过）。
 - 上架：隐私政策 GitHub Pages；TEAM `TGA82PM3DZ`；不做国区。
 - 本机 cc-switch（排查参考）：`~/.cc-switch/cc-switch.db`（providers 复合主键 `(id,app_type)`；settings_config 含明文 Key 只 select 非敏感列）；只在「激活」时投影进 CLI 文件。
 
