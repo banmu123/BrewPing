@@ -45,12 +45,21 @@ final class BonjourDiscovery: NSObject, ObservableObject {
     /// 该常量是 C 匿名枚举成员，Swift 不可见，故用字面值并在此注明来源。
     static let policyDeniedCode = DNSServiceErrorType(-65555)
 
+    /// 单个浏览窗口长度（已授权 / 已拒绝的常态路径，保持原有「有限时间扫描」的 UX）。
+    private static let browseWindowSeconds: TimeInterval = 8.0
+    /// 「等授权」时浏览窗口最多续期次数（8s × 3 ≈ 最长约 32s）：
+    /// 权限未落定不掐浏览器，但也不能无限扫描。
+    private static let maxBrowseExtensions = 3
+
     /// 「曾经成功拿到过本地网络权限」的持久标记。
     ///
-    /// 用途：决定进入设备页时**能否自动探测**。权限未决（notDetermined）时自动探测会
-    /// 未经交互地弹出系统授权框 —— 用户反馈过「弹窗一闪而过没来得及点」，
-    /// 因此首次必须由用户点按钮触发；只有确认授权过（或曾拒绝过，拒后系统不会再弹窗）
-    /// 才可以静默自动探测。
+    /// 用途：**仅作 UI 首帧近似值**（`PermissionCenter.localNetwork` 的初值），
+    /// 让已授权过的用户不会被权限卡闪一下。
+    ///
+    /// 它**不再**是「要不要自动探测」的门禁 —— 探测本身没有门槛：iOS 没有
+    /// 本地网络权限的查询 API，「发起一次浏览」就是唯一的查询方式；先看标记
+    /// 再决定探测，会让首装（容器为空）永远探测不了（TestFlight 自动发现死锁）。
+    /// 写入时机：浏览器到达 `.ready`（即系统确认已授权）。
     static let grantedDefaultsKey = "BrewPing.LocalNetworkGranted"
     static var hasEverBeenGranted: Bool {
         UserDefaults.standard.bool(forKey: grantedDefaultsKey)
@@ -68,6 +77,15 @@ final class BonjourDiscovery: NSObject, ObservableObject {
 
     private var browser: NWBrowser?
     private var timer: Timer?
+    /// 浏览是否正卡在「等授权」上（`.waiting` 且非 PolicyDenied —— 系统本地网络框可能还挂着）。
+    ///
+    /// 8 秒窗口到期时据此决定收尾还是续期：权限未落定时**不能**掐浏览器，
+    /// 否则 `.ready` 永远不会回调、持久标记永远写不进去（TestFlight 首装死锁的根因）。
+    /// `ContentView` 回前台也用它判断要不要重新探测 —— 比 UserDefaults 标记更能
+    /// 代表「现在能不能探测」（后者只表示「曾到过 `.ready`」，不代表系统当前是否允许）。
+    private(set) var isWaitingForPermission = false
+    /// 「等授权」窗口的已续期次数（见 `maxBrowseExtensions`）。
+    private var browseExtensions = 0
     /// 仅在主队列读写：resolveNew 在主队列触发，NetService 回调也投递到主线程 run loop
     private var resolvers: [String: NetService] = [:]
     /// 服务实例名 → 从 TXT 记录读出的主机类型。
@@ -79,6 +97,7 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         isSearching = true
         discoveredHosts = []
         pendingOS = [:]
+        browseExtensions = 0
         // 未确认授权时先标记「探测中」：UI 据此显示进度，而不是停在空白态让人误以为没反应
         if localNetwork != .granted { localNetwork = .requesting }
 
@@ -95,16 +114,23 @@ final class BonjourDiscovery: NSObject, ObservableObject {
 
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             DispatchQueue.main.async {
-                self?.resolveNew(results)
+                guard let self else { return }
+                BrewPingLog.discovery.info(
+                    "Browse results: \(results.count, privacy: .public) service(s)"
+                )
+                self.resolveNew(results)
             }
         }
 
         browser.start(queue: DispatchQueue.global(qos: .userInitiated))
         self.browser = browser
+        BrewPingLog.discovery.info("Bonjour browsing started: _brewping._tcp (window \(Int(Self.browseWindowSeconds), privacy: .public)s, extension cap \(Self.maxBrowseExtensions, privacy: .public))")
 
-        // 8 秒后停止「浏览」；已发现服务的解析会继续跑完，不会被中断
-        timer = Timer.scheduledTimer(withTimeInterval: 8.0, repeats: false) { [weak self] _ in
-            self?.stopBrowsing()
+        // 浏览窗口到期交由 handleBrowseWindowExpired 决定收尾还是续期：
+        // **权限未落定时不能掐浏览器**（否则 .ready 不会回调、持久标记写不进去）；
+        // 已发现服务的解析会继续跑完，不会被中断。
+        timer = Timer.scheduledTimer(withTimeInterval: Self.browseWindowSeconds, repeats: false) { [weak self] _ in
+            self?.handleBrowseWindowExpired()
         }
     }
 
@@ -113,12 +139,30 @@ final class BonjourDiscovery: NSObject, ObservableObject {
     /// 旧实现只判 `.failed` 且把 `NWError` 整个丢掉，于是「权限被拒」与「网络拦多播」
     /// 在界面上完全同形（都只是「扫不到」），只能靠猜 —— 这是本轮问题的核心成因之一。
     private func handleBrowserState(_ state: NWBrowser.State) {
+        BrewPingLog.discovery.info("Browser \(String(describing: state), privacy: .public)")
         switch state {
         case .ready:
             localNetwork = .granted
             lastBrowseError = nil
+            isWaitingForPermission = false
             UserDefaults.standard.set(true, forKey: Self.grantedDefaultsKey)
-        case .waiting(let error), .failed(let error):
+        case .waiting(let error):
+            if Self.isPolicyDenied(error) {
+                localNetwork = .denied
+                lastBrowseError = "policy-denied"
+                isSearching = false
+                isWaitingForPermission = false
+            } else {
+                localNetwork = .requesting
+                lastBrowseError = Self.describe(error)
+                // 授权框可能正挂着（`.waiting` 与「等系统回答」无法区分，见类型注释）：
+                // 标记「仍在等授权」，浏览窗口到期时据此**续期**而不是掐掉浏览器。
+                isWaitingForPermission = true
+            }
+            BrewPingLog.discovery.error(
+                "Browser \(String(describing: state), privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
+        case .failed(let error):
             if Self.isPolicyDenied(error) {
                 localNetwork = .denied
                 lastBrowseError = "policy-denied"
@@ -127,11 +171,13 @@ final class BonjourDiscovery: NSObject, ObservableObject {
                 localNetwork = .requesting
                 lastBrowseError = Self.describe(error)
             }
+            // `.failed` 是定局（无论是否 PolicyDenied）：不再续期，等窗口到期收尾。
+            isWaitingForPermission = false
             BrewPingLog.discovery.error(
                 "Browser \(String(describing: state), privacy: .public) error=\(String(describing: error), privacy: .public)"
             )
         case .cancelled:
-            break
+            isWaitingForPermission = false
         case .setup:
             break
         @unknown default:
@@ -166,11 +212,35 @@ final class BonjourDiscovery: NSObject, ObservableObject {
 
     /// 只结束浏览，保留在途解析
     private func stopBrowsing() {
+        BrewPingLog.discovery.info(
+            "stopBrowsing: browser cancelled (in-flight resolves continue)"
+        )
         browser?.cancel()
         browser = nil
         timer?.invalidate()
         timer = nil
+        isWaitingForPermission = false
         isSearching = false
+    }
+
+    /// 浏览窗口到期。
+    ///
+    /// 权限已落定（`.granted` / `.denied`）或浏览器已定局失败 → 正常收尾，
+    /// 保持原有「有限时间扫描」的 UX；
+    /// 还在等授权（系统本地网络框挂着）→ **不能**掐浏览器：掐掉之后 `.ready`
+    /// 永远不会回调、持久标记永远写不进去（TestFlight 首装死锁的根因），
+    /// 改为续一个窗口，最多 `maxBrowseExtensions` 次。
+    private func handleBrowseWindowExpired() {
+        if isWaitingForPermission, browseExtensions < Self.maxBrowseExtensions {
+            browseExtensions += 1
+            BrewPingLog.discovery.info("Permission still pending (\(String(describing: localNetwork), privacy: .public)); extend browse window \(browseExtensions, privacy: .public)/\(Self.maxBrowseExtensions, privacy: .public)")
+            timer = Timer.scheduledTimer(withTimeInterval: Self.browseWindowSeconds, repeats: false) { [weak self] _ in
+                self?.handleBrowseWindowExpired()
+            }
+            return
+        }
+        BrewPingLog.discovery.info("Browse window expired: state=\(String(describing: localNetwork), privacy: .public), extensions=\(browseExtensions, privacy: .public) → stop browsing")
+        stopBrowsing()
     }
 
     // MARK: - Resolution

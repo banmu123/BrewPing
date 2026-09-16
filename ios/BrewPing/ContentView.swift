@@ -173,10 +173,15 @@ struct ContentView: View {
                     .tint(Color.bpPrimary)
                     .onAppear {
                         permissions.attach(bonjour)
-                        // 🚨 只有「确认授权过」才自动探测：权限未决时自动探测会**未经交互**
-                        // 地弹出系统本地网络授权框（用户反馈过弹窗一闪而过、没来得及点），
-                        // 所以首次必须由权限卡里的按钮触发。
-                        if BonjourDiscovery.hasEverBeenGranted { bonjour.startSearching() }
+                        // 🚨 进设备页就探测 —— iOS 没有本地网络权限的查询 API，
+                        // 「发起一次 Bonjour 浏览」本身就是唯一的查询方式。若先看
+                        // UserDefaults 再决定要不要探测，首装（容器为空）会永远不探测，
+                        // 也就永远拿不到 `.ready`、标记永远写不进去（TestFlight 首装
+                        // 自动发现死锁）。即使系统已经授权也会被挡在外面。
+                        // 「连续弹多个框」不会回归：语音 / 相机仍只由权限卡点击触发
+                        // （PermissionCenter 的既定设计），这里只有本地网络一个系统框。
+                        // 真正的权限结论仍由 `handleBrowserState` 从浏览器状态判定。
+                        bonjour.startSearching()
                         didAttemptDiscovery = true
                     }
                     .onDisappear { bonjour.stopSearching() }
@@ -255,13 +260,17 @@ struct ContentView: View {
                 // 决定收到手表语音后要不要在本机回放（后台唤醒时不出声）。
                 watchBridge.appIsActive = (newPhase == .active)
 
-                // 回到前台刷新权限状态。若本地网络「已确认授权过」或「已确认被拒」就重新探测：
-                // 前者无声（本来就通），后者也不会再弹窗（iOS 拒绝后不再询问），
-                // 于是用户在系统设置里手动打开权限后回来，能立刻接上 —— 这条恢复路径必须自动。
-                // 权限**未决**时不探测：那会未经交互弹窗，正是要避免的行为。
+                // 回到前台刷新权限状态，并重新探测：
+                // - 已授权 → 无声续扫；
+                // - 已拒绝 → iOS 不会再弹框，用户在系统设置里打开后能立刻接上（必须自动）；
+                // - 从未探测（首装容器为空）→ 现在也会启动（不再被 UserDefaults 挡住）。
+                // 唯独「正在等授权」时不重启 —— startSearching() 会先 stopSearching()，
+                // 把挂着系统授权框的浏览器 cancel 掉（`.ready` 就永远等不到了）。
+                // 不再用 hasEverBeenGranted 判断：它只表示「曾到过 .ready」，
+                // 不代表「系统当前是否允许」。
                 guard newPhase == .active, deviceStore.devices.isEmpty else { return }
                 permissions.refresh()
-                if BonjourDiscovery.hasEverBeenGranted || bonjour.localNetwork.isDenied {
+                if !bonjour.isWaitingForPermission {
                     bonjour.startSearching()
                 }
             }
