@@ -140,12 +140,6 @@ struct MiniTOML {
             .sorted()
     }
 
-    /// 是否存在「有直接字段的 `[name]` 空壳表」（用于删除后清理）。
-    func isEmptyTable(_ name: String) -> Bool {
-        guard let info = tables[name] else { return false }
-        return info.fields.isEmpty && tableNames(withPrefix: name).isEmpty
-    }
-
     // ─── 修改 ────────────────────────────────────────────────────────────────
     //
     // 每次修改后立即重建索引：行号会变，重建比手工维护下标安全得多。

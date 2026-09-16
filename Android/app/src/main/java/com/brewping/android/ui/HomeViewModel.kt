@@ -106,8 +106,6 @@ class HomeViewModel(
             ?: repository.statusResponse.value?.defaultAgent?.takeIf { it.isNotEmpty() }
             ?: "opencode"
 
-    private var statusPollJob: Job? = null
-
     /**
      * 模型列表轮询（5 秒，与 status 同频）。
      *
@@ -566,7 +564,6 @@ class HomeViewModel(
         _desktopDevice.value = desktopDevice
         modelStore.invalidate()
 
-        statusPollJob?.cancel()
         viewModelScope.launch {
             repository.refreshStatus(desktopDevice)
             if (repository.online.value) {
@@ -619,7 +616,6 @@ class HomeViewModel(
         _sessionAgentName.value = "OpenCode"
         _desktopDevice.value = null
         _conversationRoute.value = null
-        statusPollJob?.cancel()
         modelPollJob?.cancel()
         currentModelAgentId.value = null
         conversationStore.invalidate()

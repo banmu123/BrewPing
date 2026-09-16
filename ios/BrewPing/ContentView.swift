@@ -18,13 +18,6 @@ struct SessionBrief: Decodable {
 
 // SubmitResponse / CommandStatusResponse 已随命令提交引擎移到 CommandReceiver.swift。
 
-struct LifecycleResponse: Decodable {
-    let success: Bool?
-    let sessionId: String?
-    let status: String?
-    let error: String?
-}
-
 struct AgentsResponse: Decodable {
     let agents: [AgentEntry]?
     let defaultAgent: String?

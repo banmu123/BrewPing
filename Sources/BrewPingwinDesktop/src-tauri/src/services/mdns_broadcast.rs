@@ -87,16 +87,4 @@ impl MdnsBroadcaster {
         }
         self.service_name.clear();
     }
-
-    pub fn is_broadcasting(&self) -> bool {
-        self.daemon.is_some()
-    }
-}
-
-/// mDNS status for the UI.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct MdnsStatus {
-    pub broadcasting: bool,
-    pub service_type: String,
-    pub instance_name: String,
 }

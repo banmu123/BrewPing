@@ -49,8 +49,3 @@ public extension Notification.Name {
     /// 所有桌面端事件的统一通道；用 `userInfo["event"]` 区分类型。
     static let desktopEvent = Notification.Name("BrewPing.desktopEvent")
 }
-
-/// 读 `userInfo["event"]` 是否为指定事件。
-public func desktopEventMatches(_ notification: Notification, _ event: DesktopEvent) -> Bool {
-    (notification.userInfo?["event"] as? String) == event.rawValue
-}

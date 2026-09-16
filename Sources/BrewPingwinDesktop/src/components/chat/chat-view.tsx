@@ -39,36 +39,6 @@ function timeLabel(ms: number | undefined, locale: "zh" | "en"): string | null {
   });
 }
 
-/// 老数据兜底：终端行 → 对话消息（方案 §6.3 保留，不再作为主数据源）。
-export function buildMessages(
-  lines: Array<{ id: number; text: string; type: string }>,
-): ChatMessage[] {
-  const out: ChatMessage[] = [];
-  for (const line of lines) {
-    if (line.type === "system" && line.text.startsWith("> ")) {
-      out.push({ id: String(line.id), role: "user", text: line.text.slice(2) });
-    } else if (line.type === "error") {
-      out.push({ id: String(line.id), role: "error", text: line.text });
-    } else {
-      const last = out[out.length - 1];
-      if (last && last.role === "assistant") {
-        last.text += "\n" + line.text;
-      } else {
-        out.push({ id: String(line.id), role: "assistant", text: line.text });
-      }
-    }
-  }
-  return out;
-}
-
-/// 从一组消息里推导会话标题（兜底用；权威标题在后端 transcript 的 title 里）。
-export function deriveTitle(messages: ChatMessage[], emptyLabel = "空对话"): string {
-  const firstUser = messages.find((m) => m.role === "user");
-  const text = (firstUser?.text ?? "").trim().replace(/\s+/g, " ");
-  if (!text) return emptyLabel;
-  return text.length > 32 ? text.slice(0, 32) + "…" : text;
-}
-
 // ─── Composer 停靠壳（布局规格 §6.1：landing 与会话页共享同一份 shell 类，R12） ──
 // 视觉参照 WorkBuddy：一整块圆角卡片，输入区在上、工具栏一行在下；
 // 聚焦时边框转主色，卡片带柔和投影。
@@ -84,17 +54,6 @@ const COMPOSER_TEXTAREA_CLASS =
   "w-full resize-none bg-transparent px-4 pt-3.5 pb-1.5 min-h-[72px] max-h-44 " +
   "font-mono text-sm text-foreground placeholder:text-muted-foreground/70 " +
   "focus-visible:outline-none select-text";
-
-/** 工具栏内的胶囊控件（select 外壳）：无边框、悬停浅棕面，视觉安静。 */
-export const COMPOSER_PILL_CLASS =
-  "flex h-7 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground " +
-  "hover:bg-accent hover:text-foreground transition-colors cursor-pointer";
-
-const COMPOSER_SELECT_CLASS =
-  "max-w-40 cursor-pointer appearance-none bg-transparent text-xs text-current " +
-  "focus-visible:outline-none";
-
-export { COMPOSER_SELECT_CLASS };
 
 // ─── 消息列表（当前对话与历史查看共用） ────────────────────────────────────────
 

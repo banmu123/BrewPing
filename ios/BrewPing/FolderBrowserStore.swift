@@ -305,11 +305,6 @@ final class FolderBrowserStore: ObservableObject {
         }
     }
 
-    /// opencode 是 stub：服务端会拒绝，这里提前拦住避免一次注定失败的请求。
-    static func supportsWorkdir(agentID: String) -> Bool {
-        agentID != "opencode"
-    }
-
     // MARK: 错误翻译
 
     private static func serverErrorCode(from data: Data) -> String? {

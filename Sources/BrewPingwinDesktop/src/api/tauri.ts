@@ -42,27 +42,6 @@ export async function getAgents(): Promise<AgentEntry[]> {
   return invoke<AgentEntry[]>("get_agents");
 }
 
-/**
- * Set the default agent.
- */
-export async function setDefaultAgent(agentId: string): Promise<string> {
-  return invoke<string>("set_default_agent", { agent: agentId });
-}
-
-/**
- * Get the LAN IP address.
- */
-export async function getLanIp(): Promise<string> {
-  return invoke<string>("get_lan_ip");
-}
-
-/**
- * Get the HTTP server port.
- */
-export async function getPort(): Promise<number> {
-  return invoke<number>("get_port");
-}
-
 // ─── Pairing commands ────────────────────────────────────────────────────────
 
 /**
@@ -95,13 +74,6 @@ export async function getApprovalMode(): Promise<string> {
   return invoke<string>("get_approval_mode");
 }
 
-/**
- * 切换授权模式。
- */
-export async function setApprovalMode(mode: ApprovalMode): Promise<string> {
-  return invoke<string>("set_approval_mode", { mode });
-}
-
 // ─── Terminal commands ───────────────────────────────────────────────────────
 
 /**
@@ -109,13 +81,6 @@ export async function setApprovalMode(mode: ApprovalMode): Promise<string> {
  */
 export async function getTerminalState(): Promise<AgentTerminalState[]> {
   return invoke<AgentTerminalState[]>("get_terminal_state");
-}
-
-/**
- * Get the currently active agent ID.
- */
-export async function getActiveAgentId(): Promise<string> {
-  return invoke<string>("get_active_agent_id");
 }
 
 /**
@@ -183,17 +148,6 @@ export async function setDefaultModel(
 /** 某个 Agent 当前的工作目录（null = 未设置，CLI 用默认 cwd）。 */
 export async function getAgentWorkdir(agentId: string): Promise<string | null> {
   return invoke<string | null>("get_agent_workdir", { agentId });
-}
-
-/**
- * 设置 / 清除某个 Agent 的工作目录（path 传 null 清除；后端经白名单校验）。
- * 返回校验后的规范路径。
- */
-export async function setAgentWorkdir(
-  agentId: string,
-  path: string | null,
-): Promise<string | null> {
-  return invoke<string | null>("set_agent_workdir", { agentId, path });
 }
 
 /** 浏览根列表（主目录 + 各盘符）。 */

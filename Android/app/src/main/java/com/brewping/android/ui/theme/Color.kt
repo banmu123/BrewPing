@@ -44,17 +44,3 @@ val LatteSuccess = Color(0xFF577542)
 val LatteWarning = Color(0xFFBB731B)
 /** 暖红陶土（错误/离线/删除） */
 val LatteDestructive = Color(0xFFAE4732)
-
-// ─── 兼容别名（旧视图引用名；值已切换为拿铁色，逐步迁移后删除）────────────────
-val BrewPingBackground = LatteBackground
-val BrewPingSurface = LatteCard
-val BrewPingOnSurface = LatteOnSurface
-val BrewPingOnSurfaceVariant = LatteOnSurfaceVariant
-val BrewPingPrimary = LattePrimary
-val BrewPingPrimaryVariant = Color(0xFF7B4C2C)
-val BrewPingGreen = LatteSuccess
-val BrewPingGreenDim = LatteMuted
-val BrewPingRed = LatteDestructive
-val BrewPingAmber = LatteWarning
-val BrewPingDivider = LatteBorder
-val BrewPingSurfaceVariant = LatteCard

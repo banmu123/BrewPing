@@ -140,11 +140,6 @@ pub fn known_codes() -> HashSet<String> {
     RULES.iter().map(|r| r.code.to_string()).collect()
 }
 
-/// 所有已知 code 的数量（测试与调试用）。
-pub fn rule_count() -> usize {
-    RULES.len()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

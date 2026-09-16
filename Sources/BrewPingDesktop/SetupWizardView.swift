@@ -930,12 +930,6 @@ struct SetupWizardView: View {
         .buttonStyle(LatteButtonStyle(variant: .outline))
     }
 
-    private func nodeDetail(version: String, path: String?, source: String?) -> String {
-        var parts = [version]
-        if let path { parts.append(path) }
-        return parts.joined(separator: "  ·  ")
-    }
-
     /// 步骤 footer：Back（可选）/ Check Again 等次按钮（可选）/ 主按钮（可选）/ Skip（可选）。
     private func footer(
         back: (() -> Void)?,

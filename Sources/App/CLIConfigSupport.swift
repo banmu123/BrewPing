@@ -134,13 +134,6 @@ public enum CLIConfigIO {
         }
     }
 
-    /// 读一个「键排序」的时间戳指纹（与 `AgentConfigDiscovery.configVersion` 同格式）。
-    public static func fingerprint(at url: URL) -> String {        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let size = (attrs[.size] as? NSNumber)?.intValue else { return "-" }
-        let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
-        return "\(Int64(mtime * 1_000_000_000)):\(size)"
-    }
-
     static func typeName(_ value: Any) -> String {
         switch value {
         case is NSNull:          return "null"

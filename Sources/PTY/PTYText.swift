@@ -16,16 +16,4 @@ enum PTYText {
             scalar.value >= 0x20 && !CharacterSet.whitespacesAndNewlines.contains(scalar)
         })
     }
-
-    static func escapedForDisplay(_ s: String, maxChars: Int = 4000) -> String {
-        var text = s
-            .replacingOccurrences(of: "\u{1b}", with: "<ESC>")
-            .replacingOccurrences(of: "\r", with: "<CR>")
-        if text.count > maxChars {
-            text = String(text.prefix(maxChars / 2))
-                + "\n...[truncated \(text.count - maxChars) chars]...\n"
-                + String(text.suffix(maxChars / 2))
-        }
-        return text
-    }
 }
