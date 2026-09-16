@@ -60,3 +60,14 @@
 - 已知坑：8787 被旧进程占 → curl 静默打旧进程（先 `Get-NetTCPConnection` 核对）；canonicalize 出 `\\?\` → `dunce::simplified`；进程名 `brewping-desktop`。
 - 上架：隐私政策 GitHub Pages；TEAM `TGA82PM3DZ`；不做国区。
 - 本机 cc-switch（排查参考）：`~/.cc-switch/cc-switch.db`（providers 复合主键 `(id,app_type)`；settings_config 含明文 Key 只 select 非敏感列）；只在「激活」时投影进 CLI 文件。
+
+## 工具与协作约定（踩过即写死）
+- 🚨 **同一文件的多个编辑不得并行发起**：并行 Edit 同文件会「后写覆盖先写」、静默丢改动
+  （曾在 `ContentView.swift` 丢过一处判据，直到核对截图+回读源码才发现）。**改完必须回读
+  关键行核对**（grep/python 断言）。
+- 🚨 **UI 判据禁止「未就绪即定论」**：任何空态/错误态（「没有桌面端」「未授权」「未配对」）
+  都必须等数据源**确认过一次**才渲染 —— iOS 的 `discoverySettled` / `permissions.hasRefreshed`、
+  Android 的 `!discoveryRunning` / `device == null → 中性占位` 是同一规则的落地。
+  瞬时未知（搜索中、异步物化中、状态未读）只能显示中性占位。
+- 模拟器取证：权限状态可直接写 `<device>/data/Library/TCC/TCC.db`（关机状态写），
+  `simctl uninstall` 会清掉；首帧类 bug 用「连拍 16 帧 + 逐帧 md5 比对」定位。
