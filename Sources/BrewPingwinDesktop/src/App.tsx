@@ -1488,6 +1488,18 @@ function SettingsView({
               </section>
             )}
 
+            {/* ── 商标与归属（对齐 macOS SettingsView legalSection）── */}
+            {section === "general" && (
+              <section className="rounded-lg border border-border bg-card p-3">
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+                  {t("setLegalTitle")}
+                </div>
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  {t("setLegalBody")}
+                </p>
+              </section>
+            )}
+
             {/* ── 本机信息 ── */}
             {section === "machine" && (
           <section className="rounded-lg border border-border bg-card p-3">

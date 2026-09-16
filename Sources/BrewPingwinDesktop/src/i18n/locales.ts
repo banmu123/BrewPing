@@ -105,6 +105,10 @@ export const zh = {
   "set.showCode": "显示配对码",
   "set.codeHint":
     "配对码只在需要时生成，10 分钟内有效且一次性。iPhone 用它换取长期访问令牌。",
+  // 商标与归属（对齐 macOS setLegalTitle/setLegalBody；键名与 Mac LKey rawValue 同名）
+  "setLegalTitle": "商标与归属",
+  "setLegalBody":
+    "OpenCode、Claude、Claude Code、Codex、pi 等名称归各自所有者所有。BrewPing 与这些厂商没有任何隶属、背书或赞助关系；提及这些名称仅用于说明兼容性。",
   "set.navGeneral": "通用",
   "set.navMachine": "本机信息",
   "set.navEnvironment": "环境与 CLI",
@@ -544,6 +548,10 @@ export const en: Dict = {
   "set.showCode": "Show pairing code",
   "set.codeHint":
     "The pairing code is generated on demand, valid for 10 minutes and single-use. iPhone exchanges it for a long-lived token.",
+  // Trademarks (mirrors macOS setLegalTitle/setLegalBody; key name matches the Mac LKey rawValue)
+  "setLegalTitle": "Trademarks",
+  "setLegalBody":
+    "OpenCode, Claude, Claude Code, Codex, and pi are trademarks of their respective owners. BrewPing is not affiliated with, endorsed by, or sponsored by them; these names appear only to describe compatibility.",
   "set.navGeneral": "General",
   "set.navMachine": "Machine",
   "set.navEnvironment": "Environment",
