@@ -105,6 +105,8 @@ struct ContentView: View {
 
     // 添加设备 Sheet
     @State private var showAddDevice = false
+    /// 已经跑过至少一轮自动发现（用于「扫不到」时再显示排查引导，避免首帧闪现）
+    @State private var didAttemptDiscovery = false
     @State private var editingDevice: ManagedDevice?
     @State private var editName = ""
     @State private var editHost = ""
@@ -154,7 +156,7 @@ struct ContentView: View {
                     }
                     .background(Color.bpBackground)
                     .tint(Color.bpPrimary)
-                    .onAppear { bonjour.startSearching() }
+                    .onAppear { bonjour.startSearching(); didAttemptDiscovery = true }
                     .onDisappear { bonjour.stopSearching() }
                 } else {
                     Form {
@@ -431,6 +433,42 @@ struct ContentView: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(Color.bpBorder, lineWidth: 1)
             }
+        } else if didAttemptDiscovery, !bonjour.isSearching, !bonjour.isResolving {
+            // 搜过一轮却一无所获：多播被拦（AP 隔离/访客网络/跨网段）或本地网络
+            // 权限被拒时都会走到这里 —— 此时必须给可执行的下一步，否则用户无从下手。
+            discoveryHintCard
+        }
+    }
+
+    /// 自动发现扫不到时的排查引导。
+    private var discoveryHintCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(L("Nearby Mac not showing up?"), systemImage: "wifi.exclamationmark")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.bpForeground)
+            Text(L("Make sure your iPhone and your computer are on the same Wi-Fi (same subnet), and that Local Network access is allowed: Settings → Privacy & Security → Local Network → BrewPing. Some routers block device discovery (AP isolation or guest networks) — in that case add the IP manually."))
+                .font(.system(size: 12))
+                .foregroundStyle(Color.bpMutedForeground)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                showAddDevice = true
+            } label: {
+                Label(L("Enter IP Manually"), systemImage: "square.and.pencil")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(Color.bpPrimary)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.bpCard)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.bpBorder, lineWidth: 1)
         }
     }
 
