@@ -112,7 +112,34 @@ jobs:
           # 兜底：git 里的可执行位可能被 Windows 端提交打回 644（core.filemode=false），
           # 那样 ./gradlew 在 Linux runner 上直接 Permission denied。
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+
+          # ---- 环境自检 ----------------------------------------------------
+          # 首次上线时本 job 在 5 秒内就失败（Gradle 根本没启动），而 runner 的
+          # job 日志需要登录才能下载（API 要 admin 权限）。所以这里把关键环境
+          # 信息打印出来，并把失败原因提炼成 ::error 注解 —— **注解可以用公开的
+          # check-runs API 匿名读取**，排查时不用等人贴日志。
+          echo "---- java ----"
+          which java || echo "(java not on PATH)"
+          java -version 2>&1 | head -2 || true
+          echo "JAVA_HOME=${JAVA_HOME:-<unset>}"
+          echo "ANDROID_HOME=${ANDROID_HOME:-<unset>}  ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-<unset>}"
+          echo "---- wrapper ----"
+          grep -h '^distributionUrl' gradle/wrapper/gradle-wrapper.properties
+          ls -l gradlew gradle/wrapper/gradle-wrapper.jar
+          head -1 gradlew
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          [ -d "$SDK_DIR" ] || echo "::warning title=Android SDK missing::no SDK directory at $SDK_DIR"
+
+          # ---- 构建 --------------------------------------------------------
+          set +e
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/gradle.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            reason=$(grep -m 4 -iE 'what went wrong|caused by:|sdk location|permission denied|not found|unsupported|no such file|failed to' /tmp/gradle.log | head -4 | tr '\n' '~' | cut -c1-700)
+            echo "::error title=Gradle assembleDebug failed (exit $status)::${reason:-no matching error line captured}"
+            exit "$status"
+          fi
 
   hygiene:
     name: Repository hygiene
