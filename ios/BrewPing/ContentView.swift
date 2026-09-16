@@ -988,17 +988,20 @@ struct ContentView: View {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         pairingMessage = ""
 
-        // 1) Mac 端 QR 的正式格式：brewping://pair?host=...&port=...&code=...&name=...
-        if let url = URL(string: trimmed),
-           url.scheme?.lowercased() == "brewping",
-           url.host?.lowercased() == "pair" {
-            let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
-            let dict = Dictionary(uniqueKeysWithValues: (comps?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
-            if let host = dict["host"], !host.isEmpty { editHost = host }
-            if let port = dict["port"], !port.isEmpty { editPort = port }
-            if let code = dict["code"], !code.isEmpty { editPairingCode = code }
-            if let name = dict["name"], !name.isEmpty { editName = name }
-            pairingMessage = L("Scanned. Tap Pair to finish.")
+        // 1) 桌面端 QR 的正式格式：brewping://pair?host=...&port=...&deviceId=...&osType=...&code=...&name=...
+        //
+        // 🚨 解析统一走 `PairingLink`（与外链入口共用同一份），**必须把 osType 落到表单**：
+        // 旧实现这里只取了 host/port/code/name，把 osType 丢掉 → 表单里 `editOS` 停在默认
+        // `.mac`，于是「扫 Windows 的码，设备仍被存成 Mac」（用户实际报的就是这个）。
+        if let link = PairingLink.parse(trimmed) {
+            editHost = link.host
+            editPort = link.port
+            if !link.code.isEmpty { editPairingCode = link.code }
+            if let name = link.name { editName = name }
+            // 认不出来时**保持表单现值**（不要盲目改成 Mac —— 用户可能已经手动选对了）
+            if let osType = link.osType { editOS = osType }
+            // 回显识别到的系统：用户能在提交前一眼看出类型对不对
+            pairingMessage = L("Scanned (%@). Tap Pair to finish.", editOS.label)
             return
         }
 

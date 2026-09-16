@@ -43,6 +43,21 @@ enum DeviceOSType: String, Codable, CaseIterable {
             return .mac
         }
     }
+
+    /// 从桌面端 `deviceId` 的平台前缀推断主机类型。
+    ///
+    /// 约定（见两端 DeviceIdentity 实现）：Mac 发 `bp_mac_…`、Windows 发 `bp_win_…`。
+    /// 用途：老版本桌面端发出的配对深链里可能没有 `osType`，但 `deviceId` 一直带平台前缀，
+    /// 可以据此把主机类型认出来，而不是盲目按默认值存成 Mac。
+    ///
+    /// **未知前缀返回 nil**（不回落 `.mac`）—— 让调用方保持"表单/记录里已有的值"，
+    /// 避免把用户此前修正过的类型又改回去。
+    static func fromDeviceIDPrefix(_ deviceID: String) -> DeviceOSType? {
+        let id = deviceID.lowercased()
+        if id.hasPrefix("bp_mac_") { return .mac }
+        if id.hasPrefix("bp_win_") { return .windows }
+        return nil
+    }
 }
 
 /// 一台被管理的电脑

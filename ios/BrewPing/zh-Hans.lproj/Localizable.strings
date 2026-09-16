@@ -281,3 +281,6 @@
 "Not granted" = "未授权";
 "Open Settings" = "打开系统设置";
 "Local Network permission is denied. Enable it in Settings → Privacy & Security → Local Network." = "本地网络权限已被拒绝，请在「设置 → 隐私与安全性 → 本地网络」中开启。";
+
+/* MARK: - 扫码结果回显（含识别到的主机类型） */
+"Scanned (%@). Tap Pair to finish." = "已读取（%@）。点「配对」完成。";

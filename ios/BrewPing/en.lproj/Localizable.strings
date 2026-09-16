@@ -283,3 +283,6 @@
 "Not granted" = "Not granted";
 "Open Settings" = "Open Settings";
 "Local Network permission is denied. Enable it in Settings → Privacy & Security → Local Network." = "Local Network permission is denied. Enable it in Settings → Privacy & Security → Local Network.";
+
+/* MARK: - 扫码结果回显（含识别到的主机类型） */
+"Scanned (%@). Tap Pair to finish." = "Scanned (%@). Tap Pair to finish.";
