@@ -2339,10 +2339,21 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
         let response = response.expect("命令应在超时前完成");
+        // 🚨 不能直接拿原始字符串对撞：Windows 上同一个目录可以有多种合法字面形式。
+        // GitHub runner 的 %TEMP% 报的是 8.3 短名（C:\Users\RUNNER~1\AppData\Local\Temp），
+        // 而 cmd 的 %CD% 报长名（C:\Users\runneradmin\...）—— 指向同一目录却字面不等，
+        // 于是本用例只在 runner 上失败（run #16 实测 left=runneradmin / right=RUNNER~1）。
+        // 用 App 自己的规范化函数（realpath + 剥 \\?\ 前缀）把两侧统一后再比，
+        // 断言强度不变（仍是「完整路径必须一致」），只是不再受字面形式干扰。
+        let actual = crate::services::folder_browser::validate_workdir(response.trim())
+            .expect("响应应是可解析的目录路径");
+        let expected = crate::services::folder_browser::validate_workdir(&dir_str)
+            .expect("设定的 workdir 应可解析");
         assert_eq!(
-            response.trim().to_ascii_lowercase(),
-            dir_str.trim().to_ascii_lowercase(),
-            "子进程应跑在设定的 workdir 里"
+            actual.to_ascii_lowercase(),
+            expected.to_ascii_lowercase(),
+            "子进程应跑在设定的 workdir 里（实际响应 = {:?}）",
+            response
         );
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_file(&bat);
