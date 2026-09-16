@@ -90,7 +90,21 @@ jobs:
         run: npx tsc
       - name: Rust tests
         working-directory: Sources/BrewPingwinDesktop/src-tauri
-        run: cargo test --locked
+        # Windows runner 默认 shell 是 PowerShell，这里要 PIPESTATUS 与 tee，
+        # 所以显式用 bash（windows-latest 自带 Git Bash）。
+        shell: bash
+        run: |
+          # 与 android job 同样的理由：runner 的 job 日志要 admin 才能下载，
+          # 所以把失败原因提炼成 ::error 注解（注解可经公开 API 匿名读取）。
+          set +e
+          cargo test --locked --no-fail-fast 2>&1 | tee /tmp/cargo.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            reason=$(grep -E '^test .* FAILED|^failures:|^error(\[|:)|panicked at|^test result: FAILED' /tmp/cargo.log | head -6 | tr '\n' '~' | cut -c1-700)
+            echo "::error title=cargo test failed (exit $status)::${reason:-no matching error line captured}"
+            exit "$status"
+          fi
 
   android:
     name: Android · assembleDebug
