@@ -261,3 +261,8 @@
 "Not bound — the CLI default folder is used." = "Not bound — the CLI default folder is used.";
 "Agent default folder is used. Tap to bind this chat." = "Agent default folder is used. Tap to bind this chat.";
 "Select This Folder" = "Select This Folder";
+
+/* MARK: - Discovery troubleshooting */
+"Nearby Mac not showing up?" = "Nearby Mac not showing up?";
+"Make sure your iPhone and your computer are on the same Wi-Fi (same subnet), and that Local Network access is allowed: Settings → Privacy & Security → Local Network → BrewPing. Some routers block device discovery (AP isolation or guest networks) — in that case add the IP manually." = "Make sure your iPhone and your computer are on the same Wi-Fi (same subnet), and that Local Network access is allowed: Settings → Privacy & Security → Local Network → BrewPing. Some routers block device discovery (AP isolation or guest networks) — in that case add the IP manually.";
+"Enter IP Manually" = "Enter IP Manually";
