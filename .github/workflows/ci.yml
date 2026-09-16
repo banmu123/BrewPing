@@ -108,7 +108,11 @@ jobs:
           cache: gradle
       - name: Build debug APK
         working-directory: Android
-        run: ./gradlew assembleDebug --no-daemon
+        run: |
+          # 兜底：git 里的可执行位可能被 Windows 端提交打回 644（core.filemode=false），
+          # 那样 ./gradlew 在 Linux runner 上直接 Permission denied。
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
 
   hygiene:
     name: Repository hygiene
