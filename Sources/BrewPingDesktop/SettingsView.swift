@@ -129,6 +129,7 @@ struct SettingsView: View {
                     VStack(spacing: 12) {
                         languageSection
                         setupSection
+                        legalSection
                     }
                     case .machine: machineSection
                     case .models: ModelProvidersView()
@@ -189,6 +190,16 @@ struct SettingsView: View {
                 }
                 .buttonStyle(LatteButtonStyle(variant: .outline))
             }
+        }
+    }
+
+    // MARK: 商标与归属（桌面端此前缺声明，仅 README 与 iOS 端有）
+    private var legalSection: some View {
+        settingsCard(title: i18n.t(.setLegalTitle)) {
+            Text(i18n.t(.setLegalBody))
+                .font(LatteFont.xs)
+                .foregroundStyle(Latte.mutedForeground)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

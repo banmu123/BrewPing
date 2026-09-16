@@ -1,3 +1,6 @@
+// ⚠️ EXPERIMENTAL / 未接线组件：本模块在 AUTH_MODE=anonymous 下不做任何身份校验。
+//    该 relay 服务目前没有接入任何 BrewPing 客户端，请勿部署到公网或不可信网络。
+//    公开部署前必须：①实现真实鉴权 ②停止记录消息 payload（见 src/server.ts）。
 /**
  * BrewPing Relay - Auth Middleware (Stub)
  *
