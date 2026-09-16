@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # 第三方 Action 在 workflow 里固定到了完整 commit SHA（见 CONTRIBUTING 的
+  # 「Workflow 安全约定」）。固定 SHA 不会自己升级 —— 由 Dependabot 每周开一个
+  # 分组 PR 把它们连同版本注释一起更新，兼顾供应链安全与可维护性。
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      github-actions:
+        patterns: ["*"]

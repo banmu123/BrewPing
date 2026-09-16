@@ -55,8 +55,14 @@ cd Android && ./gradlew assembleDebug
 1. **Swift** — `swift build` + `swift test` on macOS.
 2. **Apple targets** — compiles the iOS and watchOS schemes with signing disabled, so a broken
    project file or a missing resource fails the PR instead of the release.
-3. **Hygiene** — LICENSE present, no compiled artifacts (`build*/`, `dist/`, `*.app`, `node_modules`)
-   committed, both READMEs present.
+3. **Windows desktop** — `npm ci` + `npx tsc` on the frontend, `cargo test --locked` on the Rust side.
+4. **Android** — `./gradlew assembleDebug` with JDK 17 (the APK itself is not published from CI).
+5. **Hygiene** — LICENSE present, no compiled artifacts (`build*/`, `dist/`, `target/`, `*.app`,
+   `node_modules`, `DerivedData`) committed, both READMEs present.
+
+The same suite also runs **nightly** (`schedule`) on the default branch: that is how toolchain drift
+gets caught — a runner image upgrading Xcode / Swift / JDK and breaking the build shows up in the
+nightly run instead of on your next push.
 
 `release-mac.yml` (tag-triggered) is the release pipeline: universal build → Developer ID signing →
 notarization → staple → DMG attached to the GitHub release.
@@ -75,6 +81,29 @@ notarization → staple → DMG attached to the GitHub release.
 - **Configuration writes are dangerous by nature.** Any change to how an agent's config is merged or
   written must come with a test: silently corrupting someone's `~/.claude/settings.json` is the worst
   failure mode this project has.
+
+## Workflow & CI security conventions
+
+These rules apply to every file under `.github/workflows/`:
+
+- **Least privilege, escalated per job.** Workflows start from `permissions: contents: read`; only
+  the job that actually needs to write (the release job) gets `contents: write` — declared on that
+  job, not at the workflow level.
+- **Third-party actions are pinned to a full commit SHA** with the human-readable version in a
+  trailing comment (`uses: owner/action@<40-hex> # v1`). GitHub-official actions (`actions/*`) may
+  keep floating major tags. [Dependabot](.github/dependabot.yml) opens a grouped PR weekly to keep
+  the pinned SHAs current — pinned does not mean stale.
+- **No credentials leak into later steps.** Every `actions/checkout` uses
+  `persist-credentials: false`, so the token is not left in `.git/config` for subsequent steps.
+- **Secrets are scoped to the step that consumes them** (`env:` on that single step), never at
+  workflow or job level, and never echoed.
+- **Every job has a `timeout-minutes`** so a hung step cannot burn the runner indefinitely.
+- **Concurrency is explicit**: pull-request runs cancel their own predecessors, while `main`,
+  manual and scheduled runs are never cancelled — and the release workflow is never cancelled
+  at all (interrupting it can leave a half-uploaded release or an unstapled artifact).
+- **CI must never need signing material.** Apple targets are built with
+  `CODE_SIGNING_ALLOWED=NO`; the Developer ID certificate and notarization credentials exist only
+  in the release workflow, only in the steps that use them.
 
 ## Pull request checklist
 

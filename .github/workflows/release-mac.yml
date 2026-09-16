@@ -17,20 +17,31 @@ on:
         type: boolean
         default: false
 
+# 最小权限：整个 workflow 默认只读，只有需要建 Release 的 job 就地提权。
+permissions:
+  contents: read
+
+# 发布流**永不被取消**：中途打断会留下半上传的 Release / 未 staple 的产物。
+concurrency:
+  group: release-mac
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: macos-15
+    timeout-minutes: 60
     permissions:
-      contents: write
+      contents: write   # 只为创建 GitHub Release 提权
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # 需要完整历史，git describe 才能算出版本号
+          persist-credentials: false
 
       - name: Select Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
         with:
           xcode-version: latest-stable
 
@@ -72,7 +83,7 @@ jobs:
 
       - name: Upload to release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             dist/*.dmg
