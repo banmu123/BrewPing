@@ -1,175 +1,179 @@
-<p align="center">
-    <a href="https://www.commitbrew.com/#download">
-        <img src="https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=F0F0F0"/>
-    </a>
-    <a href="https://www.commitbrew.com/#download">
-        <img src="https://custom-icon-badges.demolab.com/badge/Windows-0078D6?logo=windows11&logoColor=white"/>
-    </a>
-    <a href="https://www.commitbrew.com/#download">
-        <img src="https://img.shields.io/badge/iOS-000000?logo=apple&logoColor=F0F0F0"/>
-    </a>
-    <a href="https://www.commitbrew.com/#download">
-        <img src="https://img.shields.io/badge/Android-3DDC84?logo=android&logoColor=white"/>
-    </a>
-</p>
+# BrewPing
+
+> [English](README.md) | 简体中文
 
 <p align="center">
   <a href="https://www.commitbrew.com">
-    <picture>
-      <img src="./logo/logo.png" width="128"/>
-    </picture>
-  </a>
-</p>
-<h1 align="center">
-<a href="https://www.commitbrew.com" alt="brewping-site">BrewPing</a>
-</h1>
-<p align="center">
-  <a href="./README.md">English</a> | <b>简体中文</b>
-</p>
-<p align="center">
-  <b>一个遥控器，用来指挥运行在你自己电脑上的编程 Agent。</b>
-</p>
-<p align="center">
-  BrewPing 在你的 Mac 或 Windows 上运行一个轻量桌面服务，驱动已经装好的命令行 Agent。手机在同一局域网内完成配对，之后就可以从 iPhone、Apple Watch 或 Android 发送指令、跟踪进度，并对危险命令进行确认。
-</p>
-<p align="center">
-  <a href="https://www.commitbrew.com/#download">
-    <b>下载</b>
-  </a>
-  |
-  <a href="./docs/BrewPing-iOS端结构与模块划分.md">
-    <b>文档</b>
-  </a>
-  |
-  <a href="./docs/privacy.html">
-    <b>隐私政策</b>
-  </a>
-</p>
-<p align="center">
-  <a aria-label="Website" href="https://www.commitbrew.com" target="_blank">
-    <img alt="" src="https://img.shields.io/badge/Website-000000?style=for-the-badge&logo=google-chrome&logoColor=white">
-  </a>
-  <a aria-label="License" href="#license">
-    <img alt="" src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge">
+    <img src="./logo/logo.png" alt="BrewPing" width="120" />
   </a>
 </p>
 
-<p align="center">
-  <img src="./logo/AppIcon-1024.png" alt="BrewPing 应用图标" width="160" />
-</p>
+**用手机远程指挥你自己电脑上的编程 Agent。**
+
+BrewPing 在你的 Mac 或 Windows 上跑一个小型桌面服务，驱动**你已经装好**的 CLI Agent。手机在局域网内配对一次，之后就能从 iPhone、Apple Watch 或 Android 发送指令、跟进进度，并在危险命令执行前批准或拒绝。
+
+*你的 Agent、你的模型、你的电脑 —— 人在哪儿都能用。*
+
+<div align="center">
+
+[![CI](https://github.com/banmu123/BrewPing/actions/workflows/ci.yml/badge.svg)](https://github.com/banmu123/BrewPing/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/banmu123/BrewPing?style=social)](https://github.com/banmu123/BrewPing/stargazers)
+![macOS](https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=F0F0F0)
+![iOS](https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=F0F0F0)
+![watchOS](https://img.shields.io/badge/watchOS-11.6%2B-000000?logo=apple&logoColor=F0F0F0)
+![Android](https://img.shields.io/badge/Android-8%2B-3DDC84?logo=android&logoColor=white)
+![Swift tests](https://img.shields.io/badge/swift%20tests-41%20passing-brightgreen)
+
+**⚡ 快速开始（macOS，源码构建）：**
+
+```bash
+git clone https://github.com/banmu123/BrewPing.git && cd BrewPing && ./build-app.sh && open "build/BrewPing Desktop.app"
+```
+
+→ 菜单栏点 **Show Pairing Code**，用 iPhone App 扫码
+· 或从 **[commitbrew.com](https://www.commitbrew.com/#download)** 下载已签名并公证的 DMG
+· 完整步骤见 [🚀 快速开始](#-快速开始)
+
+</div>
+
+---
+
+## 🎯 适合谁用
+
+- 你在 Mac 或 Windows 上跑 OpenCode / Claude Code / Codex CLI / pi，希望**离开那张桌子**也能让它开工、看进度、或在危险命令执行前拍板；
+- 你希望用**手机或手表**完成这些：一只手、看一眼，不用开远程桌面；
+- 你在意代码、提示词、Agent 输出**只留在自己的机器上** —— BrewPing 没有账号体系、没有 analytics，链路上也没有我们自己的服务器。
+
+**不适合**：还没装上述 CLI Agent（BrewPing 是驱动它们，不是替代它们）；或者你想要的是跑在云端的托管式编程 Agent。
+
+## 🤔 为什么用 BrewPing，而不是 SSH、远程桌面或云端 Agent？
+
+| | SSH / 终端类 App | 远程桌面 | 云端 Agent | **BrewPing** |
+|---|---|---|---|---|
+| 懂 Agent 的界面（状态 / 转录 / 模型） | ✗ | ✗ | ✓ | ✓ |
+| 手机 / 手表上好用 | 别扭 | 按屏幕缩放 | ✓ | ✓（原生 App） |
+| 沿用你现有的 Agent 配置与登录 | ✓ | ✓ | ✗ | ✓（只读取，不替换） |
+| 危险命令执行前有审批闸门 | ✗ | ✗ | 视产品而定 | ✓（safe / askAll / auto） |
+| 代码与提示词留在自己机器 | ✓ | ✓ | 通常不行 | ✓（仅局域网） |
+| 多 Agent + 模型远程切换 | ✗ | ✗ | ✗ | ✓ |
+
+## ✨ 功能亮点
+
+### 📲 在家里任何角落发指令
+
+启动桌面服务、配对一次，之后就能从手机发指令。命令执行期间手机能看到 Agent 状态，结束时拿到输出 —— 不必守在键盘前。
+
+### 🧩 继续用你已配置好的 Agent 和模型
+
+BrewPing 不替换你的 Agent，也不接管它们的登录。它发现本机已安装的 CLI Agent，读出每个 Agent 当前配置的模型，让你远程切换当前 Agent 或模型。订阅、凭据、权限设置全部留在原处。
+
+### 🛡️ 危险命令先批准再执行
+
+命令在进入 Agent 之前就被检查。BrewPing 识别危险操作（`rm -rf`、`git reset --hard`、`curl | sh` 等）并挂起等你确认。三档模式：只拦危险命令 / 每条都确认 / 不确认直接跑。挂起的请求**超时即视为拒绝** —— 沉默永远不等于同意。
+
+### ⌚ iPhone、Apple Watch 与 Android
+
+两个手机端流程一致：在同一个 Wi-Fi 里自动发现电脑，或手动填 host 与 port；扫二维码或手输 6 位配对码完成配对；之后浏览对话、发指令、切 Agent 与模型、批准命令。手表端支持语音口述指令、滑动切换 Agent 与模型，不用掏手机就能看回复。
+
+### 📁 对话与工作目录绑在一起
+
+对话按绑定目录分组展示，可置顶、归档、随时切回；把工作目录绑到某条对话上，文件操作就发生在对话所在的目录；Agent、模型、授权档位都是**对话级**设置。
+
+### 🔍 自动发现你的电脑
+
+Bonjour/mDNS 自动发现同一 Wi-Fi 下的电脑，不必手输 IP。若网络拦了多播（AP 隔离、访客网络），可以手动填 host:port —— 界面会明确告诉你该检查什么。
+
+### 🖥️ 还有这些
+
+- **多设备** —— 配对多台电脑，在设备栏里直接切换。
+- **应用内切换语言** —— 英文 / 简体中文，切换立即生效，不用重启 App。
+- **Markdown 转录** —— Agent 输出按 Markdown 渲染，长回复也能读。
+- **只在局域网内** —— 无账号、无 analytics、无第三方 SDK；指令与输出只在你的手机和你自己的电脑之间流动。
+- **Demo 设备（iOS）** —— 没有电脑也能完整体验整套流程。
+
+## 🏗️ 架构
 
 ```
 ┌──────────────┐    HTTP API     ┌─────────────────────────┐
-│    手机       │ ◄────────────►  │   BrewPing Desktop      │
-│ iOS / Android│   同一局域网     │  macOS 菜单栏 + 窗口     │
-└──────┬───────┘   Bonjour       │  或 Windows（Tauri）     │
-       │            自动发现     └───────────┬─────────────┘
-       │ WatchConnectivity                   │ PTY / CLI
+│   手机/平板   │ ◄────────────►  │   BrewPing Desktop      │
+│ iOS / Android│    同一 Wi-Fi   │  macOS 菜单栏 + 窗口     │
+└──────┬───────┘   Bonjour 发现   │  或 Windows (Tauri)     │
+       │                          └───────────┬─────────────┘
+       │ WatchConnectivity                    │ PTY / CLI
 ┌──────┴───────┐                  ┌──────────┴─────────────┐
 │ Apple Watch  │                  │  opencode · claude     │
 │  (watchOS)   │                  │  codex · pi            │
 └──────────────┘                  └────────────────────────┘
 ```
 
-## 你可以用 BrewPing 做什么
+- **桌面服务** —— Swift 核心（`Sources/App`、`Agents`、`PTY`、`Session`、`Protocol`）在局域网内提供 HTTP API、托管 Agent 进程、并在命令进入 Agent 前做审批检查。Windows 端用 Rust（Tauri 2 + axum）实现同一套接口，客户端完全共用。
+- **客户端** —— iOS / watchOS（SwiftUI）、Android（Jetpack Compose）、以及 CLI（`swift run BrewPing …`）。客户端之间不互相通信，也不会连你没配对过的机器。
+- **鉴权** —— 一次性 6 位配对码换取长期 token；所有 `/api/*` 请求带 `Authorization: Bearer <token>`，写操作额外带 `X-BrewPing-Timestamp` 与 `X-BrewPing-Nonce`（120 秒窗口、防重放）。
 
-### 在家里任何位置发一条指令
+## 🚀 快速开始
 
-启动桌面服务、配对一次，就可以用手机发送指令。命令执行期间 BrewPing 会显示 Agent 的运行状态，执行结束后返回结果——你不必守在键盘前。
-
-### 继续使用你已经配置好的 Agent 和模型
-
-BrewPing 不替代你的 Agent，也不接管它们的登录状态。它会发现电脑里已安装的命令行 Agent，读取各自配置的模型，并允许你远程切换当前 Agent 或模型。订阅、凭据和权限配置都保持原样。
-
-### 危险命令执行前先经过你确认
-
-命令在进入 Agent 之前会被检查。BrewPing 会识别危险操作（`rm -rf`、`git reset --hard`、`curl | sh` 等）并挂起等待你确认。三档可选：只拦截危险命令、每条命令都确认、或全部免确认。挂起的请求超时即视为拒绝——沉默不等于放行。
-
-## 连接一台电脑
-
-在负责干活的机器上运行桌面服务：
+### 🍎 macOS 桌面端（源码构建）
 
 ```bash
-# macOS
-./build-app.sh
+git clone https://github.com/banmu123/BrewPing.git
+cd BrewPing
+./build-app.sh                          # 产出 build/BrewPing Desktop.app
 open "build/BrewPing Desktop.app"
 ```
 
+想要现成的：官网 [commitbrew.com](https://www.commitbrew.com/#download) 的 DMG 已做 Developer ID 签名、公证与 staple，双击即开，不会有 Gatekeeper 提示。
+
+### 🪟 Windows 桌面端（Tauri 2 + axum）
+
 ```bash
-# Windows
 cd Sources/BrewPingwinDesktop
 npm install
 npm run tauri dev
 ```
 
-然后配对手机：
-
-1. 在 BrewPing Desktop 里打开 **Show Pairing Code**，会显示 6 位配对码（同时显示二维码）；
-2. 用手机扫描二维码，或点 **Add Device** 手动输入配对码；
-3. 两台设备必须处于**同一局域网**。BrewPing 不提供公网中继，也不会连接你没有配置过的设备。
-
-配对码只交换一次，用于换取长期 token。iOS 端 token 存放在 Keychain，桌面端存放在 `~/.brewping/pairing.json`（权限 `0600`）。此后所有 `/api/*` 请求都带 `Authorization: Bearer <token>`；写操作还要带 `X-BrewPing-Timestamp` 与 `X-BrewPing-Nonce`（120 秒时间窗，防重放）。
-
-## 通过 CLI 使用 BrewPing
-
-桌面服务自带的 CLI 也可以从终端或脚本驱动会话：
+### 📱 iPhone / Apple Watch
 
 ```bash
-swift run BrewPing start                        # 在 PTY 中启动 OpenCode 会话
-swift run BrewPing status                       # 查看当前会话状态
-swift run BrewPing send "修复失败的测试"         # 向会话发送一条消息
-swift run BrewPing attach                       # 附着到运行中的会话（Ctrl+D 退出）
-swift run BrewPing stop                         # 停止会话
+open ios/BrewPing.xcodeproj             # 选好 Team 后直接 Run
 ```
 
-## 从 iPhone、Apple Watch 和 Android 控制 Agent
+TestFlight / App Store 构建使用 `com.brewping.ios` 与 `com.brewping.ios.watchkitapp`。
 
-### iPhone 与 Android
+### 🤖 Android
 
-两个 App 使用同一套流程：在当前 Wi-Fi 下发现电脑，或用主机名和端口手动添加；通过扫码或输入 6 位配对码完成配对；之后浏览对话、发送指令、切换 Agent 与模型，并对命令进行授权确认。
+```bash
+cd Android && ./gradlew assembleDebug   # Windows: gradlew.bat assembleDebug
+```
 
-### Apple Watch
+### 🔗 配对手机
 
-Watch App 可以发送语音转写的指令，用滑动切换 Agent 与模型，并实时跟踪当前命令的执行状态。
+1. 桌面端菜单栏点 **Show Pairing Code**，出现 6 位配对码（同时显示二维码）；
+2. 手机扫码，或点 **Add Device** 手动输入配对码；
+3. 两端必须处于**同一个局域网**。BrewPing 没有公网中继，也永远不会连你没配置过的机器。
 
-### 手边没有电脑？
+配对码一次性有效、10 分钟过期。iOS 端 token 存在 Keychain，桌面端存在 `~/.brewping/pairing.json`（权限 `0600`）。
 
-iOS 端可以添加一个**演示设备**，在本地模拟设备发现、Agent、会话与命令结果——无需任何硬件即可走通完整流程。
+### ⌨️ 从命令行使用
 
-## 让对话与它的工作目录保持一致
+```bash
+swift run BrewPing start                        # 在 PTY 里启动一个 OpenCode 会话
+swift run BrewPing status                       # 查看当前会话状态
+swift run BrewPing send "修一下失败的测试"        # 给会话发一条消息
+swift run BrewPing attach                       # 接入正在运行的会话（Ctrl+D 断开）
+swift run BrewPing stop                         # 结束会话
+```
 
-### 按工作目录分组的对话
+## 🧠 支持的 Agent
 
-手机端展示从桌面端同步过来的对话，并按各自绑定的工作目录分组。对话可以置顶、归档和重新打开，历史始终跟随对话本身。
-
-### 为对话绑定工作目录
-
-在支持文件夹浏览的桌面端上，可以为对话绑定工作目录，让文件操作作用在对话所在的位置。未绑定时回退到 Agent 的默认目录。
-
-### 对话级的 Agent、模型与授权
-
-Agent、模型和授权档位都是**对话级**设置：切换 Agent 会清除该对话的模型选择；每个对话可以使用自己的模型，互不影响。
-
-## 更多内置能力
-
-- **多设备** — 同时管理多台电脑（macOS、Windows、Linux），在设备栏里随时切换。
-- **Bonjour/mDNS 自动发现** — 在当前 Wi-Fi 下找到电脑，无需手输 IP。
-- **模型切换** — 列出每个 Agent 已配置的模型并远程切换，立即生效。
-- **授权模式** — 安全（默认）、每次确认、自动三档，支持全局或按对话设置。
-- **Markdown 记录** — Agent 输出以 Markdown 渲染，长回复也便于阅读。
-- **仅限局域网** — 没有账号、没有数据分析、没有第三方 SDK；指令与输出只在你的手机和自己的电脑之间传输。
-- **应用内切换语言** — 简体中文与英文，App 内切换即时生效，无需重启。
-
-## 支持的 Agent
-
-BrewPing 驱动的是你电脑上已安装的命令行 Agent。产品名称与商标归各自所有者所有（见[商标声明](#商标声明)）。
+BrewPing 驱动的是**你电脑上已经装好**的 CLI Agent。产品名称与商标归各自所有者（见 [商标声明](#-商标声明)）。
 
 | Agent | 模式 | 命令 | 读取的配置 |
 |-------|------|------|-----------|
 | OpenCode | 会话（交互式 PTY） | `opencode` | `~/.config/opencode/opencode.json` |
-| Claude Code | Headless（一次性） | `claude` | `~/.claude/settings.json` |
-| Codex CLI | Headless（一次性） | `codex` | `~/.codex/config.toml` |
-| pi | Headless（一次性） | `pi` | `~/.pi/agent/settings.json` + `~/.pi/agent/models.json` |
+| Claude Code | 无头（一次性） | `claude` | `~/.claude/settings.json` |
+| Codex CLI | 无头（一次性） | `codex` | `~/.codex/config.toml` |
+| pi | 无头（一次性） | `pi` | `~/.pi/agent/settings.json` + `~/.pi/agent/models.json` |
 
 按需安装：
 
@@ -187,101 +191,139 @@ npm install -g @openai/codex
 npm install -g @earendil-works/pi-coding-agent
 ```
 
-## HTTP API
+## 🔌 HTTP API
 
-除 `POST /api/pair` 与 `GET /api/status` 外，所有接口都要求 `Authorization: Bearer <token>`；写接口还需携带 `X-BrewPing-Timestamp` 与 `X-BrewPing-Nonce`。
+除 `POST /api/pair` 与 `GET /api/status` 外，所有接口都要求 `Authorization: Bearer <token>`；写操作额外要求 `X-BrewPing-Timestamp` 与 `X-BrewPing-Nonce`。
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
+| Method | Path | 说明 |
+|--------|------|------|
 | POST | `/api/pair` | 用 6 位配对码换取长期 token（公开） |
-| GET | `/api/status` | 设备状态，只读健康检查（公开） |
+| GET | `/api/status` | 设备状态、只读健康检查（公开） |
 | GET | `/api/protocol/state` | 协议状态快照 |
-| GET | `/api/agents` | 已安装的 Agent 列表 |
+| GET | `/api/agents` | 已安装的 Agent |
 | POST | `/api/agents/default` | 设置默认 Agent |
 | POST | `/api/agents/:id/switch` | 切换当前 Agent |
-| GET | `/api/agents/:id/models` | 该 Agent 已配置的模型（Provider → Models） |
+| GET | `/api/agents/:id/models` | 该 Agent 配置的模型（providers → models） |
 | POST | `/api/agents/models/default` | 设置默认模型 |
 | POST | `/api/message` | 发送消息 |
 | GET | `/api/message` | 消息列表 |
 | GET | `/api/message/:id` | 查询单条命令状态 |
 | POST | `/api/session/start` | 启动会话 |
-| POST | `/api/session/stop` | 停止会话 |
-| GET / POST | `/api/approvals/mode` | 读取或修改授权模式 |
-| GET | `/api/approvals` | 待确认的授权请求 |
+| POST | `/api/session/stop` | 结束会话 |
+| GET / POST | `/api/approvals/mode` | 读取或修改授权档位 |
+| GET | `/api/approvals` | 待确认的请求 |
 | POST | `/api/approvals/:id` | `approve` / `deny` / `always_approve` |
 | GET / POST | `/api/conversations` | 列出或创建对话 |
-| GET / PATCH / DELETE | `/api/conversations/:id` | 读取、更新或删除单个对话 |
-| POST | `/api/conversations/:id/activate` | 激活对话 |
+| GET / PATCH / DELETE | `/api/conversations/:id` | 读取、修改或删除单条对话 |
+| POST | `/api/conversations/:id/activate` | 激活某条对话 |
 | POST | `/api/discovery/refresh` | 刷新局域网发现 |
 
-## 配置
+## ⚙️ 配置
 
-BrewPing 的状态存放在 `~/.brewping/`：
+BrewPing 的状态都在 `~/.brewping/`：
 
-- `device.json` — 设备身份（Device ID、名称）
-- `pairing.json` — 配对 token 与临时配对码（权限 `0600`）
-- `approval.json` — 全局授权模式与 always-allow 规则（权限 `0600`）
-- `config.json` — Agent 配置（默认 Agent、模型偏好）
-- `session.json` — 当前会话状态
+- `device.json` —— 设备身份（device ID、名称）
+- `pairing.json` —— 配对 token 与临时配对码（权限 `0600`）
+- `approval.json` —— 全局授权档位与 always-allow 规则（权限 `0600`）
+- `config.json` —— Agent 配置（默认 Agent、模型偏好）
+- `session.json` —— 当前会话状态
 
-## 系统要求
+## 🔒 隐私与安全
 
-- **macOS 桌面端**：macOS 13.0+
-- **Windows 桌面端**：安装了 WebView2 的 Windows（Tauri 2）
-- **iPhone**：iOS 17.0+
-- **Apple Watch**：watchOS 9.0+（需与 iPhone App 配对）
-- **Android**：Android 8.0+（minSdk 26）
-- 手机与电脑需处于**同一局域网**
+- **没有账号、没有 analytics、没有第三方 SDK、没有我们运营的服务器。** 你发的指令、Agent 返回的输出、以及被转写的语音，只在你的手机（或手表）与你配对的那台电脑之间流动。完整说明见[隐私政策](docs/privacy.html)。
+- **Token 处理** —— 配对码一次性、10 分钟过期；换来的 token 在桌面端以 `0600` 权限存储，iOS 端存在 Keychain。写请求带时间戳与 nonce（120 秒防重放窗口）。
+- **审批闸门的边界是有意收窄的** —— 它在命令**进入 Agent 之前**拦截，因此 Agent 自己后续派生的 shell 命令不在本版本覆盖范围内。请把它当作针对**你的指令**的安全网，而不是给 Agent 用的沙箱。
+- **不打包、不再分发任何第三方 Agent。** BrewPing 只检测并调用你自己安装的 CLI 工具；上面的安装命令指向各家自己的分发渠道。
 
-## 不止于局域网
+## 🧪 测试与 CI
 
-局域网配对是 BrewPing 的起点，而不是终点。
+- **Swift 单元测试** —— `swift test` 共 41 个用例，覆盖四个厂商原生配置模块（Claude Code / Codex / OpenCode / pi 的合并与写回不变量）—— 这正是配置被静默改坏最容易藏身的地方。
+- **GitHub Actions** —— [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 在每次 push / PR 上跑 Swift 核心的构建与测试，并以关闭签名的方式编译 iOS + watchOS 目标。
+- **Windows 端** —— Rust 侧有独立的 `cargo test`（`Sources/BrewPingwinDesktop/src-tauri`）。
+- **发布** —— 推 `v*` tag 触发 [`.github/workflows/release-mac.yml`](.github/workflows/release-mac.yml)：构建 universal 二进制 → Developer ID 签名 → 公证 → staple → 把 DMG 挂到 GitHub Release。
 
-`relay-server/` 下有一个 TypeScript 中继服务，但**尚未接入任何客户端**。在接入之前，BrewPing 保持明确的本地属性：没有账号、没有数据分析、没有第三方 SDK，流量不会离开你自己的网络。指令、Agent 输出和语音音频只保留在你的手机与自己的电脑上。
+## 📋 环境要求
 
-授权拦截也是有边界的：它只拦截"命令进入 Agent 之前"这一处，Agent 中途自行发起的 shell 命令不在本版本的覆盖范围内。
+| 平台 | 要求 |
+|---|---|
+| macOS 桌面端 | macOS 13.0 或更高（产出 universal 二进制：Apple Silicon + Intel） |
+| Windows 桌面端 | Windows 10/11 + WebView2（Tauri 2） |
+| iPhone | iOS 17.0 或更高 |
+| Apple Watch | watchOS 11.6 或更高（与 iPhone App 配对使用） |
+| Android | Android 8.0 或更高（minSdk 26） |
+| 网络 | 手机/手表与电脑处于**同一局域网** |
+| Agent | 电脑上至少装了 OpenCode / Claude Code / Codex CLI / pi 之一 |
 
-## 从源码构建
+## 📚 文档
 
-```bash
-# macOS 桌面端（产出 build/BrewPing Desktop.app）
-./build-app.sh
+- **[隐私政策](docs/privacy.html)** —— BrewPing 碰什么、不碰什么
+- **[iOS 端结构与模块划分](docs/BrewPing-iOS端结构与模块划分.md)** —— iPhone 端布局与状态流
+- **[Windows 端多对话管理实现方案](docs/BrewPing-Windows端多对话管理实现方案.md)** —— 桌面端对话模型
+- **[Provider 管理迁移方案](docs/BrewPing-Provider管理-Lody新建Provider迁移方案.md)** —— 配置内部实现
+- **[获取文件夹落地方案](docs/BrewPing-获取文件夹-Windows落地方案.md)** —— 工作目录绑定
+- **[App Store 提审前自查](docs/AppStore-PreSubmission-Review.md)** —— 提交前跑过的审核清单
+- **[Relay Server](relay-server/README.md)** —— 实验性、**尚未接线**的中继（先读警示）
 
-# Windows 桌面端（Tauri 2 + axum）
-cd Sources/BrewPingwinDesktop && npm install && npm run tauri dev
+## 🏗️ 技术栈
 
-# Android
-cd Android && ./gradlew assembleDebug        # Windows：gradlew.bat assembleDebug
+| 层 | 技术 |
+|----|------|
+| 核心服务 | Swift 5.9（SwiftPM），**零第三方 Swift 依赖** |
+| macOS 桌面端 | SwiftUI + AppKit（窗口 + 菜单栏），Hardened Runtime，已公证 |
+| Windows 桌面端 | Tauri 2 + axum + React 19 + Vite + Tailwind CSS 4 |
+| iOS / watchOS | SwiftUI、WatchConnectivity |
+| Android | Kotlin + Jetpack Compose（minSdk 26、JDK 17） |
+| 传输 | 局域网 HTTP、Bonjour/mDNS 发现、Bearer token + nonce |
+| 中继（实验性） | TypeScript + ws + express —— 尚未接入任何客户端 |
 
-# iOS / watchOS
-open ios/BrewPing.xcodeproj
+## 📁 项目结构
+
+```
+Sources/
+├── App/                  # HTTP API、路由、配对存储、审批闸门、对话
+├── Agents/               # Agent 发现 + OpenCode / Claude Code / Codex / pi 驱动
+├── PTY/                  # 交互式 Agent 的伪终端处理
+├── Session/              # 会话生命周期
+├── Protocol/             # 各端共用的通信协议
+├── BrewPing/             # CLI 入口（start / status / send / attach / stop）
+├── BrewPingDesktop/      # macOS SwiftUI App（窗口 + 菜单栏）
+└── BrewPingwinDesktop/   # Windows 桌面端（Tauri 2 + axum + React）
+ios/
+├── BrewPing/             # iPhone App
+└── Watch/                # Apple Watch App
+Android/                  # Android App（Jetpack Compose）
+relay-server/             # TypeScript 中继 —— 实验性、未接线
+Scripts/                  # 打包脚本（build-mac-app.sh）+ DMG 用 entitlements/Info.plist
+docs/                     # 设计文档 + 隐私政策
+logo/                     # 应用图标与 logo
 ```
 
-## 仓库结构
+## 🚧 局域网之外
 
-- `Sources/App` — 桌面端核心：HTTP API、路由、配对存储、授权拦截
-- `Sources/Agents` — Agent 发现、管理与各 CLI Agent 实现
-- `Sources/PTY` — 交互式 Agent 的伪终端处理
-- `Sources/Session` — 会话生命周期
-- `Sources/Protocol` — 各端共用的通信协议
-- `Sources/BrewPingDesktop` — macOS SwiftUI 应用（窗口 + 菜单栏）
-- `Sources/BrewPingwinDesktop` — Windows 桌面应用（Tauri 2 + axum + React）
-- `Sources/BrewPing` — CLI 入口
-- `ios/BrewPing` — iPhone 应用
-- `ios/Watch` — Apple Watch 应用
-- `Android` — Android 应用（Jetpack Compose）
-- `relay-server` — TypeScript 中继（尚未接入）
-- `docs` — 设计与实现说明
-- `logo` — 应用图标与 Logo
+本地网络配对是 BrewPing 的起点，不是终点。
 
-## 商标声明
+`relay-server/` 里有一个 TypeScript 中继，**尚未接入任何客户端** —— 它是实验性的、**没有鉴权**、并且会把中转的消息 payload 写进日志。在修好这两点之前，不要把它部署到公网或任何不可信网络（详见 `relay-server/README.md`）。在它接上之前，BrewPing 刻意只活在局域网里：无账号、无 analytics、无第三方 SDK、没有任何流量离开你自己的网络。
 
-OpenCode、Claude、Claude Code、Codex、pi 等名称是其各自所有者的商标。BrewPing 与这些厂商**没有任何隶属、赞助或背书关系**；文中提及这些名称仅用于说明兼容性。
+## 🤝 参与贡献
 
-BrewPing 只连接**你自己配置**的、位于同一局域网的设备，不会连接第三方设备，也不提供公网中继。
+欢迎提 issue 与 PR —— 构建命令、CI 会跑什么、以及仓库约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。安全问题请走 [SECURITY.md](SECURITY.md)。
 
-## License
+## ⚠️ 商标声明
 
-BrewPing 基于 [MIT 许可证](./LICENSE) 发布。
+OpenCode、Claude、Claude Code、Codex、pi 等名称归各自所有者所有。BrewPing 与这些厂商**没有任何隶属、赞助或背书关系**；提及这些名称仅用于说明兼容性。
 
-BrewPing 不打包、不再分发任何第三方 Agent，只检测并调用你本机已安装的命令行工具（见上文商标声明）。
+BrewPing 只连接**你自己配置过**、且位于你自己局域网内的设备。它不会连接第三方设备，也不提供公网中继。
+
+## 📄 许可证
+
+[MIT](LICENSE)。
+
+BrewPing 不打包、不再分发任何第三方 Agent，只检测并调用你本机已安装的命令行工具（见[商标声明](#-商标声明)）。
+
+## 🙏 致谢
+
+- [Swift](https://www.swift.org/) + SwiftUI / AppKit —— 核心服务与 macOS 端
+- [Tauri](https://tauri.app/) —— Windows 桌面端外壳
+- [Jetpack Compose](https://developer.android.com/jetpack/compose) —— Android 端
+- [shields.io](https://shields.io/) —— README 徽章
+- OpenCode、Claude Code、Codex CLI、pi —— BrewPing 驱动的 Agent（非官方，见商标声明）

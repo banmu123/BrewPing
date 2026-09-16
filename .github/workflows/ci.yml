@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  swift:
+    name: Swift core · build + tests
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Build (all targets)
+        run: swift build
+      - name: Unit tests
+        run: swift test
+
+  apple-targets:
+    name: iOS + watchOS · compile only
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Build iOS app (no signing)
+        run: |
+          xcodebuild -project ios/BrewPing.xcodeproj \
+            -scheme BrewPing \
+            -destination 'generic/platform=iOS' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO build
+      - name: Build watchOS app (no signing)
+        run: |
+          xcodebuild -project ios/BrewPing.xcodeproj \
+            -scheme 'BrewPing Watch App' \
+            -destination 'generic/platform=watchOS' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO build
+
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: LICENSE is present
+        run: |
+          test -f LICENSE || { echo "::error::LICENSE file is missing"; exit 1; }
+      - name: No build artifacts are tracked
+        run: |
+          if git ls-files | grep -qE '(^|/)(build[^/]*|dist|node_modules|DerivedData)/|\.app/|\.xcarchive'; then
+            echo "::error::Compiled artifacts or dependency directories are tracked by git:"
+            git ls-files | grep -E '(^|/)(build[^/]*|dist|node_modules|DerivedData)/|\.app/|\.xcarchive' | head -20
+            exit 1
+          fi
+      - name: README exists in both languages
+        run: |
+          test -f README.md && test -f README.zh-CN.md || { echo "::error::README.md / README.zh-CN.md missing"; exit 1; }
