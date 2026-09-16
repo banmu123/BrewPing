@@ -88,6 +88,14 @@ jobs:
       - name: Typecheck frontend
         working-directory: Sources/BrewPingwinDesktop
         run: npx tsc
+      - name: Build frontend
+        # 🚨 必须构建：cargo test 编译 lib 时会展开 tauri::generate_context!()，
+        # 而 tauri.conf.json 的 frontendDist=../dist 必须真实存在 —— dist/ 不入库
+        # （gitignore），之前 CI 只 typecheck 不 build，于是 proc macro 直接 panic：
+        #   error: proc macro panicked
+        #   = help: message: The `frontendDist` ... path doesn't exist
+        working-directory: Sources/BrewPingwinDesktop
+        run: npx vite build
       - name: Rust tests
         working-directory: Sources/BrewPingwinDesktop/src-tauri
         # Windows runner 默认 shell 是 PowerShell，这里要 PIPESTATUS 与 tee，
@@ -101,7 +109,7 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -ne 0 ]; then
-            reason=$(grep -E '^test .* FAILED|^failures:|^error(\[|:)|panicked at|^test result: FAILED' /tmp/cargo.log | head -6 | tr '\n' '~' | cut -c1-700)
+            reason=$(grep -E '^test .* FAILED|^failures:|^error(\[|:)|panicked at|^test result: FAILED|help: message' /tmp/cargo.log | head -6 | tr '\n' '~' | cut -c1-700)
             echo "::error title=cargo test failed (exit $status)::${reason:-no matching error line captured}"
             exit "$status"
           fi
