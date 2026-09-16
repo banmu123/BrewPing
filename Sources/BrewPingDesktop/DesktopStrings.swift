@@ -406,6 +406,8 @@ public enum LKey: String, CaseIterable {
     case swPairCodeFallback = "swPairCodeFallback"
     case swPairSuccessTitle = "swPairSuccessTitle"
     case swPairSuccessHint = "swPairSuccessHint"
+    case setLegalTitle = "setLegalTitle"
+    case setLegalBody = "setLegalBody"
 }
 
 public enum DesktopStrings {
@@ -808,6 +810,8 @@ public enum DesktopStrings {
         .swPairCodeFallback: "或手动输入配对码：",
         .swPairSuccessTitle: "配对成功！",
         .swPairSuccessHint: "正在进入 BrewPing…",
+        .setLegalTitle: "商标与归属",
+        .setLegalBody: "OpenCode、Claude、Claude Code、Codex、pi 等名称归各自所有者所有。BrewPing 与这些厂商没有任何隶属、背书或赞助关系；提及这些名称仅用于说明兼容性。",
     ]
 
     /// 英文词典（key 集合与中文严格一致）。
@@ -1208,5 +1212,7 @@ public enum DesktopStrings {
         .swPairCodeFallback: "Or enter pairing code:",
         .swPairSuccessTitle: "Paired!",
         .swPairSuccessHint: "Entering BrewPing…",
+        .setLegalTitle: "Trademarks",
+        .setLegalBody: "OpenCode, Claude, Claude Code, Codex, and pi are trademarks of their respective owners. BrewPing is not affiliated with, endorsed by, or sponsored by them; these names appear only to describe compatibility.",
     ]
 }

@@ -1,5 +1,18 @@
 # BrewPing Relay Server
 
+> ## ⚠️ 实验性组件 / 未接线 / 请勿公开部署
+>
+> 本服务**尚未接入任何 BrewPing 客户端**（桌面端与移动端都没有连接它的代码），
+> 当前仅作为早期原型随源码提供。它存在两个已知问题，在你自行修复前**不要部署到
+> 公网或任何不可信网络**：
+>
+> 1. **没有鉴权**：`AUTH_MODE=anonymous` 时 REST 接口全部放行，WebSocket 只读取
+>    `role` / `deviceId` 而不校验身份（见 `src/utils/auth.ts`）。
+> 2. **记录消息内容**：中转的消息 payload 会完整写入日志（见 `src/server.ts` 的
+>    `logger.info('MESSAGE', ...)`），与 BrewPing 主项目的隐私承诺不一致。
+>
+> BrewPing 本体是纯本地网络工具：无账号、无 analytics、无自建服务器。
+
 实时消息中继服务，连接 Desktop Client 和 Agent，实现远程消息转发。
 
 ## Architecture

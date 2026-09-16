@@ -74,6 +74,9 @@ if [ ! -f "$APP_ICON" ]; then
 fi
 cp "$APP_ICON" "$APP_DIR/Contents/Resources/AppIcon.icns"
 
+# 许可与商标声明随包分发：macOS 网站直供 DMG 时，包内应能查到授权条款。
+cp LICENSE "$APP_DIR/Contents/Resources/LICENSE"
+
 cat > "$APP_DIR/Contents/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -82,7 +85,7 @@ cat > "$APP_DIR/Contents/Info.plist" << PLIST
     <key>CFBundleExecutable</key>
     <string>BrewPingDesktop</string>
     <key>CFBundleIdentifier</key>
-    <string>local.brewping.desktop</string>
+    <string>com.brewping.desktop</string>
     <key>CFBundleName</key>
     <string>BrewPing Desktop</string>
     <key>CFBundleDisplayName</key>
