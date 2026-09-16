@@ -109,7 +109,10 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -ne 0 ]; then
-            reason=$(grep -E '^test .* FAILED|^failures:|^error(\[|:)|panicked at|^test result: FAILED|help: message' /tmp/cargo.log | head -6 | tr '\n' '~' | cut -c1-700)
+            # 抓断言上下文（-B2 -A10）：cargo 的 assert_eq! 会把 left / right 实际值
+            # 打在 panic 行之后的几行里，只 grep panic 那一行等于看不到「差在哪」。
+            reason=$(grep -B 2 -A 10 -E 'panicked at|test result: FAILED|^error(\[|:)|failures:' /tmp/cargo.log \
+                     | grep -vE '^[[:space:]]*$' | head -16 | tr '\n' '~' | cut -c1-900)
             echo "::error title=cargo test failed (exit $status)::${reason:-no matching error line captured}"
             exit "$status"
           fi
