@@ -41,6 +41,14 @@ git clone https://github.com/banmu123/BrewPing.git && cd BrewPing && ./build-app
 
 ---
 
+## 📸 Screenshots
+
+| macOS — main window | iPhone — paired & chatting |
+|---|---|
+| ![BrewPing on macOS](docs/screenshots/macos-main-en.png) | ![BrewPing on iPhone](docs/screenshots/ios-main-en.png) |
+
+---
+
 ## 🎯 Who is it for?
 
 - You run a coding agent — OpenCode, Claude Code, Codex CLI, or pi — on a Mac or Windows machine,

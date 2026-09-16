@@ -39,6 +39,14 @@ git clone https://github.com/banmu123/BrewPing.git && cd BrewPing && ./build-app
 
 ---
 
+## 📸 截图
+
+| macOS — 主窗口 | iPhone — 已配对对话 |
+|---|---|
+| ![BrewPing macOS](docs/screenshots/macos-main-en.png) | ![BrewPing iPhone](docs/screenshots/ios-main-en.png) |
+
+---
+
 ## 🎯 适合谁用
 
 - 你在 Mac 或 Windows 上跑 OpenCode / Claude Code / Codex CLI / pi，希望**离开那张桌子**也能让它开工、看进度、或在危险命令执行前拍板；
