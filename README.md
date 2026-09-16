@@ -43,11 +43,13 @@ git clone https://github.com/banmu123/BrewPing.git && cd BrewPing && ./build-app
 
 ## 📸 Screenshots
 
-| macOS — main window | iPhone — paired & chatting |
-|---|---|
-| ![BrewPing on macOS](docs/screenshots/macos-main-en.png) | ![BrewPing on iPhone](docs/screenshots/ios-main.png) |
-
----
+<p align="center">
+  <img src="docs/screenshots/macos-main-en.png" alt="BrewPing on macOS" width="62%" />
+  <img src="docs/screenshots/ios-main.png" alt="BrewPing on iPhone" width="19%" />
+</p>
+<p align="center">
+  <sub><b>macOS desktop</b> &nbsp;·&nbsp; <b>iPhone</b></sub>
+</p>
 
 ## 🎯 Who is it for?
 

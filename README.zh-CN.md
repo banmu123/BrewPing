@@ -41,11 +41,13 @@ git clone https://github.com/banmu123/BrewPing.git && cd BrewPing && ./build-app
 
 ## 📸 截图
 
-| macOS — 主窗口 | iPhone — 已配对对话 |
-|---|---|
-| ![BrewPing macOS](docs/screenshots/macos-main-en.png) | ![BrewPing iPhone](docs/screenshots/ios-main.png) |
-
----
+<p align="center">
+  <img src="docs/screenshots/macos-main-en.png" alt="BrewPing macOS 桌面端" width="62%" />
+  <img src="docs/screenshots/ios-main.png" alt="BrewPing iPhone" width="19%" />
+</p>
+<p align="center">
+  <sub><b>macOS 桌面端</b> &nbsp;·&nbsp; <b>iPhone</b></sub>
+</p>
 
 ## 🎯 适合谁用
 
