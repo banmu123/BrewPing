@@ -114,6 +114,8 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         var failed = 0
         var stuck = 0
         var cancelled = 0
+        /// didResolveAddress 的「首帧不完整」回调次数（port=-1 / 无可用地址，继续等待）
+        var partial = 0
     }
 
     @Published var discoveredHosts: [DiscoveredHost] = []
@@ -166,7 +168,7 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         let codeText = f?.code.map(String.init) ?? "none"
         let domainText = f?.domain ?? "none"
         let keysText = (f?.keys.isEmpty ?? true) ? "none" : (f?.keys.joined(separator: ",") ?? "none")
-        return "diag: session=\(scanSession) browser=\(lastBrowserState) results=\(lastResultCount) hosts=\(discoveredHosts.count) ln=\(localNetwork) discoveryError=\(lastBrowseError ?? "none") | resolve: started=\(resolveStats.started) ok=\(resolveStats.resolved) fail=\(resolveStats.failed) stuck=\(resolveStats.stuck) resolving=\(resolvers.count) src=\(f?.source ?? "none") code=\(codeText) domain=\(domainText) errCnt=\(f?.errorCount.map(String.init) ?? "none") keys=\(keysText) pairs=\(f?.pairs ?? "none") elapsed=\(f?.elapsedMs.map(String.init) ?? "none")ms name=\(f?.serviceName ?? "none") type=\(f?.serviceType ?? "none") domain2=\(f?.serviceDomain ?? "none")"
+        return "diag: session=\(scanSession) browser=\(lastBrowserState) results=\(lastResultCount) hosts=\(discoveredHosts.count) ln=\(localNetwork) discoveryError=\(lastBrowseError ?? "none") | resolve: started=\(resolveStats.started) ok=\(resolveStats.resolved) fail=\(resolveStats.failed) partial=\(resolveStats.partial) stuck=\(resolveStats.stuck) resolving=\(resolvers.count) src=\(f?.source ?? "none") code=\(codeText) domain=\(domainText) errCnt=\(f?.errorCount.map(String.init) ?? "none") keys=\(keysText) pairs=\(f?.pairs ?? "none") elapsed=\(f?.elapsedMs.map(String.init) ?? "none")ms name=\(f?.serviceName ?? "none") type=\(f?.serviceType ?? "none") domain2=\(f?.serviceDomain ?? "none")"
     }
 
     /// 是否仍有服务在解析中（浏览停止后，已发现的服务可能还在解析）
@@ -434,7 +436,7 @@ final class BonjourDiscovery: NSObject, ObservableObject {
             let elapsedMs = self.resolveStartTimes[name].map { Int((CFAbsoluteTimeGetCurrent() - $0) * 1000) } ?? -1
             BrewPingLog.discovery.error("resolve: STUCK session=\(self.scanSession, privacy: .public) (no callback) name=\(name, privacy: .private) elapsed=\(elapsedMs, privacy: .public)ms → force-finish")
             self.resolveStats.stuck += 1
-            self.finishResolve(name: name, host: nil, port: 0, stage: .stuck, errorText: "no delegate callback", failureSource: "watchdog-no-callback")
+            self.finishResolve(name: name, host: nil, port: 0, stage: .stuck, errorText: "no usable address before watchdog (partial didResolve callbacks may have occurred)", failureSource: "watchdog-timeout")
         }
         resolveWatchdogs[name] = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.resolveTimeoutSeconds + Self.resolveWatchdogGrace, execute: work)
@@ -542,16 +544,30 @@ extension BonjourDiscovery: NetServiceDelegate {
         let counts = Self.addressFamilyCounts(addresses)
         let fromHostName = Self.normalizedHostName(sender.hostName)
         let host = Self.ipv4Address(from: addresses) ?? fromHostName
+        let port = sender.port   // Int；尚未解析出端口时为 -1
+
+        // 🚨 修正（Apple 文档明确允许）：didResolveAddress 可能**多次**回调，首次回调时
+        // addresses 可以为空、port 可以为 -1，地址会随后续回调陆续到达。
+        // 此前这里在**第一次回调**就 finishResolve（摘除 + delegate=nil + stop）——
+        // 把还在进行的解析提前掐死，表现就是几十 ms 内"失败"（58ms 之谜的答案）。
+        // 现在：拿到可用 host+port 才收尾；首帧不完整就**留在 resolvers 里继续等**
+        //（看门狗兜底：13s 内仍无可用地址才判失败）。
+        guard let host, !host.isEmpty, port > 0 else {
+            resolveStats.partial += 1
+            BrewPingLog.discovery.info(
+                "resolve: DID_RESOLVE session=\(self.scanSession, privacy: .public) oid=\(oid, privacy: .public) name=\(sender.name, privacy: .private) port=\(port, privacy: .public) addrs=\(counts.total, privacy: .public) v4=\(counts.v4, privacy: .public) v6=\(counts.v6, privacy: .public) hostName=\(fromHostName ?? "nil", privacy: .private) main=\(String(Thread.isMainThread), privacy: .public) → PARTIAL, keep resolving (callback #\(self.resolveStats.partial, privacy: .public))"
+            )
+            return
+        }
+
         BrewPingLog.discovery.info(
-            "resolve: DID_RESOLVE session=\(self.scanSession, privacy: .public) oid=\(oid, privacy: .public) name=\(sender.name, privacy: .private) port=\(sender.port, privacy: .public) addrs=\(counts.total, privacy: .public) v4=\(counts.v4, privacy: .public) v6=\(counts.v6, privacy: .public) hostName=\(fromHostName ?? "nil", privacy: .private) main=\(String(Thread.isMainThread), privacy: .public) → \(host != nil ? "use resolved" : "no usable address", privacy: .public)"
+            "resolve: DID_RESOLVE session=\(self.scanSession, privacy: .public) oid=\(oid, privacy: .public) name=\(sender.name, privacy: .private) port=\(port, privacy: .public) addrs=\(counts.total, privacy: .public) v4=\(counts.v4, privacy: .public) v6=\(counts.v6, privacy: .public) main=\(String(Thread.isMainThread), privacy: .public) → usable, finish"
         )
         finishResolve(
             name: sender.name,
             host: host,
-            port: UInt16(clamping: sender.port),
-            stage: .resolved,
-            errorText: host == nil ? "didResolveAddress but no usable address (addrs=\(counts.total) v4=\(counts.v4) v6=\(counts.v6) port=\(sender.port))" : nil,
-            failureSource: "didResolve-no-address"
+            port: UInt16(clamping: port),
+            stage: .resolved
         )
     }
 
