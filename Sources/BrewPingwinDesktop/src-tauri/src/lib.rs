@@ -2,7 +2,7 @@
 
 mod services;
 
-use services::agent_discovery::AgentEntryApi;
+use services::agent_discovery::{AgentEntry, AgentEntryApi};
 use services::approval_gate::{ApprovalGate, ApprovalMode};
 use services::cli_takeover::{CliTakeover, CliTakeoverInfo, CliKind};
 use services::conversation_store::ConversationStore;
@@ -1250,6 +1250,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
+            // 启动耗时埋点：dev 模式（npm run tauri dev）stderr 可见。
+            // 用途：量化「主线程 setup 阻塞时长」——agent 探测挪后台后，
+            // 这一项应从数秒级降到百毫秒级（正是白屏+「无响应」的根因）。
+            let setup_started = std::time::Instant::now();
             // Load device identity
             let identity = services::device_identity::load_or_create();
             let device_name = services::device_identity::get_device_name();
@@ -1266,20 +1270,22 @@ pub fn run() {
                 lan_ip
             );
 
-            // Discover agents
-            let agents = services::agent_discovery::discover();
-            log::info!(
-                "Discovered {} agents",
-                agents.iter().filter(|a| a.installed).count()
-            );
-
-            // Determine default agent
-            let default_agent = agents
-                .iter()
-                .find(|a| a.installed && a.id == "opencode")
-                .or_else(|| agents.iter().find(|a| a.installed))
-                .map(|a| a.id.clone())
-                .unwrap_or_else(|| "opencode".to_string());
+            // 🚨 Discover agents —— **绝不能在主线程同步跑**。
+            //
+            // Tauri 2 的窗口在本 setup hook **之前**就已创建（tauri 2.11.5
+            // app.rs:2524-2526：先按 config 建 WebviewWindow，再跑 setup），
+            // 而事件循环要等 setup 返回才开转。agent 探测是启动链路上最重的一步：
+            // 4 个 CLI 各 spawn 一次 `--version`（Windows 上 node CLI 冷启动 1~3s），
+            // 外加 where 定位 / nvm 注册表 / npm prefix 回落 —— 轻松超过 5 秒。
+            // 主线程被堵 → 窗口消息泵不转 → Windows 判定「无响应」+ 白屏，
+            // 这正是「装完打开白屏/无响应」的根因。
+            //
+            // 因此这里先以「空列表 + 回落默认 agent」启动（取值与「什么都没装」时
+            // 完全一致），探测挪到 blocking 线程池（见下方 app.manage 之后的 spawn），
+            // 完成后回填 agents / default_agent、初始化终端状态，并广播
+            // `refresh-agents`（前端已有该事件的监听 → 立即刷新，不等 5s 轮询）。
+            let agents: Vec<AgentEntry> = Vec::new();
+            let default_agent = "opencode".to_string();
 
             // Create shared state
             let terminal = TerminalManager::new();
@@ -1353,11 +1359,58 @@ pub fn run() {
 
             app.manage(core);
 
-            // Initialize terminal states from discovered agents
-            let terminal_clone = terminal.clone();
-            let agents_clone = agents.clone();
+            // 主窗口底色：decorations=false，WebView2 首帧渲染前是纯白，
+            // 设成应用自身的奶白（Latte background #FBF8F4），消除「白屏感」。
+            if let Some(window) = app.get_webview_window("main") {
+                use tauri::window::Color;
+                let _ = window.set_background_color(Some(Color(0xFB, 0xF8, 0xF4, 0xFF)));
+            }
+
+            // 🚨 agent 探测挪到后台（原因见上方 setup 开头的长注释）：
+            // discover() 是阻塞的（spawn 子进程并等待），丢进 blocking 线程池，
+            // 既不占 tokio worker，更不碰主线程。完成后：
+            //   回填 AppState.agents / default_agent → 初始化终端状态 →
+            //   广播 `refresh-agents`（前端已有该事件的监听，会立即
+            //   refreshStatus / refreshTerminal，不等 5s 轮询）。
+            let state_for_discovery = app_state.clone();
+            let terminal_for_discovery = terminal.clone();
+            let handle_for_discovery = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                terminal_clone.init_from_agents(&agents_clone).await;
+                let started = std::time::Instant::now();
+                let discovered =
+                    tauri::async_runtime::spawn_blocking(services::agent_discovery::discover)
+                        .await
+                        .unwrap_or_default();
+                log::info!(
+                    "Discovered {} installed agent(s) in {:?}",
+                    discovered.iter().filter(|a| a.installed).count(),
+                    started.elapsed()
+                );
+
+                let default_agent = discovered
+                    .iter()
+                    .find(|a| a.installed && a.id == "opencode")
+                    .or_else(|| discovered.iter().find(|a| a.installed))
+                    .map(|a| a.id.clone())
+                    .unwrap_or_else(|| "opencode".to_string());
+
+                {
+                    let mut w = state_for_discovery.agents.write().await;
+                    *w = discovered.clone();
+                }
+                {
+                    let mut w = state_for_discovery.default_agent.write().await;
+                    *w = default_agent;
+                }
+
+                let term = terminal_for_discovery.clone();
+                let ags = discovered.clone();
+                tauri::async_runtime::spawn(async move {
+                    term.init_from_agents(&ags).await;
+                });
+
+                use tauri::Emitter;
+                let _ = handle_for_discovery.emit("refresh-agents", ());
             });
 
             // 按落盘配置自启动转发代理（端口被占用等失败只记日志 + 状态可查，
@@ -1470,6 +1523,14 @@ pub fn run() {
                     }
                 }
             });
+
+            // 启动耗时埋点（见 setup 开头）：setup 现在应当是亚秒级；
+            // agent 探测的耗时单独由后台任务里的
+            // 「Discovered N installed agent(s) in …」一条日志给出。
+            log::info!(
+                "setup completed in {:?} (agent discovery runs in background)",
+                setup_started.elapsed()
+            );
 
             Ok(())
         })

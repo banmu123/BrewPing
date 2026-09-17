@@ -7,7 +7,28 @@
     <title>BrewPing</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!--
+        启动占位页：React 挂载前的静态内容（纯 HTML/CSS，零 JS 零依赖）。
+        作用：窗口显示的瞬间就有可看的加载提示，而不是一块纯白。
+        React createRoot(...).render() 首帧会整体替换 #root 的子节点。
+      -->
+      <div
+        style="height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:#FBF8F4;color:#4A3526;font-family:system-ui,-apple-system,'Segoe UI','Microsoft YaHei',sans-serif"
+      >
+        <div
+          style="width:34px;height:34px;border-radius:50%;border:3px solid #E3DACF;border-top-color:#945D38;animation:bp-spin .9s linear infinite"
+        ></div>
+        <div style="font-size:13px;letter-spacing:.02em;opacity:.85">正在启动 BrewPing…</div>
+      </div>
+      <style>
+        @keyframes bp-spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+      </style>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
