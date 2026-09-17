@@ -496,6 +496,16 @@ final class BonjourDiscovery: NSObject, ObservableObject {
     private func startProbe(for service: DiscoveredService) {
         let params = NWParameters.tcp
         params.includePeerToPeer = true
+        // 🚨 **优先 IPv4**：本机同时广播 A/AAAA，而 Network framework 默认可能选中
+        // IPv6 链路本地地址（真机实测拿到 `fe80::…%en0`）——下游 URLSession 的
+        // `http://\(host):\(port)` 拼接只支持 IPv4 / 主机名，IPv6 字面量（还需方括号
+        // 与 scope）会拼出非法 URL。老路径（NetService）同样是显式优先 IPv4 的，
+        // 这里恢复同一策略：探测连接固定走 IPv4，拿到的 host 即 IPv4 字面量。
+        // （注意 API：`internetProtocol` 返回基类 `NWProtocolOptions`，需转型为
+        //  `NWProtocolIP.Options`，版本枚举是 `.v4` / `.v6` 而非 `.ipv4`。）
+        if let ip = params.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options {
+            ip.version = .v4
+        }
         let connection = NWConnection(to: service.endpoint, using: params)
         probes[service.id] = connection
         connectionStats.started += 1
