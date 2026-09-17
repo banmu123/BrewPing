@@ -132,6 +132,9 @@ final class BonjourDiscovery: NSObject, ObservableObject {
     /// resolve 生命周期统计。诊断用（`diagnosticText` 一并展示）。
     @Published private(set) var resolveStats = ResolveStats()
 
+    /// 最近一次「不完整 didResolveAddress 回调」的快照（§4 A–E 判定用，直接上诊断行）。
+    @Published private(set) var lastPartialSnapshot: String?
+
     /// resolve 失败的**原始**错误信息 —— 不做任何语义映射（§取证阶段）。
     struct ResolveFailureInfo: Equatable {
         /// 失败来自哪个回调：didNotResolve / didStop / didResolve-no-address / watchdog
@@ -168,7 +171,7 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         let codeText = f?.code.map(String.init) ?? "none"
         let domainText = f?.domain ?? "none"
         let keysText = (f?.keys.isEmpty ?? true) ? "none" : (f?.keys.joined(separator: ",") ?? "none")
-        return "diag: session=\(scanSession) browser=\(lastBrowserState) results=\(lastResultCount) hosts=\(discoveredHosts.count) ln=\(localNetwork) discoveryError=\(lastBrowseError ?? "none") | resolve: started=\(resolveStats.started) ok=\(resolveStats.resolved) fail=\(resolveStats.failed) partial=\(resolveStats.partial) stuck=\(resolveStats.stuck) resolving=\(resolvers.count) src=\(f?.source ?? "none") code=\(codeText) domain=\(domainText) errCnt=\(f?.errorCount.map(String.init) ?? "none") keys=\(keysText) pairs=\(f?.pairs ?? "none") elapsed=\(f?.elapsedMs.map(String.init) ?? "none")ms name=\(f?.serviceName ?? "none") type=\(f?.serviceType ?? "none") domain2=\(f?.serviceDomain ?? "none")"
+        return "diag: session=\(scanSession) browser=\(lastBrowserState) results=\(lastResultCount) hosts=\(discoveredHosts.count) ln=\(localNetwork) discoveryError=\(lastBrowseError ?? "none") | resolve: started=\(resolveStats.started) ok=\(resolveStats.resolved) fail=\(resolveStats.failed) partial=\(resolveStats.partial) stuck=\(resolveStats.stuck) resolving=\(resolvers.count) partialSnap=\(lastPartialSnapshot ?? "none") src=\(f?.source ?? "none") code=\(codeText) domain=\(domainText) errCnt=\(f?.errorCount.map(String.init) ?? "none") keys=\(keysText) pairs=\(f?.pairs ?? "none") elapsed=\(f?.elapsedMs.map(String.init) ?? "none")ms name=\(f?.serviceName ?? "none") type=\(f?.serviceType ?? "none") domain2=\(f?.serviceDomain ?? "none")"
     }
 
     /// 是否仍有服务在解析中（浏览停止后，已发现的服务可能还在解析）
@@ -216,6 +219,7 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         lastBrowserState = "none"
         resolveStats = ResolveStats()
         lastResolveFailure = nil
+        lastPartialSnapshot = nil
         // pendingOS 跟随 resolver 一起清理（见 teardownResolvers）。
         // 未确认授权时先标记「探测中」：UI 据此显示进度，而不是停在空白态让人误以为没反应
         if localNetwork != .granted { localNetwork = .requesting }
@@ -554,6 +558,7 @@ extension BonjourDiscovery: NetServiceDelegate {
         //（看门狗兜底：13s 内仍无可用地址才判失败）。
         guard let host, !host.isEmpty, port > 0 else {
             resolveStats.partial += 1
+            lastPartialSnapshot = "port=\(port) addrs=\(counts.total) v4=\(counts.v4) v6=\(counts.v6) hostName=\(fromHostName ?? "nil")"
             BrewPingLog.discovery.info(
                 "resolve: DID_RESOLVE session=\(self.scanSession, privacy: .public) oid=\(oid, privacy: .public) name=\(sender.name, privacy: .private) port=\(port, privacy: .public) addrs=\(counts.total, privacy: .public) v4=\(counts.v4, privacy: .public) v6=\(counts.v6, privacy: .public) hostName=\(fromHostName ?? "nil", privacy: .private) main=\(String(Thread.isMainThread), privacy: .public) → PARTIAL, keep resolving (callback #\(self.resolveStats.partial, privacy: .public))"
             )
