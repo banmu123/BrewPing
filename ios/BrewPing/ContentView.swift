@@ -184,6 +184,12 @@ struct ContentView: View {
                         bonjour.startSearching()
                         didAttemptDiscovery = true
                     }
+                    // 🚨 自动探测得出的权限结论必须回灌给 PermissionCenter：
+                    // 它只在 `attach()` 时同步过一次，之后只有用户手动点「授权」才会
+                    // 通过轮询更新 —— 于是 `onAppear` 里那次自动 `startSearching()`
+                    // 判定的「已授权 / 被拒」永远进不了权限卡，`allGranted` 也永远为假
+                    // （已授权的用户会一直看到权限卡，被拒的用户拿不到正确的措辞）。
+                    .onReceive(bonjour.$localNetwork) { _ in permissions.refresh() }
                     .onDisappear { bonjour.stopSearching() }
                 } else {
                     Form {
@@ -478,10 +484,20 @@ struct ContentView: View {
             // 正在找：只给一行中性占位。这段窗口里**不能**出现「没有桌面端」的断言
             //（见 `discoverySettled`）—— 之前正是这里让「下载桌面端」卡闪了一下。
             searchingCard
-        } else if discoverySettled, bonjour.localNetwork.isGranted {
-            // 搜过一轮却一无所获：多播被拦（AP 隔离/访客网络/跨网段）或本地网络
-            // 权限被拒时都会走到这里 —— 此时必须给可执行的下一步，否则用户无从下手。
-            discoveryHintCard
+        } else if discoverySettled {
+            VStack(alignment: .leading, spacing: 8) {
+                if bonjour.localNetwork.isGranted {
+                    // 搜过一轮却一无所获：多播被拦（AP 隔离/访客网络/跨网段）或本地网络
+                    // 权限被拒时都会走到这里 —— 此时必须给可执行的下一步，否则用户无从下手。
+                    discoveryHintCard
+                }
+                // ⚠️ 临时诊断行：**定位完 TestFlight 自动发现问题后要删掉**（正式版不该出现）。
+                // 它把「结果压根没回来」与「回来了但解析失败」区分开，省掉挂调试器抓日志。
+                Text(bonjour.diagnosticText)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Color.bpMutedForeground)
+                    .padding(.horizontal, 4)
+            }
         }
     }
 
@@ -1165,8 +1181,15 @@ struct ContentView: View {
         } else if bonjour.localNetwork.isDenied {
             discoveryMessage = L("Local Network permission is denied. Enable it in Settings → Privacy & Security → Local Network.")
         } else {
-            discoveryMessage = L("No BrewPing agent found. Make sure %@ is running and on the same Wi-Fi.",
-                                 BrewPingConfig.macAppName)
+            var message = L("No BrewPing agent found. Make sure %@ is running and on the same Wi-Fi.",
+                            BrewPingConfig.macAppName)
+            // 诊断后缀：一无所获时把最后一次浏览错误码直接显示出来。
+            // TestFlight 上没法挂调试器、也不方便抓 Console，这一行能当场告诉我们卡在哪
+            // （如 `dns(-65570)` = 本地网络被拒、`dns(-65563)` = 系统 mDNS 守护没跑）。
+            if let code = bonjour.lastBrowseError, !code.isEmpty {
+                message += " (diag: \(code))"
+            }
+            discoveryMessage = message
         }
     }
 

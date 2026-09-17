@@ -20,6 +20,14 @@
 - 🚨 新 Swift 文件登 pbxproj **四处**（`grep -c` ≥4）；🚨 译文 `%@` 个数=实参数（多一个崩），改完跑 `ios/Scripts/check_localization.py`。
 - i18n：`Text("字面量")` 靠 `.environment(\.locale)`；String 用 L()/LW；`Text(变量)` 必须 `LocalizedStringKey(变量)`；Watch 语言随 WCSession 同步。
 - 局域网明文 http；Bearer+Timestamp±120s+Nonce；改端点必同步 `DemoBackend.swift`。
+- 🚨 **Logger 插值是 autoclosure**：`log.info("\(xxx, privacy: .public)")` 里引用**实例属性**必须写 `self.xxx`，否则 `Reference to property 'x' in closure requires explicit use of 'self'`；**deinit 里也一样**；局部变量与 `Self.xxx` 不受影响。另：别用 `+` 拼 Logger 字符串（收的是 `OSLogMessage`，一律单字面量）。
+- 🆕 本机（Mac）**只有 Command Line Tools、无完整 Xcode** → 跑不了 `xcodebuild`；离线验证用 stub 法（连续 3 轮漏检的教训）：
+  🚨 **单文件 typecheck 有盲区**——`BrewPingLog` 等跨文件符号解析失败 → `BrewPingLog.discovery.info(...)` 整体报错提前终止 → **OSLog 插值的 explicit-self 诊断根本不执行**，这类错误离线永远看不见。
+  ✅ 正确姿势：`xcrun swiftc -typecheck -sdk "$(xcrun --show-sdk-path)" ios/Scripts/offline-typecheck-stub.swift <目标文件>`（桩在 `ios/Scripts/offline-typecheck-stub.swift`，补齐 BrewPingLog/DeviceOSType 最小定义；缺新符号就往桩里补）。已验证：改坏一处立即复现与 Xcode 相同行号的报错。
+- 🚨 **`kDNSServiceErr_PolicyDenied = -65570`**（`dns_sd.h:801`）；**-65555 是 `NoAuth`**。判「本地网络被拒」用 -65570 + -65571(`NotPermitted`)，**直接引用 C 符号 `kDNSServiceErr_PolicyDenied`（Swift 可见，已验证），别写字面值**。曾写死 -65555 → TF 上真被拒被判成「还在等授权」→ 不出被拒提示 + 永远扫不到设备。
+- 本地网络：**Xcode 直跑会被自动授权（不弹框）→ Debug 能发现不代表权限没问题，必须 TestFlight 验**；Bonjour 浏览**不需要** `com.apple.developer.networking.multicast`（只有自己发 UDP 广播才需要）。
+- `PermissionCenter` 只在 `attach()` 同步一次本地网络状态 → 自动探测的结论要回灌：`.onReceive(bonjour.$localNetwork) { _ in permissions.refresh() }`，否则 `allGranted` 恒假。
+- 排查手法：`dns-sd -B _brewping._tcp` / `dns-sd -L <名> _brewping._tcp local.` 可在 Mac 上直接验广播侧是否正常（本轮据此排除桌面端）。
 
 ## macOS 桌面端
 - 🚨 `DesktopCommands.swift` 是 UI 唯一入口；UI 不直碰 Store/Gate；执行类命令切后台队列；执行唯一路径 `ConversationCommandService` + `CommandRouter.shared` 唯一。
