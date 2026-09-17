@@ -7,7 +7,7 @@ import Darwin
 /// iOS 没有「查询本地网络权限」的公开 API，只能从 `NWBrowser` 的状态推断：
 /// - 已授权 → `.ready`
 /// - 被拒 / 被系统策略拦截 → `.waiting` 或 `.failed`，错误为
-///   `kDNSServiceErr_PolicyDenied`（-65555）
+///   `kDNSServiceErr_PolicyDenied`（-65570）或 `kDNSServiceErr_NotPermitted`（-65571）
 /// - 授权框还没被回答 → 状态停在 `.waiting`，此时**无法**与「被拒」区分
 ///   （所以这一档归到 `.requesting`；UI 上同时提供「重试」与「去系统设置」两条出路，
 ///   因为用户拒绝后系统不会再弹窗，只能去设置里打开）。
@@ -23,6 +23,32 @@ enum LocalNetworkAccess: Equatable {
 
     var isGranted: Bool { self == .granted }
     var isDenied: Bool { self == .denied }
+}
+
+/// resolve 生命周期的显式阶段。核心目的：**让 FOUND ≠ RESOLVED 在日志与诊断里可辨**。
+///
+/// FOUND     —— 浏览到服务实例
+/// RESOLVING —— NetService 已创建并开始 resolve
+/// RESOLVED  —— didResolveAddress 回调且拿到了可用 host:port
+/// FAILED    —— didNotResolve 回调（非超时错误）
+/// TIMEDOUT  —— didNotResolve 回调且错误码是 kDNSServiceErr_Timeout
+/// STUCK     —— 超时+宽限期内**没有任何回调**（回调链路断：未调度成功/守护进程卡死）
+/// CANCELLED —— stopSearching() 主动终止
+private enum ResolveStage: String {
+    case found, resolving, resolved, failed, timedOut, stuck, cancelled
+}
+
+/// 带析构日志的 NetService：验证 resolve 对象有没有被意外提前释放（生命周期取证）。
+/// 除此之外与 `NetService` 完全一致，不引入任何行为差异。
+/// （注意：`init(domain:type:name:)` 是便利构造器，子类直接继承即可，不要 override。）
+final class TrackedNetService: NetService {
+    var resolveKey: String = "?"
+    /// 创建它时的扫描会话号（§3 身份取证：确认新旧扫描拿到的是不是同一个对象）。
+    var sessionTag: Int = 0
+
+    deinit {
+        BrewPingLog.discovery.debug("resolve: service deinit session=\(self.sessionTag, privacy: .public) name=\(self.resolveKey, privacy: .private)")
+    }
 }
 
 /// iPhone 端 Bonjour 自动发现：扫描局域网上的 BrewPing Mac Agent。
@@ -41,15 +67,31 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         let osType: DeviceOSType
     }
 
-    /// `kDNSServiceErr_PolicyDenied`（见 `dns_sd.h`）。
-    /// 该常量是 C 匿名枚举成员，Swift 不可见，故用字面值并在此注明来源。
-    static let policyDeniedCode = DNSServiceErrorType(-65555)
+    /// `kDNSServiceErr_PolicyDenied`（-65570），见 `dns_sd.h`。
+    ///
+    /// 🚨 这里**曾经写死 -65555**，而 -65555 其实是 `kDNSServiceErr_NoAuth` ——
+    /// 后果是「真实被拒」永远识别不出来：iOS 返回 -65570 时被当成「还在等授权」，
+    /// 于是续期浏览窗口约 32 秒后安静收尾 —— 既不出「被拒 + 打开系统设置」的提示，
+    /// 也永远扫不到设备（TestFlight 上就表现为"死活检测不出设备"）。
+    /// 现在直接用 C 符号（Swift 可见，已验证），不再写字面值，避免再次写错。
+    static let policyDeniedCode = DNSServiceErrorType(kDNSServiceErr_PolicyDenied)
+
+    /// `kDNSServiceErr_NotPermitted`（-65571）：系统层面不允许本次浏览
+    /// （例如服务类型没在 `NSBonjourServices` 里声明）。
+    /// 同样按「被拒」处理 —— 否则会一直停在 `.requesting`，用户得不到任何出路。
+    static let notPermittedCode = DNSServiceErrorType(kDNSServiceErr_NotPermitted)
 
     /// 单个浏览窗口长度（已授权 / 已拒绝的常态路径，保持原有「有限时间扫描」的 UX）。
     private static let browseWindowSeconds: TimeInterval = 8.0
     /// 「等授权」时浏览窗口最多续期次数（8s × 3 ≈ 最长约 32s）：
     /// 权限未落定不掐浏览器，但也不能无限扫描。
     private static let maxBrowseExtensions = 3
+    /// 单次 resolve 的超时。常态 4s 足够；**诊断期临时放宽到 10s**——
+    /// 用于区分「4~10s 才回调的慢成功」与「根本没进回调」（后者由 STUCK 看门狗暴露）。
+    /// ⚠️ 定位完成后回 4.0，不要长期依赖超长超时。
+    private static let resolveTimeoutSeconds: TimeInterval = 10.0
+    /// resolve 看门狗的宽限：超时 + 3s 仍无任何回调 → 判 STUCK（回调链路断了，而非解析失败）。
+    private static let resolveWatchdogGrace: TimeInterval = 3.0
 
     /// 「曾经成功拿到过本地网络权限」的持久标记。
     ///
@@ -65,15 +107,126 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         UserDefaults.standard.bool(forKey: grantedDefaultsKey)
     }
 
+    /// 浏览直接得到的服务（**不经过 `NetService`**）：endpoint 即 Network framework 的连接目标。
+    /// 诊断与 UI 均以此为准；`host/port` 只在 NWConnection 到达 `.ready` 后才有。
+    struct DiscoveredService: Identifiable, Equatable {
+        /// 服务实例名（= Mac 电脑名），同时是去重键
+        let id: String
+        let name: String
+        let endpoint: NWEndpoint
+        /// 可连接性探测状态（NWConnection）
+        var probeState: String
+        /// TXT 记录（§11）
+        let osType: DeviceOSType
+        let deviceId: String?
+        let agent: String?
+        let protocolVersion: String?
+        /// `NWBrowser.Result.interfaces` 的条数（§10 只记录、不自行选路）
+        let interfaces: Int
+
+        /// NWEndpoint 是 Equatable；这里只用 id + endpoint 判定同一服务。
+        static func == (lhs: DiscoveredService, rhs: DiscoveredService) -> Bool {
+            lhs.id == rhs.id && String(describing: lhs.endpoint) == String(describing: rhs.endpoint)
+                && lhs.probeState == rhs.probeState
+        }
+    }
+
+    /// NWConnection 探测统计（诊断用）：老路径 (`NetService`) 之外的**新**连接路径证据。
+    struct ConnectionStats: Equatable {
+        var started = 0
+        var ready = 0
+        var waiting = 0
+        var failed = 0
+        var cancelled = 0
+        var lastError: String?
+    }
+
+    /// resolve 生命周期统计（诊断用，随 `diagnosticText` 展示）。
+    struct ResolveStats: Equatable {
+        var started = 0
+        var resolved = 0
+        var failed = 0
+        var stuck = 0
+        var cancelled = 0
+        /// didResolveAddress 的「首帧不完整」回调次数（port=-1 / 无可用地址，继续等待）
+        var partial = 0
+    }
+
     @Published var discoveredHosts: [DiscoveredHost] = []
     @Published var isSearching = false
     /// 本地网络权限状态（用于 UI 区分「权限被拒」与「网络拦多播」）
     @Published private(set) var localNetwork: LocalNetworkAccess = .unknown
     /// 最近一次浏览错误（只用于展示与日志，不含用户数据）
     @Published private(set) var lastBrowseError: String?
+    /// 最近一次 `browseResultsChangedHandler` 回来的结果条数。
+    /// 诊断用：区分「一个结果都没回来（多播/权限/网络）」与「结果回来了但解析失败」。
+    @Published private(set) var lastResultCount = 0
+    /// 浏览器最近一次状态的可读文本。诊断用。
+    @Published private(set) var lastBrowserState = "none"
+    /// resolve 生命周期统计。诊断用（`diagnosticText` 一并展示）。
+    @Published private(set) var resolveStats = ResolveStats()
 
-    /// 是否仍有服务在解析中（浏览停止后，已发现的服务可能还在解析）
-    var isResolving: Bool { !resolvers.isEmpty }
+    /// 最近一次「不完整 didResolveAddress 回调」的快照（§4 A–E 判定用，直接上诊断行）。
+    @Published private(set) var lastPartialSnapshot: String?
+
+    /// 浏览发现的服务（新路径，无需 NetService）
+    @Published private(set) var discoveredServices: [DiscoveredService] = []
+    /// NWConnection 探测统计（新路径证据）
+    @Published private(set) var connectionStats = ConnectionStats()
+
+    /// resolve 失败的**原始**错误信息 —— 不做任何语义映射（§取证阶段）。
+    struct ResolveFailureInfo: Equatable {
+        /// 失败来自哪个回调：didNotResolve / didStop / didResolve-no-address / watchdog
+        var source: String?
+        /// `NSNetServicesErrorCode` 的原始值（-72xxx 系）；取不到为 nil
+        var code: Int?
+        /// `NSNetServicesErrorDomain` 的原始值
+        var domain: String?
+        /// `NSLocalizedDescriptionKey` 的原始值（若有）
+        var description: String?
+        /// errorDict 的全部 key（排序后）
+        var keys: [String]
+        /// 桥接后 errorDict 的条数（didNotResolve 专有；其他来源为 nil）
+        var errorCount: Int?
+        /// 逐对 k=v(值类型) 的原始转储（didNotResolve 专有）
+        var pairs: String?
+        /// 失败的 service 元数据
+        var serviceName: String?
+        var serviceType: String?
+        var serviceDomain: String?
+        /// FOUND → 失败回调 的耗时
+        var elapsedMs: Int?
+    }
+
+    /// 最近一次 resolve 失败的原始取证信息；成功或新一轮浏览时清空。
+    @Published private(set) var lastResolveFailure: ResolveFailureInfo?
+
+    /// 一行诊断文本：扫不到设备时用它判断到底断在哪一环。
+    ///
+    /// 纯技术字段、不参与本地化。**定位完 TestFlight 自动发现问题后，连同 UI 上的
+    /// 展示入口一起删掉** —— 正式版不该有这行。
+    var diagnosticText: String {
+        let f = lastResolveFailure
+        let codeText = f?.code.map(String.init) ?? "none"
+        let domainText = f?.domain ?? "none"
+        let keysText = (f?.keys.isEmpty ?? true) ? "none" : (f?.keys.joined(separator: ",") ?? "none")
+        let svc = discoveredServices.first
+        let endpointKind: String
+        if let endpoint = svc?.endpoint {
+            if case .service = endpoint { endpointKind = "service" } else { endpointKind = String(describing: endpoint) }
+        } else {
+            endpointKind = "none"
+        }
+        let c = connectionStats
+        return "diag: session=\(scanSession) browser=\(lastBrowserState) results=\(lastResultCount) hosts=\(discoveredHosts.count) ln=\(localNetwork) discoveryError=\(lastBrowseError ?? "none") | bonjour: found=\(discoveredServices.count) name=\(svc?.name ?? "none") endpoint=\(endpointKind) interfaces=\(svc?.interfaces ?? 0) probe=\(svc?.probeState ?? "none") | connection: started=\(c.started) ready=\(c.ready) waiting=\(c.waiting) failed=\(c.failed) cancelled=\(c.cancelled) error=\(c.lastError ?? "none") | resolve(legacy,unused): started=\(resolveStats.started) ok=\(resolveStats.resolved) fail=\(resolveStats.failed) partial=\(resolveStats.partial) stuck=\(resolveStats.stuck) resolving=\(resolvers.count) partialSnap=\(lastPartialSnapshot ?? "none") src=\(f?.source ?? "none") code=\(codeText) domain=\(domainText) errCnt=\(f?.errorCount.map(String.init) ?? "none") keys=\(keysText) pairs=\(f?.pairs ?? "none") elapsed=\(f?.elapsedMs.map(String.init) ?? "none")ms name2=\(f?.serviceName ?? "none")"
+    }
+
+    /// 是否仍有服务在解析/探测中（浏览停止后，已发现的服务可能还在解析）
+    var isResolving: Bool { !resolvers.isEmpty || !probes.isEmpty }
+
+    /// 扫描会话号：每真正发起一轮新浏览 +1。所有日志都带它，
+    /// 用于区分「第 N 次扫描到底有没有真正 START / FOUND / RESOLVE」（§2/§10）。
+    private(set) var scanSession = 0
 
     private var browser: NWBrowser?
     private var timer: Timer?
@@ -91,13 +244,36 @@ final class BonjourDiscovery: NSObject, ObservableObject {
     /// 服务实例名 → 从 TXT 记录读出的主机类型。
     /// `NetServiceDelegate` 的回调不携带 TXT，所以在浏览阶段先存下来，解析完成时取用。
     private var pendingOS: [String: DeviceOSType] = [:]
+    /// name → resolve 看门狗：超时+宽限后仍无**任何**回调 → 判 STUCK 并收尾。
+    /// 区分「resolve 真失败（有 didNotResolve）」与「回调链路根本没通」。
+    private var resolveWatchdogs: [String: DispatchWorkItem] = [:]
+    /// name → resolve 开始时刻（算 elapsed 用）。
+    private var resolveStartTimes: [String: CFAbsoluteTime] = [:]
+
+    /// name → 正在进行的 NWConnection 探测（新路径；`.ready` 抓到 ip:port 后即取消）。
+    private var probes: [String: NWConnection] = [:]
 
     func startSearching() {
-        stopSearching()
+        // 🚨 影子期修复（§4 残留状态）：上一轮的在途 resolver 会活到 超时+宽限（≈13s），
+        // 期间新扫描的 FOUND 会因 `resolvers[name] != nil` 被 SKIP，且 browse 结果集合
+        // 不再变化、不会有第二次回调 —— 整次扫描被静默判死（「成功一次之后反复失败」的状态机根源）。
+        // 所以**新一轮扫描必须接管（终止并清理）上一轮的在途 resolve**；
+        // 「浏览窗口到期不杀 resolve」的解耦语义保持不变（stopBrowsing 依旧不碰 resolvers）。
+        scanSession += 1
+        stopBrowsing(reason: "superseded-by-new-scan")
+        teardownResolvers(reason: "superseded-by-new-scan")
+        teardownProbes(reason: "superseded-by-new-scan")
         isSearching = true
         discoveredHosts = []
-        pendingOS = [:]
+        discoveredServices = []
+        connectionStats = ConnectionStats()
         browseExtensions = 0
+        lastResultCount = 0
+        lastBrowserState = "none"
+        resolveStats = ResolveStats()
+        lastResolveFailure = nil
+        lastPartialSnapshot = nil
+        // pendingOS 跟随 resolver 一起清理（见 teardownResolvers）。
         // 未确认授权时先标记「探测中」：UI 据此显示进度，而不是停在空白态让人误以为没反应
         if localNetwork != .granted { localNetwork = .requesting }
 
@@ -112,19 +288,22 @@ final class BonjourDiscovery: NSObject, ObservableObject {
             }
         }
 
-        browser.browseResultsChangedHandler = { [weak self] results, _ in
+        browser.browseResultsChangedHandler = { [weak self] results, changes in
             DispatchQueue.main.async {
                 guard let self else { return }
                 BrewPingLog.discovery.info(
-                    "Browse results: \(results.count, privacy: .public) service(s)"
+                    "Browse results: session=\(self.scanSession, privacy: .public) count=\(results.count, privacy: .public) changes=\(String(describing: changes), privacy: .public)"
                 )
-                self.resolveNew(results)
+                self.lastResultCount = results.count
+                // 🆕 新路径：endpoint 直接进 Network framework 的连接路径，不再创建 NetService。
+                //（旧 `resolveNew` 保留但不再调用 —— 见文件内「已停用（保留对照）」区。）
+                self.ingest(results)
             }
         }
 
         browser.start(queue: DispatchQueue.global(qos: .userInitiated))
         self.browser = browser
-        BrewPingLog.discovery.info("Bonjour browsing started: _brewping._tcp (window \(Int(Self.browseWindowSeconds), privacy: .public)s, extension cap \(Self.maxBrowseExtensions, privacy: .public))")
+        BrewPingLog.discovery.info("SCAN_START session=\(self.scanSession, privacy: .public) browser=_brewping._tcp (window \(Int(Self.browseWindowSeconds), privacy: .public)s, extension cap \(Self.maxBrowseExtensions, privacy: .public))")
 
         // 浏览窗口到期交由 handleBrowseWindowExpired 决定收尾还是续期：
         // **权限未落定时不能掐浏览器**（否则 .ready 不会回调、持久标记写不进去）；
@@ -139,6 +318,7 @@ final class BonjourDiscovery: NSObject, ObservableObject {
     /// 旧实现只判 `.failed` 且把 `NWError` 整个丢掉，于是「权限被拒」与「网络拦多播」
     /// 在界面上完全同形（都只是「扫不到」），只能靠猜 —— 这是本轮问题的核心成因之一。
     private func handleBrowserState(_ state: NWBrowser.State) {
+        lastBrowserState = String(describing: state)
         BrewPingLog.discovery.info("Browser \(String(describing: state), privacy: .public)")
         switch state {
         case .ready:
@@ -187,7 +367,9 @@ final class BonjourDiscovery: NSObject, ObservableObject {
 
     /// 是否「权限被拒 / 被策略拦截」。这是 iOS 上判断本地网络被拒的**唯一**可靠信号。
     static func isPolicyDenied(_ error: NWError) -> Bool {
-        if case let .dns(code) = error, code == policyDeniedCode { return true }
+        if case let .dns(code) = error {
+            return code == policyDeniedCode || code == notPermittedCode
+        }
         return false
     }
 
@@ -199,10 +381,26 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         }
     }
 
-    /// 完整停止：结束浏览并取消所有未完成的解析
+    /// 完整停止：结束浏览并取消所有未完成的解析/探测
     func stopSearching() {
-        stopBrowsing()
-        for (_, service) in resolvers {
+        stopBrowsing(reason: "page-exit-or-final-stop")
+        teardownResolvers(reason: "page-exit-or-final-stop")
+        teardownProbes(reason: "page-exit-or-final-stop")
+        pendingOS.removeAll()
+    }
+
+    /// 终止并清理**全部**在途 resolve（新一轮扫描接管 / 页面退出）。
+    /// `pendingOS` 跟随清理 —— 它只被 resolver 消费，resolver 清了它就是死数据。
+    private func teardownResolvers(reason: String) {
+        if !resolvers.isEmpty {
+            BrewPingLog.discovery.info(
+                "resolve: CANCELLED session=\(self.scanSession, privacy: .public) n=\(self.resolvers.count, privacy: .public) reason=\(reason, privacy: .public)"
+            )
+            resolveStats.cancelled += resolvers.count
+        }
+        for (name, service) in resolvers {
+            resolveWatchdogs.removeValue(forKey: name)?.cancel()
+            resolveStartTimes.removeValue(forKey: name)
             service.delegate = nil
             service.stop()
         }
@@ -210,10 +408,10 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         pendingOS.removeAll()
     }
 
-    /// 只结束浏览，保留在途解析
-    private func stopBrowsing() {
+    /// 只结束浏览。`reason` 记录是谁停的（§8）：window-expired / superseded-by-new-scan / page-exit。
+    private func stopBrowsing(reason: String) {
         BrewPingLog.discovery.info(
-            "stopBrowsing: browser cancelled (in-flight resolves continue)"
+            "BROWSER_STOP session=\(self.scanSession, privacy: .public) reason=\(reason, privacy: .public)"
         )
         browser?.cancel()
         browser = nil
@@ -233,50 +431,274 @@ final class BonjourDiscovery: NSObject, ObservableObject {
     private func handleBrowseWindowExpired() {
         if isWaitingForPermission, browseExtensions < Self.maxBrowseExtensions {
             browseExtensions += 1
-            BrewPingLog.discovery.info("Permission still pending (\(String(describing: localNetwork), privacy: .public)); extend browse window \(browseExtensions, privacy: .public)/\(Self.maxBrowseExtensions, privacy: .public)")
+            BrewPingLog.discovery.info("Permission still pending (\(String(describing: self.localNetwork), privacy: .public)); extend browse window \(self.browseExtensions, privacy: .public)/\(Self.maxBrowseExtensions, privacy: .public)")
             timer = Timer.scheduledTimer(withTimeInterval: Self.browseWindowSeconds, repeats: false) { [weak self] _ in
                 self?.handleBrowseWindowExpired()
             }
             return
         }
-        BrewPingLog.discovery.info("Browse window expired: state=\(String(describing: localNetwork), privacy: .public), extensions=\(browseExtensions, privacy: .public) → stop browsing")
-        stopBrowsing()
+        BrewPingLog.discovery.info("Browse window expired: session=\(self.scanSession, privacy: .public) state=\(String(describing: self.localNetwork), privacy: .public), extensions=\(self.browseExtensions, privacy: .public) → stop browsing")
+        stopBrowsing(reason: "window-expired")
     }
 
-    // MARK: - Resolution
+    // MARK: - Discovery → Connection（新路径：endpoint 直连，不用 NetService）
+
+    /// 浏览结果直接入库：保存 endpoint / TXT / interfaces，并对每个新服务发起一次
+    /// `NWConnection` 可连接性探测（§2/§5/§6）。
+    ///
+    /// 关键约束（§4）：**绝不把 endpoint 还原成 name/type/domain 再喂给 `NetService`** ——
+    /// endpoint 必须直接进入 Network framework 的连接路径。
+    private func ingest(_ results: Set<NWBrowser.Result>) {
+        for result in results {
+            guard case let .service(name, _, _, _) = result.endpoint else { continue }
+            let txt = Self.txt(from: result.metadata)
+            let service = DiscoveredService(
+                id: name,
+                name: name,
+                endpoint: result.endpoint,
+                probeState: "found",
+                osType: DeviceOSType.parse(txt["platform"]),
+                deviceId: txt["deviceId"],
+                agent: txt["agent"],
+                protocolVersion: txt["protocolVersion"],
+                interfaces: result.interfaces.count
+            )
+            if let idx = discoveredServices.firstIndex(where: { $0.id == name }) {
+                discoveredServices[idx] = service
+                // TXT 常见于 `.changed` 回调才到位（首帧 metadata 为 `<none>`）：
+                // 若设备已入列表，补一次 osType，避免 Windows 主机被按 `.mac` 兜底错标（"幽灵 Mac"）。
+                if let hostIdx = discoveredHosts.firstIndex(where: { $0.id == name }),
+                   discoveredHosts[hostIdx].osType != service.osType {
+                    let old = discoveredHosts[hostIdx]
+                    discoveredHosts[hostIdx] = DiscoveredHost(
+                        id: old.id, name: old.name, host: old.host, port: old.port, osType: service.osType
+                    )
+                    BrewPingLog.discovery.info(
+                        "bonjour: OSTYPE_UPDATED session=\(self.scanSession, privacy: .public) name=\(name, privacy: .private) osType=\(String(describing: service.osType), privacy: .public)"
+                    )
+                }
+            } else {
+                discoveredServices.append(service)
+                BrewPingLog.discovery.info(
+                    "bonjour: FOUND session=\(self.scanSession, privacy: .public) name=\(name, privacy: .private) endpoint=\(String(describing: result.endpoint), privacy: .public) interfaces=\(result.interfaces.count, privacy: .public) platform=\(txt["platform"] ?? "?", privacy: .public) deviceId=\(txt["deviceId"] ?? "?", privacy: .public)"
+                )
+            }
+            // 已有在途探测就不重复发起（同一轮里 browse 会多次回调同一集合）
+            guard probes[name] == nil else { continue }
+            guard !discoveredHosts.contains(where: { $0.id == name }) else { continue }
+            startProbe(for: service)
+        }
+    }
+
+    /// 用 `NWConnection(to: endpoint)` 验证「这个 Bonjour 服务此刻是否真的可连」（§5/§7）。
+    /// 第一阶段只验证到 `.ready`：拿到真实 ip:port 后立刻取消连接（证据已取到），
+    /// 业务通信仍由现有 URLSession / 上层负责（§8：不重写 HTTP/WebSocket）。
+    private func startProbe(for service: DiscoveredService) {
+        let params = NWParameters.tcp
+        params.includePeerToPeer = true
+        // 🚨 **优先 IPv4**：本机同时广播 A/AAAA，而 Network framework 默认可能选中
+        // IPv6 链路本地地址（真机实测拿到 `fe80::…%en0`）——下游 URLSession 的
+        // `http://\(host):\(port)` 拼接只支持 IPv4 / 主机名，IPv6 字面量（还需方括号
+        // 与 scope）会拼出非法 URL。老路径（NetService）同样是显式优先 IPv4 的，
+        // 这里恢复同一策略：探测连接固定走 IPv4，拿到的 host 即 IPv4 字面量。
+        // （注意 API：`internetProtocol` 返回基类 `NWProtocolOptions`，需转型为
+        //  `NWProtocolIP.Options`，版本枚举是 `.v4` / `.v6` 而非 `.ipv4`。）
+        if let ip = params.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options {
+            ip.version = .v4
+        }
+        let connection = NWConnection(to: service.endpoint, using: params)
+        probes[service.id] = connection
+        connectionStats.started += 1
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        setProbeState(service.id, "connecting")
+        BrewPingLog.discovery.info(
+            "conn: REQUEST session=\(self.scanSession, privacy: .public) name=\(service.name, privacy: .private) endpoint=\(String(describing: service.endpoint), privacy: .public) interfaces=\(service.interfaces, privacy: .public)"
+        )
+        connection.stateUpdateHandler = { [weak self] state in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.handleConnectionState(state, service: service, connection: connection, startedAt: startedAt)
+            }
+        }
+        connection.start(queue: DispatchQueue.global(qos: .userInitiated))
+    }
+
+    private func handleConnectionState(_ state: NWConnection.State, service: DiscoveredService, connection: NWConnection, startedAt: CFAbsoluteTime) {
+        let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1000)
+        switch state {
+        case .ready:
+            connectionStats.ready += 1
+            connectionStats.lastError = nil
+            // 连接建立成功 → 取本次连接的远端地址，作为交给现有通信层（URLSession）的 host:port。
+            // 注意（§9）：这是「本条连接实际用的地址」，不是「Bonjour 解析出的 IP」；
+            // 我们不依赖它做任何解析判断，只用它把可连接的服务交给下游。
+            var host: String?
+            var port: UInt16?
+            if case let .hostPort(h, p)? = connection.currentPath?.remoteEndpoint {
+                // 🚨 `NWEndpoint.Host` 的字符串可能带接口 scope（实测 `192.168.5.68%en0`），
+                // 这不是合法 URL host —— 必须砍掉 `%` 及其后部分，否则 URLSession 会拿到畸形地址。
+                let raw = "\(h)"
+                host = raw.split(separator: "%").first.map(String.init) ?? raw
+                port = p.rawValue
+            }
+            setProbeState(service.id, "ready")
+            BrewPingLog.discovery.info(
+                "conn: READY session=\(self.scanSession, privacy: .public) name=\(service.name, privacy: .private) host=\(host ?? "nil", privacy: .private) port=\(Int(port ?? 0), privacy: .public) elapsed=\(elapsedMs, privacy: .public)ms"
+            )
+            if let host, !host.isEmpty, let port, port > 0 {
+                discoveredHosts.removeAll { $0.id == service.id }
+                discoveredHosts.append(DiscoveredHost(id: service.id, name: service.name, host: host, port: port, osType: service.osType))
+                BrewPingLog.discovery.info(
+                    "bonjour: DEVICE_VISIBLE session=\(self.scanSession, privacy: .public) name=\(service.name, privacy: .private) → device list"
+                )
+            }
+            // 证据已取到：关闭探测连接，业务连接由现有层建立。
+            connection.cancel()
+        case .waiting(let error):
+            connectionStats.waiting += 1
+            connectionStats.lastError = Self.describe(error)
+            setProbeState(service.id, "waiting(\(Self.describe(error)))")
+            BrewPingLog.discovery.error(
+                "conn: WAITING session=\(self.scanSession, privacy: .public) name=\(service.name, privacy: .private) error=\(Self.describe(error), privacy: .public) elapsed=\(elapsedMs, privacy: .public)ms"
+            )
+        case .failed(let error):
+            connectionStats.failed += 1
+            connectionStats.lastError = Self.describe(error)
+            setProbeState(service.id, "failed(\(Self.describe(error)))")
+            probes.removeValue(forKey: service.id)
+            BrewPingLog.discovery.error(
+                "conn: FAILED session=\(self.scanSession, privacy: .public) name=\(service.name, privacy: .private) error=\(Self.describe(error), privacy: .public) elapsed=\(elapsedMs, privacy: .public)ms"
+            )
+        case .cancelled:
+            connectionStats.cancelled += 1
+            probes.removeValue(forKey: service.id)
+        case .setup, .preparing:
+            BrewPingLog.discovery.debug(
+                "conn: \(String(describing: state), privacy: .public) name=\(service.name, privacy: .private)"
+            )
+        @unknown default:
+            break
+        }
+    }
+
+    private func setProbeState(_ id: String, _ state: String) {
+        guard let idx = discoveredServices.firstIndex(where: { $0.id == id }) else { return }
+        discoveredServices[idx].probeState = state
+    }
+
+    /// 终止全部在途探测（新一轮扫描接管 / 页面退出）。
+    private func teardownProbes(reason: String) {
+        guard !probes.isEmpty else { return }
+        BrewPingLog.discovery.info(
+            "conn: CANCELLED session=\(self.scanSession, privacy: .public) n=\(self.probes.count, privacy: .public) reason=\(reason, privacy: .public)"
+        )
+        for (_, connection) in probes {
+            connection.stateUpdateHandler = nil
+            connection.cancel()
+        }
+        probes.removeAll()
+    }
+
+    // MARK: - 已停用（保留对照）：旧 NetService 解析路径
+    //
+    // 自 2026-09-17 起，自动发现的地址解析改走 `NWBrowser.Result.endpoint → NWConnection`，
+    // 以下实现**不再被调用**（仅保留供对照与回退）。iOS TestFlight 上 `NetService.resolve`
+    // 会在首帧不完整回调后停摆至超时（partial=1 / src=didStop / 10s），
+    // 而 Mac 侧 `dns-sd -L/-G` 已证明服务记录完整 —— 问题在 NetService 解析路径本身。
+    // §15：待新路径在 TestFlight 稳定后，连同 ResolveStage/ResolveStats/ResolveFailureInfo/
+    // resolveWatchdogs/TrackedNetService/NetServiceDelegate 一并删除。
 
     /// 对每个新出现的服务实例发起一次解析（解析结果通过 NetServiceDelegate 回调）
     private func resolveNew(_ results: Set<NWBrowser.Result>) {
         for result in results {
-            guard case let .service(name, _, _, _) = result.endpoint else { continue }
+            // §9 取证：把 NWBrowser 原始给的 type/domain 也记下来，和我们的构造参数对照，
+            // 证明没有发生 local./local 或 _brewping._tcp./_brewping._tcp 的 normalization 问题。
+            guard case let .service(name, type, domain, _) = result.endpoint else { continue }
             // TXT 只在这里拿得到（NWBrowser.Result 上），先记下来给 finishResolve 用。
             pendingOS[name] = Self.osType(from: result.metadata)
-            guard resolvers[name] == nil else { continue }
-            guard !discoveredHosts.contains(where: { $0.id == name }) else { continue }
 
-            let service = NetService(domain: "local.", type: "_brewping._tcp.", name: name)
+            // FOUND：结果看见了。跳过时也留痕 —— 「发现了但没解析」与「压根没发现」是两回事。
+            if resolvers[name] != nil {
+                BrewPingLog.discovery.info("resolve: FOUND session=\(self.scanSession, privacy: .public) \(name, privacy: .private) → SKIP already resolving")
+                continue
+            }
+            if discoveredHosts.contains(where: { $0.id == name }) {
+                BrewPingLog.discovery.info("resolve: FOUND session=\(self.scanSession, privacy: .public) \(name, privacy: .private) → SKIP already discovered")
+                continue
+            }
+            BrewPingLog.discovery.info("resolve: FOUND session=\(self.scanSession, privacy: .public) \(name, privacy: .private) srcType=\(type, privacy: .public) srcDomain=\(domain, privacy: .public) → starting")
+
+            let service = TrackedNetService(domain: "local.", type: "_brewping._tcp.", name: name)
+            service.resolveKey = name
+            service.sessionTag = self.scanSession
+            let oid = ObjectIdentifier(service).hashValue
             service.delegate = self
             resolvers[name] = service
-            service.resolve(withTimeout: 4.0)
+            resolveStartTimes[name] = CFAbsoluteTimeGetCurrent()
+            resolveStats.started += 1
+
+            BrewPingLog.discovery.info("resolve: RESOLVE_REQUEST session=\(self.scanSession, privacy: .public) oid=\(oid, privacy: .public) \(name, privacy: .private) initDomain=local. initType=_brewping._tcp. main=\(String(Thread.isMainThread), privacy: .public)")
+
+            // 🚨 显式调度到主 run loop 的 common 模式：resolve(withTimeout:) 的隐式行为是
+            // 「调度到创建线程的 current run loop、default 模式」——既依赖创建线程恰好是主线程，
+            // 又会被用户滑动列表（tracking 模式）饿住。显式 common 模式把这两个变数都钉死。
+            // 顺序：创建 → delegate → schedule → resolve（§4 要求确认的顺序）。
+            service.schedule(in: .main, forMode: .common)
+            BrewPingLog.discovery.info("resolve: SCHEDULE session=\(self.scanSession, privacy: .public) oid=\(oid, privacy: .public) loop=main mode=common")
+
+            BrewPingLog.discovery.info("resolve: RESOLVE_STARTED session=\(self.scanSession, privacy: .public) oid=\(oid, privacy: .public) timeout=\(Int(Self.resolveTimeoutSeconds), privacy: .public)s")
+            service.resolve(withTimeout: Self.resolveTimeoutSeconds)
+            scheduleResolveWatchdog(for: name)
         }
     }
 
-    private func finishResolve(name: String, host: String?, port: UInt16) {
+    /// resolve 看门狗：`resolveTimeoutSeconds + 宽限` 后若服务仍在 `resolvers`
+    ///（= didResolveAddress / didNotResolve **都没来**）→ 判 STUCK 并收尾。
+    /// 没有它，「回调链路根本没通」会伪装成「解析慢」，永远查不出来。
+    private func scheduleResolveWatchdog(for name: String) {
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.resolvers[name] != nil else { return }
+            let elapsedMs = self.resolveStartTimes[name].map { Int((CFAbsoluteTimeGetCurrent() - $0) * 1000) } ?? -1
+            BrewPingLog.discovery.error("resolve: STUCK session=\(self.scanSession, privacy: .public) (no callback) name=\(name, privacy: .private) elapsed=\(elapsedMs, privacy: .public)ms → force-finish")
+            self.resolveStats.stuck += 1
+            self.finishResolve(name: name, host: nil, port: 0, stage: .stuck, errorText: "no usable address before watchdog (partial didResolve callbacks may have occurred)", failureSource: "watchdog-timeout")
+        }
+        resolveWatchdogs[name] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.resolveTimeoutSeconds + Self.resolveWatchdogGrace, execute: work)
+    }
+
+    private func finishResolve(name: String, host: String?, port: UInt16, stage: ResolveStage, errorText: String? = nil, failure: ResolveFailureInfo? = nil, failureSource: String? = nil) {
+        resolveWatchdogs.removeValue(forKey: name)?.cancel()
+        let startedAt = resolveStartTimes.removeValue(forKey: name)
         if let service = resolvers.removeValue(forKey: name) {
             service.delegate = nil
             service.stop()
         }
         let osType = pendingOS.removeValue(forKey: name) ?? .mac
+        let elapsedMs = startedAt.map { Int((CFAbsoluteTimeGetCurrent() - $0) * 1000) } ?? -1
 
         guard let host, !host.isEmpty, port > 0 else {
-            // 设备名可能包含用户自己的电脑名，标记 .private。
-            BrewPingLog.discovery.info("Failed to resolve \(name, privacy: .private)")
+            resolveStats.failed += 1
+            // 取证：原始错误信息原样入库（调用方给了就存调用方的；没有就按已知信息兜底）。
+            lastResolveFailure = failure ?? ResolveFailureInfo(
+                source: failureSource,
+                code: nil, domain: nil, description: errorText, keys: [], errorCount: nil, pairs: nil,
+                serviceName: name, serviceType: "_brewping._tcp.", serviceDomain: "local.",
+                elapsedMs: elapsedMs >= 0 ? elapsedMs : nil
+            )
+            BrewPingLog.discovery.error(
+                "resolve: \(stage.rawValue, privacy: .public) FAILED session=\(self.scanSession, privacy: .public) name=\(name, privacy: .private) elapsed=\(elapsedMs, privacy: .public)ms error=\(errorText ?? "none", privacy: .public)"
+            )
             return
         }
 
+        resolveStats.resolved += 1
+        lastResolveFailure = nil
         discoveredHosts.removeAll { $0.id == name }
         discoveredHosts.append(DiscoveredHost(id: name, name: name, host: host, port: port, osType: osType))
-        BrewPingLog.discovery.info("Resolved \(name, privacy: .private) -> \(host, privacy: .private):\(Int(port), privacy: .public)")
+        BrewPingLog.discovery.info(
+            "resolve: RESOLVED session=\(self.scanSession, privacy: .public) name=\(name, privacy: .private) host=\(host, privacy: .private) port=\(Int(port), privacy: .public) elapsed=\(elapsedMs, privacy: .public)ms → device visible"
+        )
     }
 
     /// 从 Bonjour TXT 记录里读主机类型。
@@ -286,8 +708,18 @@ final class BonjourDiscovery: NSObject, ObservableObject {
     /// 取值用 `NWTXTRecord` 的**下标**（`subscript(String) -> String?`）；
     /// 该类型没有 `get(_:)` 方法（只有 `getEntry(for:)`，返回的是 `Entry` 枚举，不是字符串）。
     private static func osType(from metadata: NWBrowser.Result.Metadata) -> DeviceOSType {
-        guard case let .bonjour(txt) = metadata else { return .mac }
-        return DeviceOSType.parse(txt["platform"])
+        DeviceOSType.parse(txt(from: metadata)["platform"])
+    }
+
+    /// 取出我们关心的 TXT 键（§11：platform / deviceId / agent / protocolVersion / version / deviceName）。
+    /// 逐个键用下标读取，不依赖 `NWTXTRecord` 的枚举 API（各版本可用性不一致）。
+    private static func txt(from metadata: NWBrowser.Result.Metadata) -> [String: String] {
+        guard case let .bonjour(record) = metadata else { return [:] }
+        var out: [String: String] = [:]
+        for key in ["platform", "deviceId", "agent", "protocolVersion", "version", "deviceName"] {
+            if let value = record[key] { out[key] = value }
+        }
+        return out
     }
 
     /// 优先返回 IPv4 字面量（URLSession 直连最稳），失败时回退到 mDNS 主机名
@@ -311,6 +743,25 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         return nil
     }
 
+    /// 地址族计数（诊断用）：区分「回调整了但一条可用地址都没有」与「地址充足却没选上」。
+    private static func addressFamilyCounts(_ addresses: [Data]?) -> (total: Int, v4: Int, v6: Int) {
+        guard let addresses else { return (0, 0, 0) }
+        var v4 = 0
+        var v6 = 0
+        for data in addresses {
+            let family: sa_family_t = data.withUnsafeBytes { raw in
+                guard let base = raw.baseAddress else { return 0 }
+                return base.assumingMemoryBound(to: sockaddr.self).pointee.sa_family
+            }
+            if family == sa_family_t(AF_INET) {
+                v4 += 1
+            } else if family == sa_family_t(AF_INET6) {
+                v6 += 1
+            }
+        }
+        return (addresses.count, v4, v6)
+    }
+
     /// `"MacBook-Pro.local."` -> `"MacBook-Pro.local"`
     private static func normalizedHostName(_ hostName: String?) -> String? {
         guard var host = hostName, !host.isEmpty else { return nil }
@@ -323,11 +774,106 @@ final class BonjourDiscovery: NSObject, ObservableObject {
 
 extension BonjourDiscovery: NetServiceDelegate {
     func netServiceDidResolveAddress(_ sender: NetService) {
-        let host = Self.ipv4Address(from: sender.addresses) ?? Self.normalizedHostName(sender.hostName)
-        finishResolve(name: sender.name, host: host, port: UInt16(clamping: sender.port))
+        let oid = ObjectIdentifier(sender).hashValue
+        let addresses = sender.addresses
+        let counts = Self.addressFamilyCounts(addresses)
+        let fromHostName = Self.normalizedHostName(sender.hostName)
+        let host = Self.ipv4Address(from: addresses) ?? fromHostName
+        let port = sender.port   // Int；尚未解析出端口时为 -1
+
+        // 🚨 修正（Apple 文档明确允许）：didResolveAddress 可能**多次**回调，首次回调时
+        // addresses 可以为空、port 可以为 -1，地址会随后续回调陆续到达。
+        // 此前这里在**第一次回调**就 finishResolve（摘除 + delegate=nil + stop）——
+        // 把还在进行的解析提前掐死，表现就是几十 ms 内"失败"（58ms 之谜的答案）。
+        // 现在：拿到可用 host+port 才收尾；首帧不完整就**留在 resolvers 里继续等**
+        //（看门狗兜底：13s 内仍无可用地址才判失败）。
+        guard let host, !host.isEmpty, port > 0 else {
+            resolveStats.partial += 1
+            lastPartialSnapshot = "port=\(port) addrs=\(counts.total) v4=\(counts.v4) v6=\(counts.v6) hostName=\(fromHostName ?? "nil")"
+            BrewPingLog.discovery.info(
+                "resolve: DID_RESOLVE session=\(self.scanSession, privacy: .public) oid=\(oid, privacy: .public) name=\(sender.name, privacy: .private) port=\(port, privacy: .public) addrs=\(counts.total, privacy: .public) v4=\(counts.v4, privacy: .public) v6=\(counts.v6, privacy: .public) hostName=\(fromHostName ?? "nil", privacy: .private) main=\(String(Thread.isMainThread), privacy: .public) → PARTIAL, keep resolving (callback #\(self.resolveStats.partial, privacy: .public))"
+            )
+            return
+        }
+
+        BrewPingLog.discovery.info(
+            "resolve: DID_RESOLVE session=\(self.scanSession, privacy: .public) oid=\(oid, privacy: .public) name=\(sender.name, privacy: .private) port=\(port, privacy: .public) addrs=\(counts.total, privacy: .public) v4=\(counts.v4, privacy: .public) v6=\(counts.v6, privacy: .public) main=\(String(Thread.isMainThread), privacy: .public) → usable, finish"
+        )
+        finishResolve(
+            name: sender.name,
+            host: host,
+            port: UInt16(clamping: port),
+            stage: .resolved
+        )
     }
 
     func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
-        finishResolve(name: sender.name, host: nil, port: 0)
+        // §7 取证：errorDict **原样**暴露、不做任何语义映射。
+        // keys/values/count 都来自**桥接后**的字典 —— 若 count=0 但系统确实失败，
+        // 则要么系统给的就是空字典（情况 A），要么桥接丢值（情况 C）；两者用本日志区分：
+        // dictDescription 打印桥接字典的原始描述，若也为空则 A 实锤。
+        let oid = ObjectIdentifier(sender).hashValue
+        let raw = errorDict as [String: Any]
+        let code = (raw[NetService.errorCode] as? NSNumber)?.intValue
+            ?? (raw[NetService.errorCode] as? Int)
+            ?? errorDict.values.first?.intValue
+        let domain = raw[NetService.errorDomain] as? String
+        let description = raw[NSLocalizedDescriptionKey] as? String
+        let sortedKeys = errorDict.keys.sorted()
+        let elapsedMs = resolveStartTimes[sender.name].map { Int((CFAbsoluteTimeGetCurrent() - $0) * 1000) }
+        let values = sortedKeys.compactMap { errorDict[$0]?.stringValue }.joined(separator: ",")
+        let pairDump = sortedKeys.compactMap { key -> String? in
+            guard let v = errorDict[key] else { return nil }
+            return "\(key)=\(v.stringValue)(\(Swift.type(of: v)))"
+        }.joined(separator: ",")
+        let info = ResolveFailureInfo(
+            source: "didNotResolve",
+            code: code,
+            domain: domain,
+            description: description,
+            keys: sortedKeys,
+            errorCount: errorDict.count,
+            pairs: pairDump,
+            serviceName: sender.name,
+            serviceType: sender.type,
+            serviceDomain: sender.domain,
+            elapsedMs: elapsedMs
+        )
+        BrewPingLog.discovery.error(
+            "resolve: DID_NOT_RESOLVE session=\(self.scanSession, privacy: .public) oid=\(oid, privacy: .public) name=\(sender.name, privacy: .private) type=\(sender.type, privacy: .public) domain=\(sender.domain, privacy: .public) errorCount=\(errorDict.count, privacy: .public) code=\(code.map(String.init) ?? "nil", privacy: .public) errorDomain=\(domain ?? "nil", privacy: .public) keys=\(sortedKeys.joined(separator: ","), privacy: .public) values=\(values, privacy: .public) pairs=\(pairDump, privacy: .public) desc=\(description ?? "nil", privacy: .public) dict=\(String(describing: errorDict), privacy: .public) elapsed=\(elapsedMs.map(String.init) ?? "nil", privacy: .public)ms main=\(String(Thread.isMainThread), privacy: .public)"
+        )
+        finishResolve(
+            name: sender.name,
+            host: nil,
+            port: 0,
+            stage: .failed,
+            errorText: "code=\(code.map(String.init) ?? "nil") domain=\(domain ?? "nil") desc=\(description ?? "nil")",
+            failure: info
+        )
+    }
+
+    /// 系统侧主动停掉 service（我们自己的 stop() 都先 delegate=nil，不会走到这里）。
+    /// 此前这个回调**没实现** —— 系统停掉 resolver 时我们完全失明，只能等看门狗。
+    func netServiceDidStop(_ sender: NetService) {
+        let oid = ObjectIdentifier(sender).hashValue
+        let wasResolving = resolvers[sender.name] != nil
+        BrewPingLog.discovery.error(
+            "resolve: DID_STOP session=\(self.scanSession, privacy: .public) oid=\(oid, privacy: .public) name=\(sender.name, privacy: .private) wasResolving=\(String(wasResolving), privacy: .public) main=\(String(Thread.isMainThread), privacy: .public)"
+        )
+        // 若系统在 resolve 途中停掉它：按失败收尾（来源标记 didStop），避免挂到看门狗（13s）才清。
+        if wasResolving {
+            let elapsedMs = resolveStartTimes[sender.name].map { Int((CFAbsoluteTimeGetCurrent() - $0) * 1000) }
+            let info = ResolveFailureInfo(
+                source: "didStop",
+                code: nil, domain: nil,
+                description: "system stopped the service during resolve",
+                keys: [], errorCount: nil, pairs: nil,
+                serviceName: sender.name,
+                serviceType: sender.type,
+                serviceDomain: sender.domain,
+                elapsedMs: elapsedMs
+            )
+            finishResolve(name: sender.name, host: nil, port: 0, stage: .cancelled, errorText: "netServiceDidStop (system-initiated)", failure: info)
+        }
     }
 }

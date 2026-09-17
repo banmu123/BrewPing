@@ -196,9 +196,15 @@ plutil -p Info.plist | grep NSLocalNetwork
 
 | 码 | 含义 | 对应动作 |
 |---|---|---|
-| `dns(-65555)` | `kDNSServiceErr_PolicyDenied` → 本地网络被拒 | 走「打开系统设置」（现有逻辑已覆盖） |
-| `dns(-65570)` / `dns(-65563)` | 服务类型未注册 / 非法 | **回头查 `NSBonjourServices` 是否真进了包**（用 §6 的 plutil 验） |
+| `dns(-65570)` | `kDNSServiceErr_PolicyDenied` → 本地网络被拒 | 走「打开系统设置」（现有逻辑已覆盖） |
+| `dns(-65571)` | `kDNSServiceErr_NotPermitted` → 系统不允许本次浏览 | 同上；顺带查 `NSBonjourServices` 是否真进了包（用 §6 的 plutil 验） |
+| `dns(-65563)` | `kDNSServiceErr_ServiceNotRunning` → 系统 mDNS 后台守护没跑 | 与权限无关；重启设备 / 换网络 |
 | `posix(65)` EHOSTUNREACH、`posix(50)` ENETDOWN | 网络层不通 | AP 隔离 / 访客网络 / 跨网段 / 蜂窝，与权限无关 |
+
+> ⚠️ **勘误（2026-09-17）**：本表初版写的是 `dns(-65555)` = PolicyDenied，这是错的 ——
+> `-65555` 是 `kDNSServiceErr_NoAuth`。代码里照抄了这个错误值（`policyDeniedCode = -65555`），
+> 导致 **iOS 真的返回 -65570 时被误判成"还在等授权"**，于是既不显示被拒、也永远扫不到设备。
+> 现改为直接引用 C 符号 `kDNSServiceErr_PolicyDenied`，不再写字面值。
 
 ---
 

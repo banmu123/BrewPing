@@ -19,7 +19,18 @@
 - 只做 iPhone（`TARGETED_DEVICE_FAMILY=1`）；iOS 17；bundle `com.brewping.ios` / `.watchkitapp`。
 - 🚨 新 Swift 文件登 pbxproj **四处**（`grep -c` ≥4）；🚨 译文 `%@` 个数=实参数（多一个崩），改完跑 `ios/Scripts/check_localization.py`。
 - i18n：`Text("字面量")` 靠 `.environment(\.locale)`；String 用 L()/LW；`Text(变量)` 必须 `LocalizedStringKey(变量)`；Watch 语言随 WCSession 同步。
+- 🚨 **iOS Bonjour 自动发现用 `NWBrowser.Result.endpoint` → `NWConnection`，绝不用 `NetService.resolve`**：真机/TestFlight 上 NetService 解析会在首帧不完整回调后停摆至超时（partial=1 → 10s → `netServiceDidStop`），而同一代码在模拟器正常、Mac 侧 dns-sd 记录也完整 → 该路径在真机不可用。旧实现保留未删、标记「已停用（保留对照）」（2026-09-17 用户真机验证通过）。
+- 🚨 `NWConnection.currentPath?.remoteEndpoint` 可能给出 **IPv6 链路本地**（`fe80::…%en0`）→ 下游 `http://\(host):\(port)` 会拼出非法 URL。探测参数必须**固定 IPv4**：`(params.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options)?.version = .v4`（⚠️ `internetProtocol` 返回基类需转型；枚举是 `.v4`/`.v6`，不是 `.ipv4`）。另注意 `NWEndpoint.Host` 字符串可能带 `%en0` scope 后缀，要剥掉。
 - 局域网明文 http；Bearer+Timestamp±120s+Nonce；改端点必同步 `DemoBackend.swift`。
+- 🚨 **Logger 插值是 autoclosure**：`log.info("\(xxx, privacy: .public)")` 里引用**实例属性**必须写 `self.xxx`，否则 `Reference to property 'x' in closure requires explicit use of 'self'`；**deinit 里也一样**；局部变量与 `Self.xxx` 不受影响。另：别用 `+` 拼 Logger 字符串（收的是 `OSLogMessage`，一律单字面量）。
+- 🆕 **本机（Mac）其实装了完整 Xcode**（`/Applications/Xcode.app`），只是 `xcode-select -p` 指向 CommandLineTools → 裸跑 `xcodebuild`/`simctl` 会报 requires Xcode / unable to find utility。**加环境变量即可，无需 sudo**：`export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` → `xcodebuild` / `xcrun simctl` / `xcrun swiftc` 全部可用。**别再以「没有 Xcode」为由跳过本地编译与模拟器验证**（2026-09-17 修正，此前认知错误）。
+  - 编译：`xcodebuild -project ios/BrewPing.xcodeproj -scheme BrewPing -destination 'generic/platform=iOS Simulator' -configuration Debug SYMROOT=/tmp/bp-sym OBJROOT=/tmp/bp-obj build CODE_SIGNING_ALLOWED=NO`（scheme `BrewPing` / `BrewPing Watch App`）。
+  - 模拟器实跑：iPhone 16 Pro `C7C7F583-310C-43CE-B6ED-D4915F465154`；`simctl log stream --level debug --predicate 'subsystem BEGINSWITH "com.brewping"'` 抓 App 日志。
+  - 快速单文件检查仍可用桩：`xcrun swiftc -typecheck -sdk "$(xcrun --show-sdk-path)" ios/Scripts/offline-typecheck-stub.swift <目标文件>`（跨文件符号误报忽略；缺符号往桩里补）。
+- 🚨 **`kDNSServiceErr_PolicyDenied = -65570`**（`dns_sd.h:801`）；**-65555 是 `NoAuth`**。判「本地网络被拒」用 -65570 + -65571(`NotPermitted`)，**直接引用 C 符号 `kDNSServiceErr_PolicyDenied`（Swift 可见，已验证），别写字面值**。曾写死 -65555 → TF 上真被拒被判成「还在等授权」→ 不出被拒提示 + 永远扫不到设备。
+- 本地网络：**Xcode 直跑会被自动授权（不弹框）→ Debug 能发现不代表权限没问题，必须 TestFlight 验**；Bonjour 浏览**不需要** `com.apple.developer.networking.multicast`（只有自己发 UDP 广播才需要）。
+- `PermissionCenter` 只在 `attach()` 同步一次本地网络状态 → 自动探测的结论要回灌：`.onReceive(bonjour.$localNetwork) { _ in permissions.refresh() }`，否则 `allGranted` 恒假。
+- 排查手法：`dns-sd -B _brewping._tcp` / `dns-sd -L <名> _brewping._tcp local.` 可在 Mac 上直接验广播侧是否正常（本轮据此排除桌面端）。
 
 ## macOS 桌面端
 - 🚨 `DesktopCommands.swift` 是 UI 唯一入口；UI 不直碰 Store/Gate；执行类命令切后台队列；执行唯一路径 `ConversationCommandService` + `CommandRouter.shared` 唯一。
