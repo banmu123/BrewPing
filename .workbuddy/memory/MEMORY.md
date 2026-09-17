@@ -19,7 +19,7 @@
 - 只做 iPhone（`TARGETED_DEVICE_FAMILY=1`）；iOS 17；bundle `com.brewping.ios` / `.watchkitapp`。
 - 🚨 新 Swift 文件登 pbxproj **四处**（`grep -c` ≥4）；🚨 译文 `%@` 个数=实参数（多一个崩），改完跑 `ios/Scripts/check_localization.py`。
 - i18n：`Text("字面量")` 靠 `.environment(\.locale)`；String 用 L()/LW；`Text(变量)` 必须 `LocalizedStringKey(变量)`；Watch 语言随 WCSession 同步。
-- 🚨 **iOS Bonjour 自动发现用 `NWBrowser.Result.endpoint` → `NWConnection`，绝不用 `NetService.resolve`**：真机/TestFlight 上 NetService 解析会在首帧不完整回调后停摆至超时（partial=1 → 10s → `netServiceDidStop`），而同一代码在模拟器正常、Mac 侧 dns-sd 记录也完整 → 该路径在真机不可用。旧实现保留未删、标记「已停用（保留对照）」（2026-09-17 用户真机验证通过）。
+- 🚨 **iOS Bonjour 自动发现用 `NWBrowser.Result.endpoint` → `NWConnection`，绝不用 `NetService.resolve`**：真机/TestFlight 上 NetService 解析会在首帧不完整回调后停摆至超时（partial=1 → 10s → `netServiceDidStop`），而同一代码在模拟器正常、Mac 侧 dns-sd 记录也完整 → 该路径在真机不可用。旧实现（TrackedNetService/ResolveStage/ResolveStats/看门狗/NetServiceDelegate）**已于 2026-09-17 验证通过后整体删除**；屏幕诊断行（diag）同步移除，保留 `conn:` / `bonjour:` 等 os_log 作为长期排障入口。
 - 🚨 `NWConnection.currentPath?.remoteEndpoint` 可能给出 **IPv6 链路本地**（`fe80::…%en0`）→ 下游 `http://\(host):\(port)` 会拼出非法 URL。探测参数必须**固定 IPv4**：`(params.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options)?.version = .v4`（⚠️ `internetProtocol` 返回基类需转型；枚举是 `.v4`/`.v6`，不是 `.ipv4`）。另注意 `NWEndpoint.Host` 字符串可能带 `%en0` scope 后缀，要剥掉。
 - 局域网明文 http；Bearer+Timestamp±120s+Nonce；改端点必同步 `DemoBackend.swift`。
 - 🚨 **Logger 插值是 autoclosure**：`log.info("\(xxx, privacy: .public)")` 里引用**实例属性**必须写 `self.xxx`，否则 `Reference to property 'x' in closure requires explicit use of 'self'`；**deinit 里也一样**；局部变量与 `Self.xxx` 不受影响。另：别用 `+` 拼 Logger 字符串（收的是 `OSLogMessage`，一律单字面量）。

@@ -484,20 +484,10 @@ struct ContentView: View {
             // 正在找：只给一行中性占位。这段窗口里**不能**出现「没有桌面端」的断言
             //（见 `discoverySettled`）—— 之前正是这里让「下载桌面端」卡闪了一下。
             searchingCard
-        } else if discoverySettled {
-            VStack(alignment: .leading, spacing: 8) {
-                if bonjour.localNetwork.isGranted {
-                    // 搜过一轮却一无所获：多播被拦（AP 隔离/访客网络/跨网段）或本地网络
-                    // 权限被拒时都会走到这里 —— 此时必须给可执行的下一步，否则用户无从下手。
-                    discoveryHintCard
-                }
-                // ⚠️ 临时诊断行：**定位完 TestFlight 自动发现问题后要删掉**（正式版不该出现）。
-                // 它把「结果压根没回来」与「回来了但解析失败」区分开，省掉挂调试器抓日志。
-                Text(bonjour.diagnosticText)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(Color.bpMutedForeground)
-                    .padding(.horizontal, 4)
-            }
+        } else if discoverySettled, bonjour.localNetwork.isGranted {
+            // 搜过一轮却一无所获：多播被拦（AP 隔离/访客网络/跨网段）或本地网络
+            // 权限被拒时都会走到这里 —— 此时必须给可执行的下一步，否则用户无从下手。
+            discoveryHintCard
         }
     }
 
@@ -1181,15 +1171,8 @@ struct ContentView: View {
         } else if bonjour.localNetwork.isDenied {
             discoveryMessage = L("Local Network permission is denied. Enable it in Settings → Privacy & Security → Local Network.")
         } else {
-            var message = L("No BrewPing agent found. Make sure %@ is running and on the same Wi-Fi.",
-                            BrewPingConfig.macAppName)
-            // 诊断后缀：一无所获时把最后一次浏览错误码直接显示出来。
-            // TestFlight 上没法挂调试器、也不方便抓 Console，这一行能当场告诉我们卡在哪
-            // （如 `dns(-65570)` = 本地网络被拒、`dns(-65563)` = 系统 mDNS 守护没跑）。
-            if let code = bonjour.lastBrowseError, !code.isEmpty {
-                message += " (diag: \(code))"
-            }
-            discoveryMessage = message
+            discoveryMessage = L("No BrewPing agent found. Make sure %@ is running and on the same Wi-Fi.",
+                                 BrewPingConfig.macAppName)
         }
     }
 
