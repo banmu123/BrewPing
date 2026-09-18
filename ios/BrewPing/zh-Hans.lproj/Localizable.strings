@@ -138,7 +138,7 @@
 "Add Demo Device" = "添加演示设备";
 "Privacy" = "隐私";
 "Privacy Policy" = "隐私政策";
-"BrewPing has no account, no analytics, and no third-party SDKs. Commands, agent output and voice audio stay on your iPhone and your own computer. They are sent only to the Mac or Windows PC you configured, on your local network." = "BrewPing 没有账号、没有数据分析、也没有第三方 SDK。指令、Agent 输出和语音音频只保留在你的 iPhone 和自己的电脑上，且仅发送到你配置的 Mac 或 Windows 电脑，并通过本地网络传输。";
+"BrewPing has no account, no analytics, and no third-party SDKs. Commands and agent output travel only between your iPhone and the Mac or Windows PC you configured, on your local network. Voice recorded on Apple Watch is transferred to your iPhone and transcribed with Apple's Speech framework — BrewPing does not require on-device-only recognition, so transcription may be performed by Apple's servers. The audio file is deleted afterwards." = "BrewPing 没有账号、没有数据分析、也没有第三方 SDK。指令与 Agent 输出只在你自己的 iPhone 和你配置的 Mac 或 Windows 电脑之间，通过本地网络传输。在 Apple Watch 上录制的语音会传输到你的 iPhone，并使用 Apple 的 Speech 框架转写——BrewPing 未要求「仅设备端识别」，因此转写可能由 Apple 的服务器完成。音频文件在转写后被删除。";
 "Support" = "支持";
 "Legal" = "法律信息";
 "About" = "关于";

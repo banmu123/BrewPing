@@ -62,7 +62,7 @@ struct HelpView: View {
                             Label("Privacy Policy", systemImage: "hand.raised")
                         }
                     }
-                    Text("BrewPing has no account, no analytics, and no third-party SDKs. Commands, agent output and voice audio stay on your iPhone and your own computer. They are sent only to the Mac or Windows PC you configured, on your local network.")
+                    Text("BrewPing has no account, no analytics, and no third-party SDKs. Commands and agent output travel only between your iPhone and the Mac or Windows PC you configured, on your local network. Voice recorded on Apple Watch is transferred to your iPhone and transcribed with Apple's Speech framework — BrewPing does not require on-device-only recognition, so transcription may be performed by Apple's servers. The audio file is deleted afterwards.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
