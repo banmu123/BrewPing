@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BrewPing — Privacy Policy</title>
-<meta name="description" content="Privacy Policy for BrewPing, a local-network remote control for AI coding agents.">
+<meta name="description" content="Privacy Policy for BrewPing on iOS, watchOS, macOS and Windows: what data it handles on each platform, and what it never collects.">
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
@@ -23,6 +23,10 @@
   ul { padding-left: 22px; margin: 10px 0; }
   li { margin: 4px 0; }
   strong { font-weight: 600; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 14px; background: rgba(127,127,127,.12); padding: 1px 5px; border-radius: 4px;
+  }
   hr { border: 0; border-top: 1px solid #e5e7eb; margin: 40px 0; }
   .lang { display: flex; gap: 8px; margin-bottom: 28px; }
   .lang button {
@@ -31,6 +35,7 @@
   }
   .lang button.active { background: #111827; color: #ffffff; border-color: #111827; }
   footer { max-width: 720px; margin: 48px auto 0; color: #6b7280; font-size: 14px; }
+  a { color: inherit; }
   @media (prefers-color-scheme: dark) {
     body { color: #e5e7eb; background: #0b0b0c; }
     .updated, footer { color: #9ca3af; }
@@ -47,114 +52,227 @@
     <button id="btn-zh" onclick="setLang('zh')">简体中文</button>
   </div>
 
+  <!-- ============================== ENGLISH ============================== -->
   <div id="en">
     <h1>Privacy Policy</h1>
-    <p class="updated">Last updated: September 11, 2026</p>
+    <p class="updated">Effective: September 18, 2026</p>
 
-    <p>BrewPing (“the App”) is a developer tool that lets you control AI coding agents running on <strong>your own computer</strong> from your iPhone and Apple Watch, over your local network. This policy explains what data the App handles — and what it does not.</p>
+    <p>BrewPing is a developer tool that lets you monitor and control the AI coding agents already running on your own computer, from your iPhone or Apple Watch, over your local network. This policy describes exactly what data BrewPing handles on each platform — and what it never sees. It is written against the actual behaviour of the shipping code, not a template.</p>
 
-    <h2>Summary</h2>
+    <h2 id="en-1">1. Summary</h2>
+    <p>We do not operate a server that receives your data. There is no account, no sign-up, no analytics, no crash-reporting SDK, no advertising identifier and no location collection in any BrewPing build.</p>
+    <p>Commands, agent output and voice transcripts travel only between your phone and the computer you configured, over your local network.</p>
+    <p>One exception exists, and it is yours to control: if you configure a model provider in the Windows desktop app, prompts and output are forwarded to that provider. See Third-party services below.</p>
+
+    <h2 id="en-2">2. What this policy covers</h2>
+    <p>This policy covers BrewPing on iOS, watchOS, macOS and Windows, and this website (commitbrew.com).</p>
+    <p>It does not cover the third-party coding agents you choose to run (OpenCode, Claude Code, Codex CLI, pi and others). Those are separate products with their own terms and privacy policies.</p>
+
+    <h2 id="en-3">3. Information we do not collect</h2>
+    <p>BrewPing contains no telemetry of any kind. Specifically, we do not collect:</p>
     <ul>
-      <li>We do <strong>not</strong> collect any personal data.</li>
-      <li>There is <strong>no account</strong>, no sign-up, no analytics, and no third-party SDKs.</li>
-      <li>Everything you send stays between your iPhone and your own Mac, on your local network.</li>
+      <li>Names, email addresses or contact details</li>
+      <li>Usage analytics, event tracking or screen recordings</li>
+      <li>Crash reports (the app contains no crash-reporting SDK)</li>
+      <li>Advertising identifiers — BrewPing never reads the advertising identifier, so no App Tracking Transparency prompt is needed</li>
+      <li>Location data — no Core Location usage, and no coarse or precise location is derived</li>
+      <li>Contacts, photos, calendar or health data</li>
     </ul>
 
-    <h2>1. Information We Do Not Collect</h2>
-    <p>BrewPing does not collect, transmit, or store any personal information on our servers — we do not operate any servers. Specifically, we do not collect:</p>
+    <h2 id="en-4">4. Data flow: iPhone and Apple Watch</h2>
+    <p>Your device list and in-app preferences are stored on your iPhone in local app storage. The pairing token that authenticates your phone to your computer is stored in the iOS Keychain, not in plain app storage.</p>
+    <p>Commands you send are transmitted over HTTP on your local network to the host and port you configured (default 8787). They are not routed through any server of ours.</p>
+    <p>Agent output travels back along the same path and is rendered in the app.</p>
+
+    <h2 id="en-5">5. Voice input and transcription</h2>
+    <p>When you use voice input on Apple Watch, audio is recorded on the watch only while you are on the input screen, and is transferred to the paired iPhone over Apple's WatchConnectivity transport — a device-to-device channel, not an internet upload.</p>
+    <p>The iPhone then transcribes that audio file using Apple's Speech framework to produce the command text. Please note precisely how this works: BrewPing does not request on-device-only recognition, so transcription may be performed by Apple's servers rather than solely on your device. That transfer is between your device and Apple, is governed by Apple's own privacy policy, and we do not receive the audio or the transcript.</p>
+    <p>The temporary audio file is deleted from the iPhone immediately after transcription succeeds or fails.</p>
+
+    <h2 id="en-6">6. Data flow: macOS desktop</h2>
+    <p>The desktop app listens for your phone on port 8787 (falling back to 8788, then 8789 if the port is taken) and stores its state in <code>~/.brewping/</code>:</p>
     <ul>
-      <li>Names, email addresses, or contact information</li>
-      <li>Usage analytics or crash reports</li>
-      <li>Advertising identifiers</li>
-      <li>Location data</li>
+      <li><code>session.json</code> — current session id, process ids, working directory, status</li>
+      <li><code>agent.sock</code> — a local Unix socket used by the command line tool</li>
+      <li><code>agent.log</code> / <code>opencode.log</code> — agent standard output and error output</li>
+      <li><code>pairing.json</code> — the pairing token, written with file permissions 0600</li>
+      <li><code>device.json</code> — this computer's device identity</li>
+      <li><code>approval.json</code>, <code>config.json</code>, <code>workdirs.json</code> — approval mode, agent and model preferences, working directory preferences</li>
+      <li><code>commands/</code> and <code>conversations/</code> — one file per command, and stored conversations</li>
     </ul>
 
-    <h2>2. Permissions and Why We Ask for Them</h2>
-    <p>The App requests only the permissions it needs to function, and each is used solely for the purpose described below:</p>
+    <h2 id="en-7">7. Data flow: Windows desktop</h2>
+    <p>The Windows app serves the same local HTTP API on port 8787 and stores its state under your user profile, in <code>%USERPROFILE%\.brewping\</code>:</p>
     <ul>
-      <li><strong>Camera</strong> — Used only to scan the pairing QR code shown in the BrewPing desktop app on your Mac. No photos or video are recorded, stored, or transmitted.</li>
-      <li><strong>Microphone &amp; Speech Recognition</strong> — Used only on Apple Watch to turn your spoken words into a text command. Audio is processed on-device by Apple’s speech framework to produce the command text; it is not stored and is not sent to us.</li>
-      <li><strong>Local Network</strong> — Used to discover and communicate with the Mac you have paired. The App uses Bonjour (mDNS) to find your Mac, then talks to it directly over your local Wi‑Fi.</li>
+      <li><code>device.json</code> — device identity</li>
+      <li><code>pairing.json</code> — the pairing token, file mode 0600</li>
+      <li><code>model_providers.json</code> — provider configurations, proxy switch, proxy port, failover switch</li>
+      <li><code>workdirs.json</code> — per-agent working directory preferences</li>
+      <li><code>approval.json</code> — global approval mode</li>
     </ul>
 
-    <h2>3. Where Your Data Goes</h2>
-    <p>Commands you send, the output returned by your coding agent, and any speech that is transcribed travel <strong>only between your iPhone (or Apple Watch) and the Mac you configured</strong>, directly over your local network. They do not pass through any server operated by us, and we cannot see them.</p>
+    <h2 id="en-8">8. Bonjour and Local Network</h2>
+    <p>BrewPing asks for Local Network permission for exactly one reason: to find and talk to the computer you have configured.</p>
+    <p>It browses and advertises the Bonjour (mDNS) service type <code>_brewping._tcp</code> on your own network. The advertised record carries the app version, the active agent id, the platform, a protocol version, and optionally a device id and device name — nothing else.</p>
+    <p>Discovery and command delivery both stay on your local network. There is no wide-area component: BrewPing does not open a connection to the internet to reach your computer, and it cannot be reached from outside your network unless you make your own network arrangements (for example Tailscale or WireGuard).</p>
 
-    <h2>4. Storage</h2>
+    <h2 id="en-9">9. Relay server</h2>
+    <p>No relay server is in operation. BrewPing ships as a local-network tool only.</p>
+    <p>For full transparency: the BrewPing source repository contains an experimental <code>relay-server/</code> directory. It is not wired into any shipped client, it has no authentication, and the project documentation explicitly prohibits deploying it to the public internet or to any untrusted network. It is not built, not shipped and not running. If that ever changes, this policy will be updated before such a feature is enabled for anyone.</p>
+
+    <h2 id="en-10">10. Third-party services</h2>
+    <p>BrewPing embeds no analytics, advertising, attribution or crash-reporting SDK of any kind.</p>
+    <p>The one path by which your content can reach a third party is the one you configure yourself. The Windows desktop app can run a local model proxy on <code>127.0.0.1:15721</code>. If you enable it and configure a model provider, the proxy forwards your prompts and the resulting output to that provider so the coding agent can do its work. The providers offered as presets are Kimi (Moonshot), DeepSeek, GLM (Zhipu), MiMo (Xiaomi) and MiniMax, plus a custom option where you enter the endpoint yourself. Which provider receives your content is entirely your choice, and that provider's own privacy policy governs what it does with it. We do not receive a copy.</p>
+    <p>Purchases of the iOS app are processed by Apple through the App Store. We do not receive payment card details. Apple provides us with aggregate sales and download reporting, and aggregate crash diagnostics only from users who have opted in to share diagnostics with developers.</p>
+
+    <h2 id="en-11">11. This website</h2>
+    <p>commitbrew.com is a static site hosted on Vercel. As with any public web server, Vercel may generate standard request logs (such as IP address, requested path and user agent) as part of delivering the pages.</p>
+    <p>We add no analytics, tag manager, advertising or cross-site tracking script to this site, and it sets no advertising or tracking cookies. The only thing this site stores in your browser is your language choice, kept in local storage so the site opens in the language you picked. Fonts are served from the site itself rather than from a third-party content delivery network.</p>
+
+    <h2 id="en-12">12. Network requests, logs and errors</h2>
+    <p>Traffic between your phone and your computer is plain HTTP on the local network. It is not encrypted with TLS on that local hop, which is why pairing is required: every request except the pairing exchange and a public status check must carry a bearer token, and write requests additionally carry a timestamp within a two-minute window plus a single-use nonce so a captured request cannot be replayed.</p>
+    <p>The apps log to the operating system's own logging facility. Command text, voice transcripts, file names and host names are all marked as private in those logs. Logs stay on your device and are never uploaded by us.</p>
+    <p>Error messages are shown to you in the app. We do not receive them.</p>
+
+    <h2 id="en-13">13. How long data is kept, and how you delete it</h2>
+    <p>Because we hold none of your data on any server, there is nothing for us to retain or delete. Retention is entirely on your own devices, and you control it:</p>
     <ul>
-      <li>The pairing key that authenticates your iPhone to your Mac is stored in the iOS <strong>Keychain</strong> on your device.</li>
-      <li>Device settings (such as your device list and preferences) are stored locally on your device.</li>
-      <li>None of this is stored on our servers, because we do not operate any.</li>
+      <li>Conversations and command history — delete them in the app, or activate a different conversation and clear the archive</li>
+      <li>Pairing token — removing the device in the app, or deleting the app, removes the Keychain item</li>
+      <li>macOS desktop state — delete <code>~/.brewping</code> (this removes sessions, conversations, logs, preferences and the pairing token)</li>
+      <li>Windows desktop state — delete <code>%USERPROFILE%\.brewping</code> (this removes device identity, pairing token, provider configuration and working directory preferences)</li>
+      <li>Voice audio — deleted automatically right after transcription, whether it succeeded or failed</li>
+      <li>Uninstalling an app removes that app's own container and everything inside it</li>
     </ul>
 
-    <h2>5. Sharing</h2>
-    <p>We do not share, sell, or transfer any data to third parties, because we do not collect any.</p>
+    <h2 id="en-14">14. Your rights</h2>
+    <p>Since we hold no account and no server-side copy of your data, we cannot access, correct, export or delete it for you — and we cannot hand it to anyone else, because we never receive it.</p>
+    <p>You therefore exercise these rights directly on your own devices, using the deletion steps above. Where a data protection law gives you rights over data we do not hold, there is simply no such data to act on.</p>
+    <p>If you believe any build of BrewPing is transmitting data it should not, please tell us. Point us at the specific behaviour and we will fix it rather than argue about it.</p>
 
-    <h2>6. Children’s Privacy</h2>
-    <p>The App is a developer tool and is not directed at children. We do not knowingly collect information from anyone, including children.</p>
+    <h2 id="en-15">15. Children's privacy</h2>
+    <p>BrewPing is a developer tool intended for people who already run coding agents on their own machines. It is not directed at children, and we do not knowingly collect information from anyone, including children.</p>
 
-    <h2>7. Changes to This Policy</h2>
-    <p>If we change this policy, we will update the “Last updated” date at the top of this page.</p>
+    <h2 id="en-16">16. Changes to this policy</h2>
+    <p>If we change this policy, we will update the effective date at the top of this page. Because BrewPing does not hold your contact details, we cannot email you about changes — please check this page if the question matters to you.</p>
 
-    <h2>8. Contact</h2>
-    <p>Questions about this policy? Email us at <strong>czkbanmu@163.com</strong>.</p>
+    <h2 id="en-17">17. Contact</h2>
+    <p>Questions about this policy, or about what a specific build actually transmits: email <strong><a href="mailto:czkbanmu@163.com">czkbanmu@163.com</a></strong>, or <a href="https://github.com/banmu123/BrewPing/issues">open an issue on GitHub</a>.</p>
   </div>
 
+  <!-- ============================== 简体中文 ============================== -->
   <div id="zh" hidden>
     <h1>隐私政策</h1>
-    <p class="updated">最后更新：2026 年 9 月 11 日</p>
+    <p class="updated">生效日期：2026 年 9 月 18 日</p>
 
-    <p>BrewPing（下称“本 App”）是一款开发者工具，让你通过 iPhone 和 Apple Watch，在同一局域网内控制<strong>运行在你自己电脑上</strong>的 AI 编程助手。本政策说明本 App 会处理哪些数据——以及不会处理哪些数据。</p>
+    <p>BrewPing 是一款开发者工具：让你通过 iPhone 或 Apple Watch，在局域网内查看并驱动已经运行在你自己电脑上的 AI 编程智能体。本政策逐平台说明 BrewPing 究竟处理了哪些数据、以及哪些数据它永远看不到。内容依据实际发布的代码行为撰写，而非套用模板。</p>
 
-    <h2>概要</h2>
-    <ul>
-      <li>我们<strong>不收集</strong>任何个人信息。</li>
-      <li><strong>没有账号</strong>、无需注册、无统计分析、无第三方 SDK。</li>
-      <li>你发送的一切内容，都只在你自己的 iPhone 与你自己的 Mac 之间的局域网内传输。</li>
-    </ul>
+    <h2 id="zh-1">1. 概要</h2>
+    <p>我们不运营任何接收你数据的服务器。所有 BrewPing 版本中都没有账号、无需注册、无数据分析、无崩溃上报 SDK、无广告标识符，也不采集位置。</p>
+    <p>指令、智能体输出与语音转写结果，只在你自己的手机与你配置的电脑之间通过局域网传输。</p>
+    <p>存在一个例外，且完全由你掌控：如果你在 Windows 桌面端配置了模型服务商，提示词与输出会被转发给该服务商。详见下文「第三方服务」。</p>
 
-    <h2>1. 我们不收集的信息</h2>
-    <p>BrewPing 不会向我们的服务器收集、传输或存储任何个人信息——我们根本没有服务器。具体而言，我们不收集：</p>
+    <h2 id="zh-2">2. 适用范围</h2>
+    <p>本政策覆盖 iOS、watchOS、macOS、Windows 上的 BrewPing，以及本网站 commitbrew.com。</p>
+    <p>它不覆盖你自行选择运行的第三方编程智能体（OpenCode、Claude Code、Codex CLI、pi 等）。那些是独立产品，适用它们各自的条款与隐私政策。</p>
+
+    <h2 id="zh-3">3. 我们不收集的信息</h2>
+    <p>BrewPing 不含任何形式的遥测。具体而言，我们不收集：</p>
     <ul>
       <li>姓名、邮箱或联系方式</li>
-      <li>使用统计或崩溃报告</li>
-      <li>广告标识符</li>
-      <li>位置信息</li>
+      <li>使用分析、事件埋点或屏幕录制</li>
+      <li>崩溃报告（App 内不含崩溃上报 SDK）</li>
+      <li>广告标识符——BrewPing 从不读取广告标识符，因此无需 App 跟踪透明度弹窗</li>
+      <li>位置数据——未使用 Core Location，也不推导任何粗略或精确位置</li>
+      <li>通讯录、照片、日历或健康数据</li>
     </ul>
 
-    <h2>2. 权限及用途</h2>
-    <p>本 App 只申请完成其功能所必需的权限，且每项权限都仅用于以下说明的用途：</p>
+    <h2 id="zh-4">4. 数据流：iPhone 与 Apple Watch</h2>
+    <p>你的设备列表与应用内偏好保存在 iPhone 本地存储中。用于向你的电脑证明手机身份的配对令牌存放在 iOS 钥匙串（Keychain），而非普通应用存储。</p>
+    <p>你发送的指令通过局域网 HTTP 传输到你自己配置的主机与端口（默认 8787），不经过我们运营的任何服务器。</p>
+    <p>智能体输出沿同一路径返回，并在 App 中渲染。</p>
+
+    <h2 id="zh-5">5. 语音输入与转写</h2>
+    <p>当你在 Apple Watch 上使用语音输入时，音频仅在你停留在输入界面期间于手表上录制，并通过 Apple 的 WatchConnectivity 通道传输到已配对的 iPhone——这是设备到设备的通道，不是互联网上传。</p>
+    <p>随后 iPhone 使用 Apple 的 Speech 框架转写该音频文件，得到指令文本。这里需要准确说明：BrewPing 并未请求「仅设备端识别」，因此转写可能由 Apple 的服务器完成，而不完全在你的设备上完成。该传输发生在你的设备与 Apple 之间，适用 Apple 自己的隐私政策；我们不会收到音频或转写内容。</p>
+    <p>转写成功或失败后，该临时音频文件会立即从 iPhone 上删除。</p>
+
+    <h2 id="zh-6">6. 数据流：macOS 桌面端</h2>
+    <p>桌面端在 8787 端口监听来自你手机的请求（端口被占用时依次回落 8788、8789），并把状态存放在 <code>~/.brewping/</code> 目录中：</p>
     <ul>
-      <li><strong>相机</strong> —— 仅用于扫描 Mac 上 BrewPing 桌面端显示的配对二维码。不录制、不存储、不传输任何照片或视频。</li>
-      <li><strong>麦克风与语音识别</strong> —— 仅用于在 Apple Watch 上把你的语音转成文字指令。音频由 Apple 的语音框架在设备本地处理以生成指令文字，我们不会存储，也不会发送给我们。</li>
-      <li><strong>本地网络</strong> —— 用于发现并与你已配对的 Mac 通信。本 App 通过 Bonjour（mDNS）找到你的 Mac，然后直接在同一 Wi‑Fi 内与它通信。</li>
+      <li><code>session.json</code> —— 当前会话 id、进程 id、工作目录、状态</li>
+      <li><code>agent.sock</code> —— 命令行工具使用的本地 Unix socket</li>
+      <li><code>agent.log</code> / <code>opencode.log</code> —— 智能体的标准输出与错误输出</li>
+      <li><code>pairing.json</code> —— 配对令牌，以 0600 权限写入</li>
+      <li><code>device.json</code> —— 本机设备身份</li>
+      <li><code>approval.json</code>、<code>config.json</code>、<code>workdirs.json</code> —— 授权档位、智能体与模型偏好、工作目录偏好</li>
+      <li><code>commands/</code> 与 <code>conversations/</code> —— 每条命令一个文件，以及已保存的对话</li>
     </ul>
 
-    <h2>3. 数据流向</h2>
-    <p>你发送的指令、编程助手返回的输出、以及被转写的语音，<strong>只在你自己的 iPhone（或 Apple Watch）与你配置的 Mac 之间</strong>，经局域网直接传输。它们不会经过我们运营的任何服务器，我们也看不到。</p>
-
-    <h2>4. 存储</h2>
+    <h2 id="zh-7">7. 数据流：Windows 桌面端</h2>
+    <p>Windows 端同样在 8787 端口提供本地 HTTP API，并把状态存放在用户主目录下的 <code>%USERPROFILE%\.brewping\</code>：</p>
     <ul>
-      <li>用于验证 iPhone 身份的配对密钥，存放在你设备上的 iOS <strong>钥匙串（Keychain）</strong> 中。</li>
-      <li>设备设置（如设备列表与偏好）存放在你设备本地。</li>
-      <li>我们不会把这些存到我们服务器上，因为我们没有服务器。</li>
+      <li><code>device.json</code> —— 设备身份</li>
+      <li><code>pairing.json</code> —— 配对令牌，文件权限 0600</li>
+      <li><code>model_providers.json</code> —— 服务商配置、代理开关、代理端口、故障转移开关</li>
+      <li><code>workdirs.json</code> —— 各智能体的工作目录偏好</li>
+      <li><code>approval.json</code> —— 全局授权档位</li>
     </ul>
 
-    <h2>5. 第三方共享</h2>
-    <p>我们不向任何第三方共享、出售或转让任何数据，因为我们不收集任何数据。</p>
+    <h2 id="zh-8">8. Bonjour 与本地网络</h2>
+    <p>BrewPing 申请「本地网络」权限只有一个原因：发现并与你自己配置的那台电脑通信。</p>
+    <p>它在你自己的网络中浏览并广播 Bonjour（mDNS）服务类型 <code>_brewping._tcp</code>。广播记录只包含应用版本、当前激活的智能体标识、平台、协议版本，以及可选的 device id 与 device name——除此之外没有别的内容。</p>
+    <p>设备发现与指令投递都留在你的局域网内。没有任何广域组件：BrewPing 不会为了连上你的电脑而主动发起互联网连接；除非你自行组网（例如 Tailscale 或 WireGuard），否则外部也无法触达它。</p>
 
-    <h2>6. 儿童隐私</h2>
-    <p>本 App 是开发者工具，并非面向儿童。我们不会有意收集任何人（包括儿童）的信息。</p>
+    <h2 id="zh-9">9. 中继服务器</h2>
+    <p>当前没有任何中继服务器在运行。BrewPing 只作为局域网工具发布。</p>
+    <p>为完全透明起见需要说明：BrewPing 源码仓库中存在一个实验性的 <code>relay-server/</code> 目录。它没有接入任何已发布的客户端，没有鉴权，且项目文档明确禁止将其部署到公网或任何不可信网络。它没有被构建、没有被打包、也没有在运行。若这一点将来改变，我们会在向任何人启用该功能之前先更新本政策。</p>
 
-    <h2>7. 政策变更</h2>
-    <p>若本政策有变更，我们会更新页面顶部的“最后更新”日期。</p>
+    <h2 id="zh-10">10. 第三方服务</h2>
+    <p>BrewPing 未内置任何分析、广告、归因或崩溃上报 SDK。</p>
+    <p>你的内容流向第三方的唯一路径，是你自己配置的那条。Windows 桌面端可以在 <code>127.0.0.1:15721</code> 运行本地模型代理。若你启用它并配置了模型服务商，代理会把你的提示词与相应输出转发给该服务商，以便编程智能体完成工作。内置预设服务商为 Kimi（月之暗面）、DeepSeek、GLM（智谱）、MiMo（小米）、MiniMax，另有「自定义」项供你自行填写端点。由哪个服务商接收你的内容完全由你决定，该服务商自身的隐私政策决定它如何处理这些数据。我们不会收到副本。</p>
+    <p>iOS 版 App 的购买由 Apple 通过 App Store 处理。我们不会收到支付卡信息。Apple 会向我们提供聚合的销售与下载报表，以及仅来自选择向开发者共享诊断信息的用户的聚合崩溃诊断数据。</p>
 
-    <h2>8. 联系我们</h2>
-    <p>如对本政策有疑问，请发邮件至 <strong>czkbanmu@163.com</strong>。</p>
+    <h2 id="zh-11">11. 本网站</h2>
+    <p>commitbrew.com 是部署在 Vercel 上的静态站点。与任何公共 Web 服务器一样，Vercel 在分发页面时可能会产生标准的请求日志（例如 IP 地址、请求路径与 User-Agent）。</p>
+    <p>本站点未添加任何分析、标签管理、广告或跨站跟踪脚本，也不设置广告或跟踪 Cookie。站点在你浏览器中存储的唯一内容是你的语言选择，保存在本地存储里，以便下次打开时沿用你选的语言。字体由站点自身提供，而非第三方 CDN。</p>
+
+    <h2 id="zh-12">12. 网络请求、诊断日志与错误信息</h2>
+    <p>你手机与电脑之间的流量在局域网上是明文 HTTP，这一段没有 TLS 加密。这正是需要配对的原因：除配对交换与一个公开的状态查询外，每个请求都必须携带 Bearer 令牌；写请求还要额外携带两分钟时间窗内的时间戳与一次性 nonce，使被截获的请求无法重放。</p>
+    <p>各端日志写入操作系统自身的日志系统。命令原文、语音转写结果、文件名与主机名在这些日志中均标记为 private。日志留在你的设备上，我们从不上传。</p>
+    <p>错误信息直接显示在你的 App 内。我们不会收到这些错误信息。</p>
+
+    <h2 id="zh-13">13. 数据保存期限与删除方式</h2>
+    <p>由于我们不在任何服务器上持有你的数据，因此不存在由我们保存或删除的内容。留存完全发生在你自己的设备上，由你掌控：</p>
+    <ul>
+      <li>对话与命令历史 —— 在 App 内删除，或切换/清空归档</li>
+      <li>配对令牌 —— 在 App 中移除设备，或卸载 App，即可删除钥匙串条目</li>
+      <li>macOS 桌面端状态 —— 删除 <code>~/.brewping</code>（会清除会话、对话、日志、偏好与配对令牌）</li>
+      <li>Windows 桌面端状态 —— 删除 <code>%USERPROFILE%\.brewping</code>（会清除设备身份、配对令牌、服务商配置与工作目录偏好）</li>
+      <li>语音音频 —— 转写结束后自动删除，无论成功或失败</li>
+      <li>卸载某个 App 会移除该 App 自身的容器及其中的全部内容</li>
+    </ul>
+
+    <h2 id="zh-14">14. 你的权利</h2>
+    <p>由于我们不持有账号，也不在服务器端保存你的任何数据副本，我们无法为你访问、更正、导出或删除这些数据——同样也无法把它们交给任何第三方，因为我们从未收到过。</p>
+    <p>因此，你可以直接在自己的设备上、使用上文的删除步骤行使这些权利。若某部数据保护法律赋予你针对数据的权利，而我们并不持有该数据，那么客观上不存在可处理的数据。</p>
+    <p>如果你认为 BrewPing 的某个版本在传输它本不该传输的数据，请告诉我们。请指出具体行为，我们会去修复它，而不是争辩。</p>
+
+    <h2 id="zh-15">15. 儿童隐私</h2>
+    <p>BrewPing 是面向已经在自己机器上运行编程智能体的开发者的工具，并非面向儿童。我们不会有意收集任何人（包括儿童）的信息。</p>
+
+    <h2 id="zh-16">16. 政策变更</h2>
+    <p>若本政策发生变更，我们会更新本页顶部的生效日期。由于 BrewPing 不保存你的联系方式，我们无法通过邮件通知你——如果这件事对你重要，请自行查看本页。</p>
+
+    <h2 id="zh-17">17. 联系方式</h2>
+    <p>对本政策、或对某个具体版本实际传输了什么有疑问：请发邮件至 <strong><a href="mailto:czkbanmu@163.com">czkbanmu@163.com</a></strong>，或<a href="https://github.com/banmu123/BrewPing/issues">在 GitHub 提交 Issue</a>。</p>
   </div>
 </main>
 
-<footer>BrewPing · <a href="mailto:czkbanmu@163.com">czkbanmu@163.com</a></footer>
+<footer>
+  BrewPing · <a href="mailto:czkbanmu@163.com">czkbanmu@163.com</a> ·
+  <a href="https://github.com/banmu123/BrewPing">GitHub</a>
+</footer>
 
 <script>
   function setLang(l) {
