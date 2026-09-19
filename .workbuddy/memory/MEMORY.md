@@ -20,6 +20,14 @@
 ## 全局作用域（勿混）＋端口
 模型 per-Agent／授权 per-对话（safe|askAll|auto，TTL 300s=拒）／Agent per-对话（创建绑定）。
 `8787`=http；`15721`=model_proxy(503 正常)；同机 cc-switch 必互踩。
+- 🆕 **本机没装 `gh` CLI** → GitHub 操作改用 `curl` + 从 `~/.git-credentials` 取 token（helper=store；
+  取法 `grep 'github.com' ~/.git-credentials | sed -E 's#https://([^:]*):([^@]*)@.*#\2#'`，**绝不打印/落盘 token**）。
+  建 release：`POST /repos/banmu123/BrewPing/releases`；传资产：
+  `POST https://uploads.github.com/repos/banmu123/BrewPing/releases/{id}/assets?name=…`
+  （`-H "Content-Type: video/mp4" --data-binary @文件`，243MB ≈ 1m43s）。
+- 🆕 仓库 **banmu123/BrewPing 公开**；App Review 演示视频放 GitHub Release 资产（免登录可下载，已验 200）：
+  `https://github.com/banmu123/BrewPing/releases/download/v1.0.0/BrewPing-App-Review-Demo.mp4`。
+  首个 release/tag = `v1.0.0`（指向 main）。**不要把视频塞进 README**，只放链接。
 
 ## iOS / Watch
 - 只做 iPhone（`TARGETED_DEVICE_FAMILY=1`）；iOS 17；bundle `com.brewping.ios` / `.watchkitapp`。
