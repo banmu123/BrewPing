@@ -10,6 +10,12 @@
 - 🚨 **推送前必须先拉取**（用户明令）：`fetch` → `rev-list --left-right --count` → 落后则 **merge（绝不用 rebase）** → **merge 后立刻核对有无目录级 ` D`**（配合记录 merge 前后 `git ls-files` 数量，曾误删整个 `ios/`，靠 `git restore --source=HEAD --staged --worktree ios/` 零损失恢复）→ 再 push。push 一律走 `PortableGit\bin\bash.exe`（PowerShell 下 exit 128）。
 - 🚨 `core.filemode=false` 时 `git commit -F msg -- <paths>` 会把 chmod=+x 打回 100644 → 提交**不带 `-- paths`**，用 `git update-index --chmod=+x`。
 - memory 日志这类双方都改的 append-only 文件会与远端冲突 → 合并前先备份、`git checkout --` 还原，merge 完再追加回去。
+- 示例文案 / 占位符**禁用真实主机名与个人信息**：曾把 Mac 主机名 `Chenzk` 写进设备名输入框示例，
+  已统一换成中性 `My Mac` / `我的 Mac`（iOS ContentView + 中英 strings、Android 中英 strings、注释）。
+- 🚨 **fetch/push 网络抖动（本机间歇性，遇过 502 / schannel CRYPT_E_NO_REVOCATION_CHECK / openssl 20）**：
+  先普通重试 2~3 次；仍失败按序试 `-c http.schannelCheckRevoke=false` → `-c http.sslBackend=openssl`
+  （若报 20=本地链路被 TLS 拦截，最终手段 `-c http.sslVerify=false`，**仅 fetch 这类只读操作、绝不持久化配置**，
+  用完提醒用户排查拦截源：netsh winhttp show proxy 是「直接访问」→ 多为本机安全软件的 HTTPS 扫描）。
 
 ## 全局作用域（勿混）＋端口
 模型 per-Agent／授权 per-对话（safe|askAll|auto，TTL 300s=拒）／Agent per-对话（创建绑定）。
