@@ -44,7 +44,7 @@
     <string name="nearby">附近的设备：</string>
 
     <!-- Device form -->
-    <string name="name_label">名称（例如 Chenzk）</string>
+    <string name="name_label">名称（例如我的 Mac）</string>
     <string name="host_label">主机（IP 或主机名）</string>
     <string name="port_label">端口</string>
     <string name="system_label">系统</string>

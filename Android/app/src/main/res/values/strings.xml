@@ -44,7 +44,7 @@
     <string name="nearby">Nearby:</string>
 
     <!-- Device form -->
-    <string name="name_label">Name (e.g. Chenzk)</string>
+    <string name="name_label">Name (e.g. My Mac)</string>
     <string name="host_label">Host (IP or hostname)</string>
     <string name="port_label">Port</string>
     <string name="system_label">System</string>

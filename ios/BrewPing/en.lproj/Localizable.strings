@@ -28,7 +28,7 @@
 
 /* ── Device form ──────────────────────────────── */
 "Device Info" = "Device Info";
-"Name (e.g. Chenzk)" = "Name (e.g. Chenzk)";
+"Name (e.g. My Mac)" = "Name (e.g. My Mac)";
 "Host (IP or hostname)" = "Host (IP or hostname)";
 "Port" = "Port";
 "System" = "System";

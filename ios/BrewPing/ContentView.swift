@@ -935,7 +935,7 @@ struct ContentView: View {
         NavigationStack {
             Form {
                 Section("Device Info") {
-                    TextField("Name (e.g. Chenzk)", text: $editName)
+                    TextField("Name (e.g. My Mac)", text: $editName)
                         .autocorrectionDisabled()
                     TextField("Host (IP or hostname)", text: $editHost)
                         .autocorrectionDisabled()

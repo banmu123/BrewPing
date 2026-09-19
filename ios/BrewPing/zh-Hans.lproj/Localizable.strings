@@ -36,7 +36,7 @@
 
 /* MARK: - Device Form */
 "Device Info" = "设备信息";
-"Name (e.g. Chenzk)" = "名称（例如 Chenzk）";
+"Name (e.g. My Mac)" = "名称（例如我的 Mac）";
 "Host (IP or hostname)" = "主机（IP 或主机名）";
 "Port" = "端口";
 "System" = "系统";

@@ -63,7 +63,7 @@ enum DeviceOSType: String, Codable, CaseIterable {
 /// 一台被管理的电脑
 struct ManagedDevice: Identifiable, Codable, Equatable {
     let id: String
-    var name: String          // 用户自定义名称，如 "Chenzk"
+    var name: String          // 用户自定义名称，如 "我的 Mac"
     var host: String          // IP 或 hostname
     var port: String          // 端口号
     var osType: DeviceOSType
