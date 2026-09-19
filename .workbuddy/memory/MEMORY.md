@@ -23,6 +23,14 @@
 
 ## iOS / Watch
 - 只做 iPhone（`TARGETED_DEVICE_FAMILY=1`）；iOS 17；bundle `com.brewping.ios` / `.watchkitapp`。
+  - 🚨 **App Store Connect 的截屏页签由「该版本所附构建」的 `UIDeviceFamily` 决定**：工程若曾出现
+    `TARGETED_DEVICE_FAMILY = "1,2"`（git 历史里有过），那时的构建会带上 iPad 支持 → ASC 出现 iPad
+    截屏页签并强制 iPad 规格图。**解决办法不是补图，而是重新 Archive + 上传新构建**（新构建已
+    iPhone-only）。Xcode 里的对应开关：target → General → **Supported Destinations**（移除 iPad），
+    或 Build Settings → `TARGETED_DEVICE_FAMILY = 1`。验证手法：对归档产物
+    `plutil -p …/BrewPing.app/Info.plist | grep -A3 UIDeviceFamily`，`[1]` 即 iPhone-only。
+  - 归档产物里的 `CFBundleIcons~ipad` 只是图标资源的 iPad 尺寸变体（asset catalog 自动生成），
+    **不代表支持 iPad**，可忽略。
 - 🚨 新 Swift 文件登 pbxproj **四处**（`grep -c` ≥4）；🚨 译文 `%@` 个数=实参数（多一个崩），改完跑 `ios/Scripts/check_localization.py`。
 - i18n：`Text("字面量")` 靠 `.environment(\.locale)`；String 用 L()/LW；`Text(变量)` 必须 `LocalizedStringKey(变量)`；Watch 语言随 WCSession 同步。
 - 🚨 **iOS Bonjour 自动发现用 `NWBrowser.Result.endpoint` → `NWConnection`，绝不用 `NetService.resolve`**：真机/TestFlight 上 NetService 解析会在首帧不完整回调后停摆至超时（partial=1 → 10s → `netServiceDidStop`），而同一代码在模拟器正常、Mac 侧 dns-sd 记录也完整 → 该路径在真机不可用。旧实现（TrackedNetService/ResolveStage/ResolveStats/看门狗/NetServiceDelegate）**已于 2026-09-17 验证通过后整体删除**；屏幕诊断行（diag）同步移除，保留 `conn:` / `bonjour:` 等 os_log 作为长期排障入口。
