@@ -388,7 +388,9 @@ struct ContentView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Button {
-                if let url = URL(string: "https://www.commitbrew.com/#download") {
+                // 桌面端安装包统一从 GitHub Release 分发（Mac 分 Universal / Apple Silicon /
+                // Intel 三个 DMG，另有 Windows 安装包），官网仅作介绍页。
+                if let url = URL(string: "https://github.com/banmu123/BrewPing/releases") {
                     openURL(url)
                 }
             } label: {

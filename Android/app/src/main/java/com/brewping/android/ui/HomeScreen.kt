@@ -496,14 +496,16 @@ private fun EmptyStateCard(modifier: Modifier = Modifier) {
             )
 
             Spacer(modifier = Modifier.height(16.dp))
-            // 没有桌面端？引导去官网下载（Mac / Windows / Linux）
+            // 没有桌面端？引导去下载（Mac / Windows）
+            // 安装包统一从 GitHub Release 分发：Mac 分 Universal / Apple Silicon / Intel
+            // 三个 DMG，另有 Windows 安装包；官网仅作介绍页。
             Button(
                 onClick = {
                     try {
                         context.startActivity(
                             android.content.Intent(
                                 android.content.Intent.ACTION_VIEW,
-                                android.net.Uri.parse("https://www.commitbrew.com/#download"),
+                                android.net.Uri.parse("https://github.com/banmu123/BrewPing/releases"),
                             )
                         )
                     } catch (_: android.content.ActivityNotFoundException) {
