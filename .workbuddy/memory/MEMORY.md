@@ -19,9 +19,11 @@
   ⚠️ 本地 untracked 的同名日志会**直接挡住 merge** → 先移开再合并，最后把两侧内容都回填。
 - 示例文案/占位符**禁用真实主机名与个人信息**（曾把 Mac 主机名 `Chenzk` 写进设备名示例 → 已换 `My Mac`/`我的 Mac`）。
 - 🚨 **网络间歇性被 TLS 拦截**（`netsh winhttp show proxy` 显示「直接访问」→ 多为本机安全软件 HTTPS 扫描）：
-  git 报 502 / `CRYPT_E_NO_REVOCATION_CHECK` / openssl `20` → 重试 2~3 次 → `-c http.schannelCheckRevoke=false`
-  → `-c http.sslBackend=openssl`；最终手段加 `-c http.sslVerify=false`（**仅只读操作、绝不持久化**）。
-  Android SDK 包同样被掐断（AGP 报 `Error on ZipFile unknown archive`）→ Python `urllib` + HTTP `Range` 断点续传。
+  症状 502 / `CRYPT_E_NO_REVOCATION_CHECK`(0x80092012) / openssl `20`。**首选 `-c http.sslBackend=schannel` 多轮重试**
+  （拦截是间歇性的，fetch 与 **push 都常在第 1~3 次通过**）；`-c http.schannelCheckRevoke=false` **实测无效，别浪费轮次**。
+  仅当反复失败且**确认是只读操作**时才用 `-c http.sslBackend=openssl -c http.sslVerify=false`（**绝不持久化**；
+  写操作禁用此法，凭据有风险）。Android SDK 包同样被掐断（AGP 报 `Error on ZipFile unknown archive`）
+  → Python `urllib` + HTTP `Range` 断点续传。
 
 ## 全局作用域（勿混）＋端口
 模型 per-Agent／授权 per-对话（safe|askAll|auto，TTL 300s=拒）／Agent per-对话（创建绑定）。
