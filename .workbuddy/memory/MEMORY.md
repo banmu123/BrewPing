@@ -62,7 +62,19 @@
 - 按钮：`LatteButtonStyle` 自带内边距（regular 12/5、icon 6/6），纯图标必传 `size:.icon` 不再套 frame。
 - CLI 厂商面板三层 `cliCard`/`cliRowCard`+`cliInset`/`cliLabelValue`；间距块内 4–6、块间 8、组间 12。
 - 验证 `swift build --disable-sandbox`（不加会静默失败）；本机无完整 Xcode 工具链，配置验证走 `./tools/verify-cli-config.sh`。
-- 打包：`build-app.sh` / `Scripts/build-mac-app.sh`，bundle id **统一 `com.brewping.desktop`**，Hardened Runtime **不开 App Sandbox**，Developer ID→notarytool→staple；`.github/workflows/release-mac.yml` 打 tag 发布（v1.0.0 已发布）。
+- 打包：`build-app.sh` / `Scripts/build-mac-app.sh`，bundle id **统一 `com.brewping.desktop`**（注意：9-15/9-16 老包的 bundle id 是 `local.brewping.desktop`，已废弃），Hardened Runtime **不开 App Sandbox**，Developer ID→notarytool→staple；`.github/workflows/release-mac.yml` 打 tag 发布（v1.0.0 已发布；但该 CI 因缺 `MACOS_*` 证书 secrets 在 Import signing certificate 步失败 → **Mac 包只能本地打**）。
+- 🚨 **打 dmg 的两个坑**（2026-09-19 踩过，曾误判成 FDA 权限问题绕大弯）：
+  ① `hdiutil create -format` **只能配 `-srcfolder`/`-srcdevice`**，建空白镜像不能带 `-format`
+     → 正确：`hdiutil create -size 200m -fs HFS+ -volname "X" raw.dmg`。
+  ② **dmg 本身也要 `codesign --sign <Developer ID> --timestamp`**，只公证不签名 →
+     `spctl` 判 `rejected / source=no usable signature`；且签名改内容 → **先签名、再公证**。
+- 🚨 **别用 dmgbuild**：它挂到 `/Volumes` 后 `ditto` 写入，FDA 受限环境必失败
+  （`ditto: Operation not permitted`），**失败只留 40KB 空镜像**极难排查。
+  ✅ 改用空白镜像 + `hdiutil attach -mountpoint /tmp/xxx` + cp + `ln -s /Applications`
+  + detach + `hdiutil convert -format UDZO`（全程不碰 /Volumes）。
+- 💡 **单架构变体不用重编译**：对已签名的 Universal app 用 `lipo -thin arm64/x86_64` 抽架构
+  → 重签 app → 打 dmg → 签 dmg → 公证 → staple。两个变体约 1.5 分钟。notary profile
+  统一 **`BrewPingNotary`**（`--wait` 约 35-40s Accepted）。`dist/` 已被 .gitignore 忽略。
 
 ## Windows 桌面端
 - 🚨 tokio Mutex 不可重入；HTTP 错误体永远 JSON（query 用 `Option<String>` 手工解析）。
