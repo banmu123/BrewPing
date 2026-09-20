@@ -1,155 +1,142 @@
 # BrewPing — 项目长期记忆
 
-跨端：手机/Watch/Android 远程指挥电脑 Agent。`ios/`、`Sources/`（Mac=SwiftPM 三 target；Win=Tauri2+axum+React）、`Android/`。日志 append-only，写前必 Glob+Read 防覆盖。
+跨端：手机/Watch/Android 远程指挥电脑 Agent。`ios/`、`Sources/`（Mac=SwiftPM 三 target；Win=Tauri2+axum+React）、`Android/`。
+日志 append-only，写前必 Glob+Read 防覆盖。**本文件只留高频规则与触发条件，取证过程看当日日志。**
 
 ## 环境事实（本机 Windows）
-- 🚨 命令回显常坏 → 落盘再 Read；沙箱拦 Start-Process/taskkill（Stop-Process 可用）；读文件一律 Read/Grep/Glob。
-- 🚨 Git Bash coreutils 全缺、cd 坏、npm 是 WSL shim → 不 cd、全绝对路径；npm/tsc 用 `node.exe <全路径>`；长任务后台跑。
+- 🚨 命令回显常坏 → 落盘再 Read；沙箱拦 Start-Process/taskkill（Stop-Process 可用）。
+- 🚨 Git Bash coreutils 缺失（`grep`/`head`/`ls` 可能都没有）、cd 坏、npm 是 WSL shim → 不 cd、全绝对路径、长任务后台跑。
+  ⚠️ `cmd || echo "(无)"` 在工具缺失时会**假报「无命中」**（曾据此误判 `BackHandler` 不存在）→ 查找一律用 Grep/Glob 工具。
+- 🆕 工具链**都在本机**，别再以「没有编译器」为由跳过验证：JDK 17 `D:\study\java\devlop\jdk17`（默认 `JAVA_HOME` 是
+  jdk25，对 Gradle 8.14 偏新 → 显式指定 17）；Android SDK `D:\software\androidSDK`；Mac 侧完整 Xcode 在 `/Applications/Xcode.app`。
 - WinPS5.1：写配置 `[System.IO.File]::WriteAllText` + UTF8 no-BOM；删文件 `[System.IO.File]::Delete`。
-- 🚨 前台 git rebase 被强杀曾毁 .git → git 操作要么秒完成要么后台落盘轮询；cwd 丢用 `git -C`。
-- 🚨 **推送前必须先拉取**（用户明令）：`fetch` → `rev-list --left-right --count` → 落后则 **merge（绝不用 rebase）** → **merge 后立刻核对有无目录级 ` D`**（配合记录 merge 前后 `git ls-files` 数量，曾误删整个 `ios/`，靠 `git restore --source=HEAD --staged --worktree ios/` 零损失恢复）→ 再 push。push 一律走 `PortableGit\bin\bash.exe`（PowerShell 下 exit 128）。
-- 🚨 `core.filemode=false` 时 `git commit -F msg -- <paths>` 会把 chmod=+x 打回 100644 → 提交**不带 `-- paths`**，用 `git update-index --chmod=+x`。
-- memory 日志这类双方都改的 append-only 文件会与远端冲突 → 合并前先备份、`git checkout --` 还原，merge 完再追加回去。
-- 示例文案 / 占位符**禁用真实主机名与个人信息**：曾把 Mac 主机名 `Chenzk` 写进设备名输入框示例，
-  已统一换成中性 `My Mac` / `我的 Mac`（iOS ContentView + 中英 strings、Android 中英 strings、注释）。
-- 🚨 **fetch/push 网络抖动（本机间歇性，遇过 502 / schannel CRYPT_E_NO_REVOCATION_CHECK / openssl 20）**：
-  先普通重试 2~3 次；仍失败按序试 `-c http.schannelCheckRevoke=false` → `-c http.sslBackend=openssl`
-  （若报 20=本地链路被 TLS 拦截，最终手段 `-c http.sslVerify=false`，**仅 fetch 这类只读操作、绝不持久化配置**，
-  用完提醒用户排查拦截源：netsh winhttp show proxy 是「直接访问」→ 多为本机安全软件的 HTTPS 扫描）。
+- 🚨 前台 git rebase 被强杀曾毁 .git → git 要么秒完成要么后台落盘轮询；cwd 丢用 `git -C`。
+- 🚨 **推送前必须先拉取**（用户明令）：`fetch` → `rev-list --left-right --count` → 落后则 **merge（绝不用 rebase）**
+  → **merge 后立刻核对有无目录级 ` D`**（记录 merge 前后 `git ls-files` 数量；曾误删整个 `ios/`，
+  靠 `git restore --source=HEAD --staged --worktree ios/` 零损失恢复）→ 再 push。
+- 🚨 `core.filemode=false` 时 `git commit -F msg -- <paths>` 会把 chmod=+x 打回 100644 → 提交**不带 `-- paths`**。
+- memory 这类双方都改的 append-only 文件会与远端冲突 → 合并前备份、`git checkout --` 还原，merge 完再追加回去。
+  ⚠️ 本地 untracked 的同名日志会**直接挡住 merge** → 先移开再合并，最后把两侧内容都回填。
+- 示例文案/占位符**禁用真实主机名与个人信息**（曾把 Mac 主机名 `Chenzk` 写进设备名示例 → 已换 `My Mac`/`我的 Mac`）。
+- 🚨 **网络间歇性被 TLS 拦截**（`netsh winhttp show proxy` 显示「直接访问」→ 多为本机安全软件 HTTPS 扫描）：
+  git 报 502 / `CRYPT_E_NO_REVOCATION_CHECK` / openssl `20` → 重试 2~3 次 → `-c http.schannelCheckRevoke=false`
+  → `-c http.sslBackend=openssl`；最终手段加 `-c http.sslVerify=false`（**仅只读操作、绝不持久化**）。
+  Android SDK 包同样被掐断（AGP 报 `Error on ZipFile unknown archive`）→ Python `urllib` + HTTP `Range` 断点续传。
 
 ## 全局作用域（勿混）＋端口
 模型 per-Agent／授权 per-对话（safe|askAll|auto，TTL 300s=拒）／Agent per-对话（创建绑定）。
 `8787`=http；`15721`=model_proxy(503 正常)；同机 cc-switch 必互踩。
-- 🆕 **本机没装 `gh` CLI** → GitHub 操作改用 `curl` + 从 `~/.git-credentials` 取 token（helper=store；
-  取法 `grep 'github.com' ~/.git-credentials | sed -E 's#https://([^:]*):([^@]*)@.*#\2#'`，**绝不打印/落盘 token**）。
-  建 release：`POST /repos/banmu123/BrewPing/releases`；传资产：
-  `POST https://uploads.github.com/repos/banmu123/BrewPing/releases/{id}/assets?name=…`
-  （`-H "Content-Type: video/mp4" --data-binary @文件`，243MB ≈ 1m43s）。
-- 🆕 仓库 **banmu123/BrewPing 公开**；App Review 演示视频放 GitHub Release 资产（免登录可下载，已验 200）：
-  `https://github.com/banmu123/BrewPing/releases/download/v1.0.0/BrewPing-App-Review-Demo.mp4`。
-  首个 release/tag = `v1.0.0`（指向 main）。**不要把视频塞进 README**，只放链接。
+- **没装 `gh` CLI** → Python `urllib` + git 凭据（GCM）调 GitHub API；**绝不打印/落盘 token**。
+  仓库 `banmu123/BrewPing` **公开**；首个 tag = `v1.0.0`。⚠️ Windows 内部版本号仍是 `0.1.0`（与资产名 `1.0.0` 不一致）。
+- 分发统一走 **GitHub Release**（Mac 三个 DMG 变体 + Windows setup.exe/msi）；官网只作介绍页。
 
 ## iOS / Watch
 - 只做 iPhone（`TARGETED_DEVICE_FAMILY=1`）；iOS 17；bundle `com.brewping.ios` / `.watchkitapp`。
-  - 🚨 **App Store Connect 的截屏页签由「该版本所附构建」的 `UIDeviceFamily` 决定**：工程若曾出现
-    `TARGETED_DEVICE_FAMILY = "1,2"`（git 历史里有过），那时的构建会带上 iPad 支持 → ASC 出现 iPad
-    截屏页签并强制 iPad 规格图。**解决办法不是补图，而是重新 Archive + 上传新构建**（新构建已
-    iPhone-only）。Xcode 里的对应开关：target → General → **Supported Destinations**（移除 iPad），
-    或 Build Settings → `TARGETED_DEVICE_FAMILY = 1`。验证手法：对归档产物
-    `plutil -p …/BrewPing.app/Info.plist | grep -A3 UIDeviceFamily`，`[1]` 即 iPhone-only。
-  - 归档产物里的 `CFBundleIcons~ipad` 只是图标资源的 iPad 尺寸变体（asset catalog 自动生成），
-    **不代表支持 iPad**，可忽略。
-- 🚨 新 Swift 文件登 pbxproj **四处**（`grep -c` ≥4）；🚨 译文 `%@` 个数=实参数（多一个崩），改完跑 `ios/Scripts/check_localization.py`。
-- i18n：`Text("字面量")` 靠 `.environment(\.locale)`；String 用 L()/LW；`Text(变量)` 必须 `LocalizedStringKey(变量)`；Watch 语言随 WCSession 同步。
-- 🚨 **iOS Bonjour 自动发现用 `NWBrowser.Result.endpoint` → `NWConnection`，绝不用 `NetService.resolve`**：真机/TestFlight 上 NetService 解析会在首帧不完整回调后停摆至超时（partial=1 → 10s → `netServiceDidStop`），而同一代码在模拟器正常、Mac 侧 dns-sd 记录也完整 → 该路径在真机不可用。旧实现（TrackedNetService/ResolveStage/ResolveStats/看门狗/NetServiceDelegate）**已于 2026-09-17 验证通过后整体删除**；屏幕诊断行（diag）同步移除，保留 `conn:` / `bonjour:` 等 os_log 作为长期排障入口。
-- 🚨 `NWConnection.currentPath?.remoteEndpoint` 可能给出 **IPv6 链路本地**（`fe80::…%en0`）→ 下游 `http://\(host):\(port)` 会拼出非法 URL。探测参数必须**固定 IPv4**：`(params.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options)?.version = .v4`（⚠️ `internetProtocol` 返回基类需转型；枚举是 `.v4`/`.v6`，不是 `.ipv4`）。另注意 `NWEndpoint.Host` 字符串可能带 `%en0` scope 后缀，要剥掉。
+  ⚠️ ASC 截屏页签由**该版本所附构建**的 `UIDeviceFamily` 决定：历史构建若带 `"1,2"` 就会出现 iPad 页签 →
+  **解法是重新 Archive 上传新构建，不是补图**。
+- 🚨 新 Swift 文件登 pbxproj **四处**（`grep -c` ≥4）；译文 `%@` 个数=实参数 → 改完跑 `ios/Scripts/check_localization.py`。
+- i18n：`Text("字面量")` 靠 `.environment(\.locale)`；String 用 L()/LW；`Text(变量)` 必须 `LocalizedStringKey(变量)`。
+- 🚨 **Bonjour 发现只能用 `NWBrowser.Result.endpoint` → `NWConnection`，绝不用 `NetService.resolve`**
+  （真机/TestFlight 上解析停摆至超时，模拟器却正常；旧实现已于 2026-09-17 验证通过后删除）。
+- 🚨 `NWConnection.currentPath?.remoteEndpoint` 可能是 IPv6 链路本地（`fe80::…%en0`）→ 拼出非法 URL。必须固定 IPv4：
+  `(params.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options)?.version = .v4`（需转型；枚举是 `.v4`/`.v6`）；
+  `NWEndpoint.Host` 的 `%en0` 后缀要剥掉。
 - 局域网明文 http；Bearer+Timestamp±120s+Nonce；改端点必同步 `DemoBackend.swift`。
-- 🚨 **Logger 插值是 autoclosure**：`log.info("\(xxx, privacy: .public)")` 里引用**实例属性**必须写 `self.xxx`，否则 `Reference to property 'x' in closure requires explicit use of 'self'`；**deinit 里也一样**；局部变量与 `Self.xxx` 不受影响。另：别用 `+` 拼 Logger 字符串（收的是 `OSLogMessage`，一律单字面量）。
-- 🆕 **本机（Mac）其实装了完整 Xcode**（`/Applications/Xcode.app`），只是 `xcode-select -p` 指向 CommandLineTools → 裸跑 `xcodebuild`/`simctl` 会报 requires Xcode / unable to find utility。**加环境变量即可，无需 sudo**：`export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` → `xcodebuild` / `xcrun simctl` / `xcrun swiftc` 全部可用。**别再以「没有 Xcode」为由跳过本地编译与模拟器验证**（2026-09-17 修正，此前认知错误）。
-  - 编译：`xcodebuild -project ios/BrewPing.xcodeproj -scheme BrewPing -destination 'generic/platform=iOS Simulator' -configuration Debug SYMROOT=/tmp/bp-sym OBJROOT=/tmp/bp-obj build CODE_SIGNING_ALLOWED=NO`（scheme `BrewPing` / `BrewPing Watch App`）。
-  - 模拟器实跑：iPhone 16 Pro `C7C7F583-310C-43CE-B6ED-D4915F465154`；`simctl log stream --level debug --predicate 'subsystem BEGINSWITH "com.brewping"'` 抓 App 日志。
-  - 快速单文件检查仍可用桩：`xcrun swiftc -typecheck -sdk "$(xcrun --show-sdk-path)" ios/Scripts/offline-typecheck-stub.swift <目标文件>`（跨文件符号误报忽略；缺符号往桩里补）。
-- 🚨 **`kDNSServiceErr_PolicyDenied = -65570`**（`dns_sd.h:801`）；**-65555 是 `NoAuth`**。判「本地网络被拒」用 -65570 + -65571(`NotPermitted`)，**直接引用 C 符号 `kDNSServiceErr_PolicyDenied`（Swift 可见，已验证），别写字面值**。曾写死 -65555 → TF 上真被拒被判成「还在等授权」→ 不出被拒提示 + 永远扫不到设备。
-- 本地网络：**Xcode 直跑会被自动授权（不弹框）→ Debug 能发现不代表权限没问题，必须 TestFlight 验**；Bonjour 浏览**不需要** `com.apple.developer.networking.multicast`（只有自己发 UDP 广播才需要）。
-- `PermissionCenter` 只在 `attach()` 同步一次本地网络状态 → 自动探测的结论要回灌：`.onReceive(bonjour.$localNetwork) { _ in permissions.refresh() }`，否则 `allGranted` 恒假。
-- 排查手法：`dns-sd -B _brewping._tcp` / `dns-sd -L <名> _brewping._tcp local.` 可在 Mac 上直接验广播侧是否正常（本轮据此排除桌面端）。
+- 🚨 **Logger 插值是 autoclosure**：插值里取**实例属性**必须 `self.xxx`（deinit 里也一样）；别用 `+` 拼 Logger 字符串。
+  `BrewPingLog` 是 `os.Logger`，**无 `#if DEBUG` 门控，TestFlight 照常输出**。
+- Mac 编译：`export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`（免 sudo）；scheme `BrewPing` /
+  `BrewPing Watch App`；模拟器 iPhone 16 Pro `C7C7F583-310C-43CE-B6ED-D4915F465154`。
+- 🚨 `kDNSServiceErr_PolicyDenied = -65570`；**-65555 是 `NoAuth`**。直接引用 C 符号别写字面值（曾写死 → 真被拒被判成「还在等授权」）。
+- 本地网络：**Xcode 直跑会自动授权（不弹框）→ Debug 能发现不代表权限没问题，必须 TestFlight 验**；
+  Bonjour 浏览**不需要** `com.apple.developer.networking.multicast`。
+- 🚨 **首装发现死锁（已修）**：iOS 无权限查询 API，**发起 Bonjour 浏览本身就是唯一查询方式**。旧代码拿 UserDefaults
+  `hasEverBeenGranted`（只在 `.ready` 写）当门禁 → 首装 false → 不浏览 → 永不 ready → 永远 false。现：进设备页
+  **无条件** `startSearching()`；flag 只作首帧近似值；8s 定时器遇 `.waiting`（授权框还挂着）**续期**（上限 3 次）。
+- `PermissionCenter` 只在 `attach()` 同步一次 → 结论要回灌 `.onReceive(bonjour.$localNetwork) { _ in permissions.refresh() }`。
 
 ## macOS 桌面端
-- 🚨 `DesktopCommands.swift` 是 UI 唯一入口；UI 不直碰 Store/Gate；执行类命令切后台队列；执行唯一路径 `ConversationCommandService` + `CommandRouter.shared` 唯一。
-- `DesktopStrings.swift` 由 `locales.ts` 机械生成 → **改文案两端同批**（键名 ≡ LKey rawValue，sw* 无点号）；样式/尺寸照 Latte 令牌。
-- 🚨 NSTextView 必须 `scrollableTextView()`；高度钳在 `sizeThatFits`；Enter 走 `textView(_:doCommandBy:)`。
-- 徽章一律 `.fixedSize()`（只有 URL 走 middle 截断）；空态居中 = ScrollView 内容 `.frame(minHeight: 视口高)`。
-- 按钮：`LatteButtonStyle` 自带内边距（regular 12/5、icon 6/6），纯图标必传 `size:.icon` 不再套 frame。
-- CLI 厂商面板三层 `cliCard`/`cliRowCard`+`cliInset`/`cliLabelValue`；间距块内 4–6、块间 8、组间 12。
-- 验证 `swift build --disable-sandbox`（不加会静默失败）；本机无完整 Xcode 工具链，配置验证走 `./tools/verify-cli-config.sh`。
-- 打包：`build-app.sh` / `Scripts/build-mac-app.sh`，bundle id **统一 `com.brewping.desktop`**（注意：9-15/9-16 老包的 bundle id 是 `local.brewping.desktop`，已废弃），Hardened Runtime **不开 App Sandbox**，Developer ID→notarytool→staple；`.github/workflows/release-mac.yml` 打 tag 发布（v1.0.0 已发布；但该 CI 因缺 `MACOS_*` 证书 secrets 在 Import signing certificate 步失败 → **Mac 包只能本地打**）。
-- 🚨 **打 dmg 的两个坑**（2026-09-19 踩过，曾误判成 FDA 权限问题绕大弯）：
-  ① `hdiutil create -format` **只能配 `-srcfolder`/`-srcdevice`**，建空白镜像不能带 `-format`
-     → 正确：`hdiutil create -size 200m -fs HFS+ -volname "X" raw.dmg`。
-  ② **dmg 本身也要 `codesign --sign <Developer ID> --timestamp`**，只公证不签名 →
-     `spctl` 判 `rejected / source=no usable signature`；且签名改内容 → **先签名、再公证**。
-- 🚨 **别用 dmgbuild**：它挂到 `/Volumes` 后 `ditto` 写入，FDA 受限环境必失败
-  （`ditto: Operation not permitted`），**失败只留 40KB 空镜像**极难排查。
-  ✅ 改用空白镜像 + `hdiutil attach -mountpoint /tmp/xxx` + cp + `ln -s /Applications`
-  + detach + `hdiutil convert -format UDZO`（全程不碰 /Volumes）。
-- 💡 **单架构变体不用重编译**：对已签名的 Universal app 用 `lipo -thin arm64/x86_64` 抽架构
-  → 重签 app → 打 dmg → 签 dmg → 公证 → staple。两个变体约 1.5 分钟。notary profile
-  统一 **`BrewPingNotary`**（`--wait` 约 35-40s Accepted）。`dist/` 已被 .gitignore 忽略。
+- 🚨 `DesktopCommands.swift` 是 UI 唯一入口；UI 不直碰 Store/Gate；执行唯一路径 `ConversationCommandService` + `CommandRouter.shared`。
+- `DesktopStrings.swift` 由 `locales.ts` 机械生成 → **改文案两端同批**（键名 ≡ LKey rawValue）；样式照 Latte 令牌
+  （`LatteButtonStyle` 自带内边距，纯图标传 `size:.icon`；徽章一律 `.fixedSize()`）。
+- 🚨 NSTextView 必须 `scrollableTextView()`；高度钳在 `sizeThatFits`；Enter 走 `textView(_:doCommandBy:)`。空态居中用 `.frame(minHeight:)`。
+- 验证 `swift build --disable-sandbox`（不加会静默失败）；配置验证另走 `tools/verify-cli-config.sh`。
+- 打包 `Scripts/build-mac-app.sh` + `build-dmg.sh`：bundle id **统一 `com.brewping.desktop`**（9-15/9-16 老包是
+  `local.brewping.desktop`，已废弃）；Hardened Runtime **不开 App Sandbox**；Developer ID→notarytool→staple。
+  ⚠️ `release-mac.yml` 因缺 `MACOS_*` 证书 secrets 在 import 步失败 → **Mac 包只能本地打**。
+- 🚨 **打 dmg 的两个坑**（曾误判成 FDA 权限问题绕大弯）：① `hdiutil create -format` **只能配 `-srcfolder`/`-srcdevice`**，
+  建空白镜像要写 `hdiutil create -size 200m -fs HFS+ -volname "X" raw.dmg`；② **dmg 自身也要
+  `codesign --sign <Developer ID> --timestamp`**，只公证不签名 → `spctl` 判 `rejected / source=no usable signature`，
+  且**先签名、再公证**（签名会改内容）。
+- 🚨 **别用 dmgbuild**：它挂 `/Volumes` 后 `ditto` 写入，FDA 受限必失败（`ditto: Operation not permitted`），
+  且失败只留 40KB 空镜像极难排查。✅ 改用 空白镜像 + `hdiutil attach -mountpoint /tmp/xxx` + cp +
+  `ln -s /Applications` + detach + `hdiutil convert -format UDZO`（全程不碰 `/Volumes`）。
+- 💡 **单架构变体不用重编译**：对已签名的 Universal app 用 `lipo -thin arm64/x86_64` 抽架构 → 重签 app → 打 dmg
+  → 签 dmg → 公证 → staple（两变体约 1.5 分钟）。notary profile 统一 **`BrewPingNotary`**（`--wait` 约 35-40s Accepted）。
 
 ## Windows 桌面端
 - 🚨 tokio Mutex 不可重入；HTTP 错误体永远 JSON（query 用 `Option<String>` 手工解析）。
-- ⚠️ 两处 `Command::new`（http_server.rs / lib.rs）同批改；cargo test 不链 tauri GUI（EventSink）；改 capabilities 后 `cargo clean -p brewping-desktop`；重启走 PowerShell `npm run tauri dev` + `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--no-sandbox`。
-- 🚨 **子进程一律走 `services::proc::hide_console(&mut cmd)`**（唯一入口，别再加 `creation_flags`）：
-  否则 CLI（`.cmd` 包装）每 spawn 一次弹一个 cmd 黑窗；启动时 `discover()` 对 4 个 agent
-  各探测一次版本 → 「打开应用满屏黑框」。`CREATE_NO_WINDOW` 语义是「**不新建**控制台」而非
-  「剥离控制台」→ **只在安装包/GUI 进程复现，dev 模式与单元测试都看不出来**，改完必须装包实测。
-  ⚠️ debug 构建应用自身会带控制台（`windows_subsystem` 仅 release 生效）。
-- 🚨 **单实例**：`services/single_instance.rs` 用 `CreateMutexW` 具名互斥体挡住第二个实例
-  （拿到 EXISTS 就把已有窗口拎到前台再自己退出），接在 `run()` 最前面。无新依赖（只用
-  `windows-sys`）。⚠️ `MAIN_WINDOW_TITLE` 与 `tauri.conf.json` 的窗口标题**必须同批改**。
-- 🚨 **「图标没换」先查 Windows 图标缓存，别急着改代码**：取证顺序 =
-  ① 直接渲染 `icons/*.png` 与 `icon.ico` 各帧 ② `git log --follow -- icons/icon.ico` 看是否换过图标
-  ③ **`icon.ico` 的 PNG 帧原样嵌在 PE 的 RT_ICON 里 → 对 exe 做字节子串比对即可判定它用的是哪个图**
-  （NSIS 的 setup.exe 自身压缩，比对不到属正常）④ 解析 `.lnk` 原始字节看 target/IconLocation
-  ⑤ 查 `%LOCALAPPDATA%\Microsoft\Windows\Explorer\iconcache_*.db` 的 **mtime** ——
-  比安装时间旧就说明任务栏/开始菜单读的是旧缓存（`ie4uinit.exe -show` 常常**刷新不掉**，
-  得删缓存 + 重启 explorer）。
-- 🚨 **`src-tauri/src/lib.rs:1` 有 `#![allow(dead_code, unused_variables)]`（crate 级）** → `cargo check` 的
-  「零警告」不能作为 Rust 侧没有死代码的依据。查 Rust 死代码前先看这行是否还在。
-- 🚨 **Swift 死代码审查方法**：正则抽符号 + 全仓词频交叉引用（别靠文件名猜）。**三个盲区必须人工补**：
-  ① 带缩进的 `var/let` 属性抓不到；② XCTest / `@main` / SwiftUI `body` / `NSViewRepresentable` /
-  `Layout.placeSubviews` / `URLProtocol` 覆写 / `NetServiceDelegate` / Compose / CameraX 全是动态调用，
-  一律显示「零引用」但**一条都不能删**；③ 不同 target 的同名类型不算重复（`ConversationStore`/`ContentView`/
-  `LatteTheme` 分属不同编译单元）。`Sources/Protocol/` **是活的**（`Provider`/`Model` 被 AgentConfigDiscovery、
-  `FailureReason` 被 ErrorClassifier、`ProtocolStateService.snapshot` 被 HTTPAPI 用），只有 `Protocol/Model.swift` 死了。
+- 🚨 **子进程一律走 `services::proc::hide_console(&mut cmd)`**：否则 CLI（`.cmd` 包装）每 spawn 一次弹黑窗。
+  `CREATE_NO_WINDOW` =「**不新建**控制台」而非「剥离」→ **只在安装包/GUI 复现**，dev 与单测看不出，改完必须装包实测。
+  ⚠️ debug 构建自身带控制台（`windows_subsystem` 仅 release）。
+- 🚨 **单实例**：`services/single_instance.rs` 用 `CreateMutexW` 具名互斥体；⚠️ `MAIN_WINDOW_TITLE` 与 `tauri.conf.json` 标题必须同批改。
+- 🚨 **启动白屏 +「无响应」根因**：Tauri 2 窗口在 `setup()` **之前**已建好（`app.rs:2524`），事件循环等 setup 返回才转 →
+  setup 里同步跑 `discover()`（4 个 CLI 各 spawn `--version`）会堵住消息泵。现：探测挪 `spawn_blocking` → 回填状态 +
+  `emit("refresh-agents")`；主窗口 `set_background_color`；`index.html` 加纯 CSS 占位页。埋点 `setup completed in …`。
+- 🚨 **「图标没换」先查 Windows 图标缓存**（`iconcache_*.db` mtime 比安装时间旧 = 读旧缓存；`ie4uinit -show` 常刷不掉）。
+  判定 exe 用的哪张图 → **`icon.ico` 的 PNG 帧原样嵌在 PE 的 RT_ICON，直接字节比对**。
+- 🚨 **`src-tauri/src/lib.rs:1` 有 crate 级 `#![allow(dead_code, unused_variables)]`** → 「cargo check 零警告」**不能**作为无死代码的依据。
+- 🚨 **动态调用盲区**（看似零引用但**一条都不能删**）：XCTest/`@main`/`body`/`NSViewRepresentable`/`Layout.placeSubviews`/
+  `URLProtocol`/`NetServiceDelegate`/Compose/`BackHandler`/CameraX；带缩进的 `var/let` 正则抓不到。`Sources/Protocol/` **是活的**。
 - 🚨 **macOS `SystemCommand.run`（`Sources/Agents/AgentDiscovery.swift:107-131`）先 `waitUntilExit()` 再读 pipe**
-  → 子进程输出超 64KB 管道缓冲即阻塞 → 超时返回 nil → 被报成「Failed to launch」（**误导性错误**）。
-  Windows 同款坑已在 `command_runner.rs:378` 修好（注释写明「stderr 必须与 stdout 并发读」）——**macOS 未修**。
-- 🚨 厂商配置「路径表」被手工复制：Swift 4 份（`AgentConfigDiscovery.configPaths` + 三个 `*ProviderConfig.configPaths`）、
-  Rust 6 处；两端注释都自述「要保持一致」。另 Rust `config_lock()` **4 份各自独立 `OnceLock<Mutex<()>>`、互不相通**
-  → 名为配置锁却挡不住跨模块并发写（隐藏缺陷）。
-- ⚠️ `Package.swift` 的 `BrewPingCore` 用 `path: "Sources"` 只 `exclude: ["BrewPing","BrewPingDesktop"]`，
-  **`Sources/BrewPingwinDesktop` 在其递归路径内** → 往那儿放 .swift 会被编进 macOS 核心库。
+  → 输出超 64KB 管道缓冲即死锁 → 超时 nil → 报成误导性的「Failed to launch」。Windows 同款坑已在 `command_runner.rs:378`
+  修好，**macOS 未修**。
+- 🚨 厂商配置「路径表」被手工复制：Swift 4 份、Rust 6 处；Rust `config_lock()` **4 份独立 `OnceLock<Mutex<()>>`、互不相通**。
+- ⚠️ `Package.swift` 的 `BrewPingCore` 用 `path: "Sources"` 只 exclude 了 `BrewPing`/`BrewPingDesktop` →
+  `Sources/BrewPingwinDesktop` 在其递归路径内，往那儿放 .swift 会被编进 macOS 核心库。
 - 鉴权 `route_layer` 全表；白名单仅 `POST /api/pair` + `GET /api/status`；GET 免 nonce。
-- 🚨 serde：`base_url` 必须显式 `rename="baseURL"`（否则派生 baseUrl → 白屏）。
-- 🚨 同 commandId 双条目：转录 user/assistant 共用 commandId；撤流式占位只认 assistant/error，否则 700ms 轮询误删气泡。
-- TOML/JSON 基线（同源）：Claude 只覆盖 env；Codex `[model_providers]` name 必填+不碰 auth.json；pi 成对；OpenCode 深合并。
-- 对话级语义：Agent 创建绑定；模型 = `model_override` 成对 > Agent 偏好 > active；授权 = 对话档位 > 全局；草稿手选不写全局。偏好 `~/.brewping/*.json` 一文件一，`Stored` 带 `#[serde(default)]`，测试 `with_path(temp)`。
-- Setup Wizard 存 `localStorage brewping.setup.*` 三键，绝不自动安装。
+- 🚨 serde：`base_url` 必须显式 `rename="baseURL"`（否则白屏）；同 commandId 双条目时撤流式占位只认 assistant/error，
+  否则 700ms 轮询误删气泡。
+- 配置基线（同源）：Claude 只覆盖 env；Codex `[model_providers]` name 必填 + 不碰 auth.json；pi 成对；OpenCode 深合并。
+- 对话级语义：模型 = `model_override` 成对 > Agent 偏好 > active；授权 = 对话档位 > 全局；草稿手选不写全局。
 
-## 模型配置代理
+## 模型配置代理 / 授权
 - 两套体系：①路由表 `model_providers.json` ②CLI 原生配置（模型发现唯一来源）；只②→503。🚨 Codex 接管必须 `wire_api="responses"`。
-- 🚨 预设端点按 agent 分派：`provider_catalog` 每条带 `endpoints[AgentEndpoint]`；`/anthropic` 只属 Claude Code；Codex=OpenAI Responses；OpenCode/pi=OpenAI 兼容。⚠️ Windows 拉模型按顶层 `/anthropic` 匹配必失配（macOS 已修，待同批）。
-- 特性开关 `model-config-card.tsx` 两 false，后端保留。
-
-## 授权确认
-三档 safe/askAll/auto，作用域=**全局**；检测点=命令进 agent 前（`ApprovalGate.shared.check`）；超时默认拒绝（TTL 300s）；危险模式本地内置正则，**绝不信任 agent 自报**。
+- 🚨 预设端点按 agent 分派：`provider_catalog` 每条带 `endpoints[AgentEndpoint]`；`/anthropic` 只属 Claude Code；
+  Codex=OpenAI Responses；OpenCode/pi=OpenAI 兼容。⚠️ Windows 拉模型按顶层 `/anthropic` 匹配必失配（macOS 已修，待同批）。
+- 授权三档 safe/askAll/auto，作用域=**全局**；检测点=命令进 agent 前（`ApprovalGate.shared.check`）；超时默认拒绝（TTL 300s）；
+  危险模式本地内置正则，**绝不信任 agent 自报**。
 
 ## Android
-- 改名走 `DeviceStore.renameDevice`；网络失败 `code=0` 单独分支；空状态单卡片与 iOS 同构。
-- 唯一出口 `DesktopApiClient.kt`；深链 singleTask+`onNewIntent setIntent`；无 NSD 权限。
-- 已归档区块独立于 dirGroups；DELETE 无响应体，不能复用 `parseConversationMutation`。
-- 🚨 `values/strings.xml` 新增前先 grep 同名 key；构建需 JDK 17。
+- 🚨 **compileSdk / targetSdk = 36（Android 16）**：Play 自 **2026-08-31** 要求新 App 与更新面向 API 36+。版本链绑定：
+  targetSdk 36 → compileSdk 36 → **AGP ≥ 8.9**（**AGP 8.10 支持的最高 API 正好是 36**，再往上必须升 AGP）
+  → Gradle ≥ 8.11.1 → JDK 17 → SDK `platforms;android-36` + `build-tools;36.0.0`。
+- 🚨 **API 37（Play 2027-08-31 强制）= 本地网络权限 `ACCESS_LOCAL_NETWORK`**（属 `NEARBY_DEVICES` 组）：本地网络默认封闭，
+  **NSD/mDNS、局域网 HTTP、`.local` 解析、OkHttp 全受影响** → 迁移时须声明 + 运行时请求 + 拒绝后降级到手动 IP。
+  **光改版本号会让发现功能整体失效。**
+- 唯一出口 `DesktopApiClient.kt`；深链 singleTask + `onNewIntent setIntent`；NSD 不需要额外权限。
+- 改名走 `DeviceStore.renameDevice`；网络失败 `code=0` 单独分支；已归档区块独立于 dirGroups；DELETE 无响应体，
+  不能复用 `parseConversationMutation`。
+- 🚨 `values/strings.xml` 新增前先 grep 同名 key；中英 key 集合必须一致。
+- 🚨 用 `@ExperimentalMaterial3Api` 的组件（`CenterAlignedTopAppBar` / `TopAppBarDefaults.*TopAppBarColors`）
+  必须加 `@OptIn(ExperimentalMaterial3Api::class)`，否则编不过。
+- 配对令牌存 **Android Keystore AES-256/GCM**（明文 SP 透明迁移，密文带 `v1:` 前缀）；Help/About = `HelpScreen.kt` +
+  `BrewPingConfig.kt`。⚠️ `CommandReceiver.kt` 是 23 行死桩（生产代码从未调 `.receive()`），命令生命周期实际散在
+  `DesktopApiClient`/`HomeViewModel`/`ConversationDetailScreen`。
+- 本机验证：`JAVA_HOME=<jdk17> ./gradlew.bat assembleDebug test`（单测 **83 × 2 变体 = 166**）。
 
 ## 其他
 - BOM：`strip_prefix('\u{feff}')`，不只 JSON —— TOML/YAML 行首 BOM 会静默丢整段配置。
-- 已知坑：8787 被旧进程占 → curl 静默打旧进程（先 `Get-NetTCPConnection` 核对）；canonicalize 出 `\\?\` → `dunce::simplified`；进程名 `brewping-desktop`。
-- 🚨 **GitKraken 动过的仓库会出现「悬空 remote-tracking ref」**：`.git/packed-refs` 缺失 +
-  `.git/refs/remotes/origin/` 空目录 → `fetch` 报 `cannot lock ref ... unable to resolve reference`，
-  `origin/main` 整个消失（`for-each-ref` 只剩 `refs/heads/main`），但 objects/FETCH_HEAD 其实已下全。
-  **修法**：直接写回 `.git/refs/remotes/origin/<branch>` = 远程 sha（UTF8 no-BOM，末尾 `\n`），
-  再 `fetch --all --prune` 即恢复；**不要**先上 `git remote prune` / `fetch --force` 折腾。
-  排查入口：`.git/gk/config` 的 `gk-last-accessed`（能看出 GitKraken 何时动过）。
-- 上架：隐私政策 GitHub Pages；TEAM `TGA82PM3DZ`；不做国区。
-- 本机 cc-switch（排查参考）：`~/.cc-switch/cc-switch.db`（providers 复合主键 `(id,app_type)`；settings_config 含明文 Key 只 select 非敏感列）；只在「激活」时投影进 CLI 文件。
+- 已知坑：8787 被旧进程占 → curl 静默打旧进程（先 `Get-NetTCPConnection` 核对）；canonicalize 出 `\\?\` → `dunce::simplified`。
+- 🚨 **GitKraken 动过的仓库会出现悬空 remote-tracking ref**：`.git/packed-refs` 缺失 + `.git/refs/remotes/origin/` 空 →
+  `fetch` 报 `cannot lock ref`、`origin/main` 消失（objects/FETCH_HEAD 其实已下全）。**修法**：写回
+  `.git/refs/remotes/origin/<branch>` = 远程 sha（UTF8 no-BOM，末尾 `\n`），再 `fetch --all --prune`；
+  **不要**先上 `git remote prune` / `fetch --force`。
+- 上架：隐私政策 https://banmu123.github.io/BrewPing/privacy.html（源 `docs/privacy.html`）；TEAM `TGA82PM3DZ`；不做国区。
 
 ## 工具与协作约定（踩过即写死）
-- 🚨 **同一文件的多个编辑不得并行发起**：并行 Edit 同文件会「后写覆盖先写」、静默丢改动
-  （曾在 `ContentView.swift` 丢过一处判据，直到核对截图+回读源码才发现）。**改完必须回读
-  关键行核对**（grep/python 断言）。
-- 🚨 **UI 判据禁止「未就绪即定论」**：任何空态/错误态（「没有桌面端」「未授权」「未配对」）
-  都必须等数据源**确认过一次**才渲染 —— iOS 的 `discoverySettled` / `permissions.hasRefreshed`、
-  Android 的 `!discoveryRunning` / `device == null → 中性占位` 是同一规则的落地。
-  瞬时未知（搜索中、异步物化中、状态未读）只能显示中性占位。
-- 模拟器取证：权限状态可直接写 `<device>/data/Library/TCC/TCC.db`（关机状态写），
-  `simctl uninstall` 会清掉；首帧类 bug 用「连拍 16 帧 + 逐帧 md5 比对」定位。
+- 🚨 **同一文件的多个编辑不得并行发起**（会「后写覆盖先写」静默丢改动）。**改完必须回读关键行核对**。
+- 🚨 **静态核对（括号平衡 / XML / 引用存在性）证明不了能编译** —— 有编译器就跑编译（本机 JS/TS/Rust/Java 都齐）。
+- 🚨 **UI 判据禁止「未就绪即定论」**：空态/错误态都必须等数据源**确认过一次**才渲染（iOS `discoverySettled`/
+  `permissions.hasRefreshed`；Android `!discoveryRunning`/中性占位）。瞬时未知只显示中性占位。
+- 提交：用户偏好**分主题多个提交**（功能/文档/memory 分开），信息走 `.commit-msg-N.txt`（被 `.gitignore` 覆盖）。
+- **不确定就不要删**；不为了减少行数而重构；任何「零警告/零引用」结论先确认检查本身没被关掉（`allow(dead_code)`、工具缺失）。
