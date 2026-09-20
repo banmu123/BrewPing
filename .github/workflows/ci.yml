@@ -131,6 +131,29 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
+      - name: Ensure Android SDK Platform 36
+        # compileSdk=36 需要 platforms;android-36。runner 镜像预装的 SDK 平台集合
+        # 会随镜像版本漂移，缺了 AGP 不会降级，而是直接失败。本机实测的报错原文：
+        #   Could not determine the dependencies of task ':app:compileDebugJavaWithJavac'.
+        #   > Failed to install the following SDK components:
+        #         platforms;android-36 Android SDK Platform 36
+        # （AGP 会尝试自动下载，但下载中断时会停在 "Error on ZipFile unknown archive"）
+        # 本步是幂等的：已安装时 sdkmanager 直接返回。
+        run: |
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ -d "$SDK_DIR/platforms/android-36" ]; then
+            echo "platforms;android-36 already present"
+          else
+            echo "installing platforms;android-36 ..."
+            # yes 用于兜底回答 license 询问（runner 通常已预接受，此时 yes 收 SIGPIPE，无害）
+            yes | "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" \
+              "platforms;android-36" "build-tools;36.0.0" \
+              || echo "::warning title=SDK 36 install failed::sdkmanager 未能安装，交由后续构建步骤暴露真实错误"
+          fi
+          echo "---- platforms ----"
+          ls "$SDK_DIR/platforms" 2>/dev/null || true
+          echo "---- build-tools ----"
+          ls "$SDK_DIR/build-tools" 2>/dev/null || true
       - name: Build debug APK
         working-directory: Android
         run: |

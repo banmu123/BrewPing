@@ -6,12 +6,21 @@ plugins {
 
 android {
     namespace = "com.brewping.android"
-    compileSdk = 35
+
+    // 🚨 compileSdk / targetSdk = 36（Android 16），别再按 API 35 的老教程改回去。
+    // Google Play 自 2026-08-31 起要求新 App 与所有更新必须面向 API 36+，否则无法提交。
+    // 版本链是**绑定**的，改一项必须往下核对（根 build.gradle.kts 里有完整说明）：
+    //   targetSdk 36 → compileSdk 36 → AGP ≥ 8.9.0 → Gradle ≥ 8.11.1 → JDK 17 → platforms;android-36
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.brewping.android"
         minSdk = 26
-        targetSdk = 35
+        // 36 同时启用 Android 16 的两项强制行为，本项目均已满足，无需额外代码：
+        //  1) 边到边（windowOptOutEdgeToEdgeEnforcement 被停用）—— MainActivity 已调 enableEdgeToEdge()
+        //  2) 预测性返回（android:enableOnBackInvokedCallback 默认 true，onBackPressed/KEYCODE_BACK 不再派发）
+        //     —— HomeScreen:171 用的是 compose BackHandler（走 OnBackPressedDispatcher），属受支持路径
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
 
