@@ -127,4 +127,25 @@
     <string name="approval_deny">Deny</string>
     <!-- 设备已添加、当前设备正在物化：这是「瞬时未就绪」，不是「没有桌面端」 -->
     <string name="preparing_device">Connecting to your computer…</string>
+
+    <!-- Help / About（对齐 iOS HelpView；措辞镜像 ios/BrewPing/en.lproj/Localizable.strings） -->
+    <string name="help_about">Help &amp; About</string>
+    <string name="help_how_title">How BrewPing works</string>
+    <string name="help_how_body">BrewPing lets you monitor and control coding-agent sessions running on your own computer (Mac or Windows PC) — from this phone, over your local network.</string>
+    <string name="help_how_phone">This phone is the remote control.</string>
+    <string name="help_how_desktop">A Mac or Windows PC running %1$s does the actual work.</string>
+    <string name="help_setup_title">Set up your computer</string>
+    <string name="help_step_install">Install and open %1$s on your Mac or Windows PC.</string>
+    <string name="help_step_wifi">Keep the computer and this phone on the same Wi-Fi network.</string>
+    <string name="help_step_code">In %1$s, tap \"Pairing Code\" to reveal a 6-digit code.</string>
+    <string name="help_step_enter">In this app, tap + in the device bar, enter the code, and save.</string>
+    <string name="help_no_account">No account is required. The pairing code is exchanged once for a key that is stored encrypted on this phone.</string>
+    <string name="help_privacy_title">Privacy</string>
+    <string name="help_privacy_link">Privacy Policy</string>
+    <string name="help_privacy_body">BrewPing has no account, no analytics, and no third-party SDKs. Commands and agent output travel only between this phone and the Mac or Windows PC you configured, on your local network. Nothing is sent to us.</string>
+    <string name="help_support_title">Support</string>
+    <string name="help_legal_title">Legal</string>
+    <string name="help_legal_body">OpenCode, Claude, Claude Code, Codex, and pi are trademarks of their respective owners. BrewPing is not affiliated with, endorsed by, or sponsored by them.</string>
+    <string name="help_about_title">About</string>
+    <string name="help_version">Version</string>
 </resources>

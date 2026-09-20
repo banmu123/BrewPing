@@ -127,4 +127,25 @@
     <string name="approval_deny">拒绝</string>
     <!-- 设备已添加、当前设备正在物化：这是「瞬时未就绪」，不是「没有桌面端」 -->
     <string name="preparing_device">正在连接你的电脑…</string>
+
+    <!-- Help / About（措辞镜像 ios/BrewPing/zh-Hans.lproj/Localizable.strings） -->
+    <string name="help_about">帮助与关于</string>
+    <string name="help_how_title">BrewPing 如何工作</string>
+    <string name="help_how_body">BrewPing 让你通过本地网络，从这台手机监控、控制运行在你自己的电脑（Mac 或 Windows）上的编码 Agent 会话。</string>
+    <string name="help_how_phone">这台手机是遥控器。</string>
+    <string name="help_how_desktop">运行 %1$s 的 Mac 或 Windows 电脑负责实际执行。</string>
+    <string name="help_setup_title">设置你的电脑</string>
+    <string name="help_step_install">在你的 Mac 或 Windows 电脑上安装并打开 %1$s。</string>
+    <string name="help_step_wifi">让电脑与这台手机处于同一 Wi-Fi 网络。</string>
+    <string name="help_step_code">在 %1$s 中点按“配对码”，即可显示 6 位数字。</string>
+    <string name="help_step_enter">在本 App 中点击设备栏的 +，输入配对码并保存。</string>
+    <string name="help_no_account">无需账号。配对码仅交换一次，换取的密钥会加密保存在本机。</string>
+    <string name="help_privacy_title">隐私</string>
+    <string name="help_privacy_link">隐私政策</string>
+    <string name="help_privacy_body">BrewPing 没有账号、没有数据分析、也没有第三方 SDK。指令与 Agent 输出只在你自己的这台手机和你配置的 Mac 或 Windows 电脑之间，通过本地网络传输。我们不会收到任何内容。</string>
+    <string name="help_support_title">支持</string>
+    <string name="help_legal_title">法律信息</string>
+    <string name="help_legal_body">OpenCode、Claude、Claude Code、Codex 与 pi 是各自所有者的商标。BrewPing 与它们无从属、背书或赞助关系。</string>
+    <string name="help_about_title">关于</string>
+    <string name="help_version">版本</string>
 </resources>

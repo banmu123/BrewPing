@@ -123,6 +123,8 @@ fun HomeScreen(viewModel: HomeViewModel) {
     var pairScanReturn by remember { mutableStateOf<ManagedDevice?>(null) }
     /** 表单扫码结果（DeviceFormDialog 预填 host/port/name）。 */
     var qrFormPayload by remember { mutableStateOf<com.brewping.android.model.PairPayload?>(null) }
+    /** Help / About 页（商店审核要求站内可达：使用说明 / 隐私政策 / 支持 / 商标免责）。 */
+    var showHelp by remember { mutableStateOf(false) }
     val discovered by viewModel.discoveredDevices.collectAsState()
     val pairingVersion by viewModel.pairingVersion.collectAsState()
 
@@ -180,6 +182,13 @@ fun HomeScreen(viewModel: HomeViewModel) {
                     )
                 },
                 actions = {
+                    TextButton(onClick = { showHelp = true }) {
+                        Text(
+                            text = stringResource(R.string.help_about),
+                            fontSize = 12.sp,
+                            color = LatteOnSurfaceVariant,
+                        )
+                    }
                     LanguageMenuButton()
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -381,6 +390,11 @@ fun HomeScreen(viewModel: HomeViewModel) {
             },
             onPair = viewModel::pairWithCode,
         )
+    }
+
+    // ─── Help / About（商店审核要求站内可达）────────────────────────────────
+    if (showHelp) {
+        HelpScreen(onDismiss = { showHelp = false })
     }
 
     // ─── QR 扫码（配对码 / 添加设备表单）─────────────────────────────────────
