@@ -18,7 +18,7 @@
 - 🚨 **发行状态事实（勿夸大）**：iOS/watchOS **已提交 App Review、未公开发布**（仅 TestFlight）；Android **构建就绪、未提交 Google Play**；Wear **在仓库内、未发布**。文档**不得写成「已上架」**。
 
 ## iOS / Watch
-- 只做 iPhone（`TARGETED_DEVICE_FAMILY=1`）；iOS 17；bundle `com.brewping.ios` / `.watchkitapp`。⚠️ ASC 截屏页签由**该版本所附构建**的 `UIDeviceFamily` 决定（带 `"1,2"` 就多 iPad 页签）→ **重新 Archive 上传，不是补图**。隐私政策 https://banmu123.github.io/BrewPing/privacy.html（源 `docs/privacy.html`）；TEAM `TGA82PM3DZ`；不做国区。
+- 只做 iPhone（`TARGETED_DEVICE_FAMILY=1`）；iOS 17；bundle `com.brewping.ios` / `.watchkitapp`。⚠️ ASC 截屏页签由**该版本所附构建**的 `UIDeviceFamily` 决定 → **重新 Archive 上传，不是补图**。隐私政策 https://banmu123.github.io/BrewPing/privacy.html（源 `docs/privacy.html`）；TEAM `TGA82PM3DZ`；不做国区。
 - 🚨 新 Swift 文件登 pbxproj **四处**；译文 `%@` 个数=实参数 → 跑 `ios/Scripts/check_localization.py`。i18n：`Text("字面量")` 靠 `.environment(\.locale)`；`Text(变量)` 须 `LocalizedStringKey(变量)`。
 - 🚨 **Bonjour 只能 `NWBrowser.Result.endpoint` → `NWConnection`，绝不用 `NetService.resolve`**（真机/TestFlight 停摆，模拟器正常）；`remoteEndpoint` 可能是 `fe80::…%en0` → 须 `internetProtocol.version = .v4` 并剥 `%en0`。局域网明文 http；Bearer+Timestamp±120s+Nonce；改端点同步 `DemoBackend.swift`。
 - 🚨 **Logger 插值是 autoclosure**：插值里取实例属性必须 `self.xxx`（deinit 同）。`BrewPingLog` 是 `os.Logger`，**无 `#if DEBUG` 门控，TestFlight 照常输出**。
@@ -58,7 +58,7 @@
 - 本机验证：`JAVA_HOME=<jdk17> ./gradlew.bat test assembleDebug :wear:assembleDebug`（单测 **83** = :core 36 + :app 47）。
 
 ## 工具与协作约定
-- 🚨 **同一文件的多个编辑不得并行**（后写覆盖先写），**改完回读关键行**。
+- 🚨 **同一文件的多个编辑不得并行**（后写覆盖先写，**工具仍报 success**）；**改完必须回读 / `git diff` 核对**（2026-09-21 实测丢了 2 处改动）。
 - 🚨 **静态核对（括号平衡/XML/引用存在性）证明不了能编译** —— 有编译器就跑（本机 JS/TS/Rust/Java 齐，**Swift 除外**）。
 - 🚨 **UI 禁止「未就绪即定论」**：空态/错误态必须等数据源**确认过一次**才渲染（iOS `discoverySettled`；Android `!discoveryRunning`）。
 - 📄 **文档事实口径**：测试数（Swift 66 / Android 83 / Rust 318）、平台、发行状态以 README 双语 + `docs/PROJECT_STATUS.md` 为单一来源；`LICENSE` 必须是**纯 MIT 文本**（尾部追加段落 → GitHub 识别不出），商标归 `TRADEMARKS.md`；`experimental/relay-server/` 是停放原型，不在产品链路/CI/安全边界。
