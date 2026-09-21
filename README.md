@@ -150,6 +150,21 @@ tells you exactly what to check.
   `Authorization: Bearer <token>`, and writes additionally carry `X-BrewPing-Timestamp` +
   `X-BrewPing-Nonce` (120-second window, replay-protected).
 
+## 📦 Availability
+
+What you can install today, and what is still in the pipeline:
+
+| Surface | Status | How to get it |
+|---|---|---|
+| macOS desktop | **Released** (`v1.0.0`) | Signed & notarized DMG from the [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0), or build from source |
+| Windows desktop | **Released** (`v1.0.0`) | `setup.exe` / `.msi` attached to the same release, or `npm run tauri dev` |
+| iPhone / Apple Watch | **In App Review** — not publicly available yet | Build from source with Xcode until Apple approves |
+| Android phone | **Built, not submitted** to Google Play | `cd Android && ./gradlew assembleDebug` |
+| Wear OS watch | **In the repository, not released** | Build from source; on no store |
+
+BrewPing ships **local-network only** — there is no hosted service and no official public relay, so
+none of the clients talk to anything but the computer you paired.
+
 ## 🚀 Quick Start
 
 ### 🍎 macOS desktop (build from source)
@@ -314,6 +329,9 @@ BrewPing keeps its state in `~/.brewping/`:
 - **Release** — pushing a `v*` tag triggers
   [`.github/workflows/release-mac.yml`](.github/workflows/release-mac.yml), which builds a universal
   binary, signs with Developer ID, notarizes, staples, and attaches the DMG to the GitHub release.
+  The workflow needs Apple signing secrets that are **not** configured in this repository, so the
+  `v1.0.0` macOS packages were built locally by the maintainer and attached by hand (see
+  [Project status](docs/PROJECT_STATUS.md)).
 
 ## 📋 Requirements
 
@@ -335,7 +353,7 @@ BrewPing keeps its state in `~/.brewping/`:
 - **[Windows multi-conversation design](docs/BrewPing-Windows端多对话管理实现方案.md)** — desktop conversation model
 - **[Provider management migration](docs/BrewPing-Provider管理-Lody新建Provider迁移方案.md)** — provider config internals
 - **[Folder browsing design](docs/BrewPing-获取文件夹-Windows落地方案.md)** — working-folder binding
-- **[App Store pre-submission review](docs/AppStore-PreSubmission-Review.md)** — review checklist we ran before submitting
+- **[App Store pre-submission review](docs/AppStore-PreSubmission-Review.md)** — the checklist we ran, at the point the iOS build went into App Review
 - **[Project status](docs/PROJECT_STATUS.md)** — platforms, test counts, maintenance process, known limitations
 - **[Trademarks](TRADEMARKS.md)** — third-party names used to describe compatibility
 - **[Relay prototype](experimental/relay-server/README.md)** — experimental, **not wired into any client**, outside the product's security boundary

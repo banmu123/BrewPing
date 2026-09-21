@@ -13,13 +13,28 @@ Last reviewed: 2026-09-21 · Reviewed against `main` at the commit that added th
 
 | | |
 |---|---|
-| Status | **Actively developed**, packaged releases exist, review-ready codebase |
+| Status | **Actively developed.** The two desktop builds have published releases; the mobile clients are at different stages — see [Distribution status](#11-distribution-status) |
 | Main branch | `main` — all work lands here; there are no maintenance branches |
 | Latest release | `v1.0.0` (git tag), published as a GitHub Release |
 | Release assets | macOS: three signed + notarized DMG variants (universal / Apple Silicon / Intel) · Windows: `setup.exe` and `.msi` |
-| Mobile distribution | iOS / watchOS via TestFlight and the App Store; Android via Google Play (App Bundle) |
 | Maintainers | 1 (a single active maintainer — see [Maintenance](#4-maintenance)) |
 | Language | English + Simplified Chinese across all user-facing surfaces |
+
+### 1.1 Distribution status
+
+Where each surface actually is today. *Built* means the artifact can be produced from this
+repository; it does **not** mean the surface is publicly available.
+
+| Surface | Stage | What exists today | How to get it |
+|---|---|---|---|
+| macOS desktop | **Released** | `v1.0.0` GitHub Release — Universal / Apple Silicon / Intel DMG, Developer ID signed, notarized, stapled | GitHub Release, or build from source |
+| Windows desktop | **Released** | `v1.0.0` GitHub Release — `setup.exe` + `.msi` | GitHub Release, or `npm run tauri dev` |
+| iPhone / Apple Watch | **Submitted to App Review** — not publicly released | Builds uploaded to App Store Connect and distributed to TestFlight testers | Until Apple approves: build from source with Xcode |
+| Android phone | **Built and ready — not submitted** to Google Play | `./gradlew assembleDebug` and the release bundle build cleanly; already targets API 36 as Google Play requires | Build from source |
+| Wear OS watch | **Not released** | `Android/wear` module builds and is covered by CI | Build from source; on no store |
+
+There is **no App Store listing and no Google Play listing** at the time of writing, and no store
+install numbers, download counts, or tester counts are claimed anywhere in this repository.
 
 ## 2. Supported platforms
 
@@ -27,9 +42,9 @@ Last reviewed: 2026-09-21 · Reviewed against `main` at the commit that added th
 |---|---|---|
 | macOS desktop | macOS 13.0+ | Universal binary (Apple Silicon + Intel); signed, notarized, stapled |
 | Windows desktop | Windows 10/11 + WebView2 | Tauri 2 + axum; ships as `setup.exe` / `.msi` |
-| iPhone | iOS 17.0+ | `com.brewping.ios` |
-| Apple Watch | watchOS 11.6+ | Paired with the iPhone app; voice dictation + reply reading |
-| Android phone | Android 8.0+ (minSdk 26) | Jetpack Compose; `targetSdk`/`compileSdk` 36 |
+| iPhone | iOS 17.0+ | `com.brewping.ios` · **in App Review**, TestFlight testers only |
+| Apple Watch | watchOS 11.6+ | Paired with the iPhone app; voice dictation + reply reading · **in App Review** |
+| Android phone | Android 8.0+ (minSdk 26) | Jetpack Compose; `targetSdk`/`compileSdk` 36 · **built, not submitted to Google Play** |
 | Wear OS watch | Wear OS 3.0+ (minSdk 30) | **In repository, not released yet** — see limitations |
 | Network | Phone/watch and computer on the same local network | No public relay is shipped |
 
@@ -56,6 +71,9 @@ CI — [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) — runs on eve
 The nightly run exists to catch **runner toolchain drift** (Xcode / Swift / JDK / Node upgrades)
 before it breaks someone's pull request.
 
+**CI status:** the badge at the top of `README.md` reflects the latest run on `main`, and
+`ci.yml` is the authoritative record — the jobs listed above are exactly what it executes.
+
 > Honesty note: the Swift and Android counts above are method counts of the committed test files.
 > The Swift suite was last executed by the maintainer on macOS; the Android suite and the Rust suite
 > were executed on Windows. CI re-runs all three on public runners — check the badge on the README
@@ -65,7 +83,7 @@ before it breaks someone's pull request.
 
 | Process | How it works |
 |---|---|
-| Maintainer | One active maintainer (`banmu123`), who reviews all pull requests |
+| Maintainer | One active maintainer (`banmu123`) — creator of the project, reviews all pull requests, cuts releases, and handles security reports |
 | Release process (macOS) | `v*` tag → [`.github/workflows/release-mac.yml`](../.github/workflows/release-mac.yml): universal build → Developer ID sign → notarize → staple → DMG attached to the release |
 | Release process (macOS, practical note) | The workflow needs Apple signing secrets that are **not** configured in this repository, so macOS packages are currently built locally by the maintainer and attached to the release by hand |
 | Release process (Windows) | Built and attached to the GitHub Release |
@@ -98,8 +116,10 @@ These are real, currently true, and worth knowing before judging the project:
    installed and configured by the user. Their own behaviour, versions, and configuration formats
    are out of this project's control.
 4. **The approval gate is not a sandbox** (repeated on purpose).
-5. **Wear OS client is not released.** The `Android/wear` module builds and is covered by CI, but it
-   has not been through device testing or store submission.
+5. **The mobile clients are not publicly available yet.** iOS/watchOS is **in App Review**
+   (TestFlight testers only, no App Store listing); Android builds cleanly but has **not been
+   submitted to Google Play**; the `Android/wear` module has had no device testing and no store
+   submission. See [Distribution status](#11-distribution-status).
 6. **The relay prototype is not on the product path.** It is parked under `experimental/` with no
    client wired to it.
 7. **Windows packaging version metadata is not aligned with the release version** (internal

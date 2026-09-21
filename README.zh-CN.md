@@ -106,7 +106,7 @@ Bonjour/mDNS 自动发现同一 Wi-Fi 下的电脑，不必手输 IP。若网络
 
 ```
 ┌──────────────┐    HTTP API     ┌─────────────────────────┐
-│   手机/平板   │ ◄────────────►  │   BrewPing Desktop      │
+│     手机     │ ◄────────────►  │   BrewPing Desktop      │
 │ iOS / Android│    同一 Wi-Fi   │  macOS 菜单栏 + 窗口     │
 └──────┬───────┘   Bonjour 发现   │  或 Windows (Tauri)     │
        │                          └───────────┬─────────────┘
@@ -120,6 +120,20 @@ Bonjour/mDNS 自动发现同一 Wi-Fi 下的电脑，不必手输 IP。若网络
 - **桌面服务** —— Swift 核心（`Sources/App`、`Agents`、`PTY`、`Session`、`Protocol`）在局域网内提供 HTTP API、托管 Agent 进程、并在命令进入 Agent 前做审批检查。Windows 端用 Rust（Tauri 2 + axum）实现同一套接口，客户端完全共用。
 - **客户端** —— iOS / watchOS（SwiftUI）、Android（Jetpack Compose）、以及 CLI（`swift run BrewPing …`）。客户端之间不互相通信，也不会连你没配对过的机器。
 - **鉴权** —— 一次性 6 位配对码换取长期 token；所有 `/api/*` 请求带 `Authorization: Bearer <token>`，写操作额外带 `X-BrewPing-Timestamp` 与 `X-BrewPing-Nonce`（120 秒窗口、防重放）。
+
+## 📦 可用性
+
+现在能装到什么、什么还在路上：
+
+| 端 | 状态 | 怎么获取 |
+|---|---|---|
+| macOS 桌面端 | **已发布**（`v1.0.0`） | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) 的签名 + 公证 DMG，或源码构建 |
+| Windows 桌面端 | **已发布**（`v1.0.0`） | 同一个 Release 的 `setup.exe` / `.msi`，或 `npm run tauri dev` |
+| iPhone / Apple Watch | **已提交 App Review** —— 尚未公开发布 | 在 Apple 通过前，用 Xcode 源码构建 |
+| Android 手机端 | **构建就绪，尚未提交** Google Play | `cd Android && ./gradlew assembleDebug` |
+| Wear OS 手表端 | **已在仓库内，尚未发布** | 源码构建；未上任何商店 |
+
+BrewPing 只发布**局域网**能力 —— 没有托管服务，也没有官方公网中继，因此所有客户端都只会连你配对过的那台电脑。
 
 ## 🚀 快速开始
 
@@ -148,7 +162,7 @@ npm run tauri dev
 open ios/BrewPing.xcodeproj             # 选好 Team 后直接 Run
 ```
 
-TestFlight / App Store 构建使用 `com.brewping.ios` 与 `com.brewping.ios.watchkitapp`。
+iOS 端使用 bundle ID `com.brewping.ios` 与 `com.brewping.ios.watchkitapp`。
 
 ### 🤖 Android
 
@@ -258,7 +272,7 @@ BrewPing 的状态都在 `~/.brewping/`：
 - **Android 单元测试** —— `:core` 与 `:app` 共 **83 个 JVM 单测**，不需要设备（`cd Android && ./gradlew test`）；CI 另外构建手机端与 Wear OS 模块。
 - **GitHub Actions** —— [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 在每次 push / PR 上跑 Swift 核心的构建与测试、以关闭签名的方式编译 iOS + watchOS 目标，并运行 Windows 与 Android 测试；另有每日定时运行以捕捉 runner 工具链漂移。
 - **Windows 端** —— Rust 侧有独立的 **318 例** `cargo test --locked`（`Sources/BrewPingwinDesktop/src-tauri`）。
-- **发布** —— 推 `v*` tag 触发 [`.github/workflows/release-mac.yml`](.github/workflows/release-mac.yml)：构建 universal 二进制 → Developer ID 签名 → 公证 → staple → 把 DMG 挂到 GitHub Release。
+- **发布** —— 推 `v*` tag 触发 [`.github/workflows/release-mac.yml`](.github/workflows/release-mac.yml)：构建 universal 二进制 → Developer ID 签名 → 公证 → staple → 把 DMG 挂到 GitHub Release。该 workflow 依赖仓库中**未配置**的 Apple 签名 secrets，因此 `v1.0.0` 的 macOS 包由维护者在本地构建后手工挂载（见[项目状态](docs/PROJECT_STATUS.md)）。
 
 ## 📋 环境要求
 
@@ -280,8 +294,7 @@ BrewPing 的状态都在 `~/.brewping/`：
 - **[Windows 端多对话管理实现方案](docs/BrewPing-Windows端多对话管理实现方案.md)** —— 桌面端对话模型
 - **[Provider 管理迁移方案](docs/BrewPing-Provider管理-Lody新建Provider迁移方案.md)** —— 配置内部实现
 - **[获取文件夹落地方案](docs/BrewPing-获取文件夹-Windows落地方案.md)** —— 工作目录绑定
-- **[App Store 提审前自查](docs/AppStore-PreSubmission-Review.md)** —— 提交前跑过的审核清单
-- **[项目状态](docs/PROJECT_STATUS.md)** —— 平台、测试数量、维护流程与已知限制
+- **[App Store 提审前自查](docs/AppStore-PreSubmission-Review.md)** —— 提交前跑过的审核清单- **[项目状态](docs/PROJECT_STATUS.md)** —— 平台、测试数量、维护流程与已知限制
 - **[商标](TRADEMARKS.md)** —— 仅用于说明兼容性的第三方名称
 - **[中继原型](experimental/relay-server/README.md)** —— 实验性、**未接入任何客户端**，不在产品安全边界内
 
