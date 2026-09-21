@@ -1,11 +1,19 @@
 # Project Status
 
-Objective status of the BrewPing repository. Everything here is either verifiable from the
-repository itself or reproducible with the commands below. **No adoption metrics are claimed** —
-the project does not publish user counts, download numbers, or third-party usage data, because none
-of that can be verified from inside the repository.
+Objective status of the BrewPing repository. Every statement here is one of three kinds, and the
+kind matters:
 
-Last reviewed: 2026-09-21 · Reviewed against `main` at the commit that added this file.
+1. **Repository state** — visible in the files, code, and git history of this repository.
+2. **Reproducible results** — the build and test commands listed below produce them on your machine.
+3. **Distribution status maintained by the project owner** — store submission, review, and beta
+   distribution happen in App Store Connect, Google Play Console, and TestFlight. Those live
+   **outside** this repository and cannot be re-derived from it; the entries below are the maintainer's
+   own record, and the linked stores/releases can be checked independently.
+
+**No adoption metrics are claimed.** The project does not publish user counts, download numbers, or
+third-party usage data, because none of that is verifiable from inside the repository.
+
+Last reviewed: 2026-09-21.
 
 ---
 
@@ -33,8 +41,10 @@ repository; it does **not** mean the surface is publicly available.
 | Android phone | **Built and ready — not submitted** to Google Play | `./gradlew assembleDebug` and the release bundle build cleanly; already targets API 36 as Google Play requires | Build from source |
 | Wear OS watch | **Not released** | `Android/wear` module builds and is covered by CI | Build from source; on no store |
 
-There is **no App Store listing and no Google Play listing** at the time of writing, and no store
-install numbers, download counts, or tester counts are claimed anywhere in this repository.
+The macOS and Windows rows are checkable against the GitHub Release itself. The mobile rows come from
+the maintainer's own record (kind 3 above). There is **no App Store listing and no Google Play listing**
+at the time of writing, and no store install numbers, download counts, or tester counts are claimed
+anywhere in this repository.
 
 ## 2. Supported platforms
 

@@ -16,6 +16,10 @@ progress, and approve risky commands from iPhone, Apple Watch, or Android.
 
 *Your agents, your models, your machine — driven from your phone, on your own network.*
 
+> **Availability:** macOS and Windows are **released** (`v1.0.0`) · iOS / watchOS are **in App
+> Review** (TestFlight only, no App Store listing yet) · Android is **built but not submitted** to
+> Google Play · Wear OS is in the repository, **unreleased**. Details: [Availability](#-availability).
+
 <div align="center">
 
 [![CI](https://github.com/banmu123/BrewPing/actions/workflows/ci.yml/badge.svg)](https://github.com/banmu123/BrewPing/actions/workflows/ci.yml)
@@ -193,8 +197,7 @@ npm run tauri dev
 open ios/BrewPing.xcodeproj             # set your team, then Run
 ```
 
-TestFlight and App Store builds use bundle IDs `com.brewping.ios` and
-`com.brewping.ios.watchkitapp`.
+The iOS app uses bundle IDs `com.brewping.ios` and `com.brewping.ios.watchkitapp`.
 
 ### 🤖 Android
 

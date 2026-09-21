@@ -14,6 +14,8 @@ BrewPing 在你的 Mac 或 Windows 上跑一个小型桌面服务，驱动**你�
 
 *你的 Agent、你的模型、你的电脑 —— 在同一个局域网里，用手机发指令。*
 
+> **可用性：** macOS 与 Windows **已发布**（`v1.0.0`）· iOS / watchOS **已提交 App Review**（仅 TestFlight，尚无 App Store 商店页）· Android **已构建但未提交** Google Play · Wear OS 在仓库内、**尚未发布**。详见[可用性](#-可用性)。
+
 <div align="center">
 
 [![CI](https://github.com/banmu123/BrewPing/actions/workflows/ci.yml/badge.svg)](https://github.com/banmu123/BrewPing/actions/workflows/ci.yml)
@@ -294,7 +296,8 @@ BrewPing 的状态都在 `~/.brewping/`：
 - **[Windows 端多对话管理实现方案](docs/BrewPing-Windows端多对话管理实现方案.md)** —— 桌面端对话模型
 - **[Provider 管理迁移方案](docs/BrewPing-Provider管理-Lody新建Provider迁移方案.md)** —— 配置内部实现
 - **[获取文件夹落地方案](docs/BrewPing-获取文件夹-Windows落地方案.md)** —— 工作目录绑定
-- **[App Store 提审前自查](docs/AppStore-PreSubmission-Review.md)** —— 提交前跑过的审核清单- **[项目状态](docs/PROJECT_STATUS.md)** —— 平台、测试数量、维护流程与已知限制
+- **[App Store 提审前自查](docs/AppStore-PreSubmission-Review.md)** —— iOS 端进入 App Review 时跑过的审核清单
+- **[项目状态](docs/PROJECT_STATUS.md)** —— 平台、测试数量、维护流程与已知限制
 - **[商标](TRADEMARKS.md)** —— 仅用于说明兼容性的第三方名称
 - **[中继原型](experimental/relay-server/README.md)** —— 实验性、**未接入任何客户端**，不在产品安全边界内
 
