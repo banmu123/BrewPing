@@ -35,7 +35,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.brewping.android.BrewPingConfig
+import com.brewping.core.BrewPingConfig
 import com.brewping.android.R
 import com.brewping.android.ui.theme.LatteAccent
 import com.brewping.android.ui.theme.LatteBackground

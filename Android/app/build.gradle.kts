@@ -69,6 +69,9 @@ android {
 }
 
 dependencies {
+    // 手机端与手表端共用的客户端逻辑（API client / models / PairingStore / transport）
+    implementation(project(":core"))
+
     // Compose BOM
     val composeBom = platform("androidx.compose:compose-bom:2025.04.00")
     implementation(composeBom)
@@ -92,6 +95,9 @@ dependencies {
 
     // OkHttp
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Wear provisioning 发送方（Wearable Data Layer；手表端在 :wear 模块）
+    implementation("com.google.android.gms:play-services-wearable:18.2.0")
 
     // QR 扫码（配对码）：zxing 纯 Java 解码 + CameraX 取景
     implementation("com.google.zxing:core:3.5.3")

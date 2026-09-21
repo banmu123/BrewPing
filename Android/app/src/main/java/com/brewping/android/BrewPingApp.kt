@@ -2,13 +2,14 @@ package com.brewping.android
 
 import android.app.Application
 import android.content.Context
-import com.brewping.android.api.DesktopApiClient
+import com.brewping.core.api.DesktopApiClient
 import com.brewping.android.discovery.DesktopDiscoveryManager
 import com.brewping.android.repository.DesktopRepository
 import com.brewping.android.store.ConversationStore
 import com.brewping.android.store.DeviceStore
 import com.brewping.android.store.ModelStore
-import com.brewping.android.store.PairingStore
+import com.brewping.core.store.PairingStore
+import com.brewping.core.LocalePrefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

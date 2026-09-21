@@ -1,4 +1,4 @@
-package com.brewping.android.model
+package com.brewping.core.model
 
 // ─── 对话数据模型（契约对齐 iOS ConversationStore.swift / 桌面端 camelCase）──────
 //
@@ -156,8 +156,8 @@ data class PairPayload(
     val deviceId: String,
     val name: String,
     val code: String,
-    val osType: com.brewping.android.model.DeviceOSType =
-        com.brewping.android.model.DeviceOSType.Mac,
+    val osType: com.brewping.core.model.DeviceOSType =
+        com.brewping.core.model.DeviceOSType.Mac,
 ) {
     companion object {
         fun parse(raw: String): PairPayload? {
@@ -182,8 +182,8 @@ data class PairPayload(
                 name = params["name"]?.let { java.net.URLDecoder.decode(it, "UTF-8") } ?: "",
                 code = params["code"] ?: "",
                 osType = params["osType"]?.let {
-                    com.brewping.android.model.DeviceOSType.fromRaw(it)
-                } ?: com.brewping.android.model.DeviceOSType.Mac,
+                    com.brewping.core.model.DeviceOSType.fromRaw(it)
+                } ?: com.brewping.core.model.DeviceOSType.Mac,
             )
         }
     }

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BrewPing 手表端启动图标：琥珀底 + 深色圆点（呼应 Latte 令牌，避免引入位图资源） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#BA7517"
+        android:pathData="M24,2 A22,22 0 1,0 24,46 A22,22 0 1,0 24,2 Z" />
+    <path
+        android:fillColor="#FAEEDA"
+        android:pathData="M24,14 a10,10 0 1,0 0.001,0 Z M17,23 a7,7 0 0,1 14,0 l0,6 a7,7 0 0,1 -14,0 Z" />
+</vector>

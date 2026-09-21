@@ -54,12 +54,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brewping.android.R
-import com.brewping.android.model.AgentEntry
-import com.brewping.android.model.CommandPhase
-import com.brewping.android.model.DesktopDevice
-import com.brewping.android.model.TranscriptEntry
-import com.brewping.android.model.pathLabel
-import com.brewping.android.model.timeLabel
+import com.brewping.core.model.AgentEntry
+import com.brewping.core.model.CommandPhase
+import com.brewping.core.model.DesktopDevice
+import com.brewping.core.model.TranscriptEntry
+import com.brewping.core.model.pathLabel
+import com.brewping.core.model.timeLabel
 import com.brewping.android.store.ConversationStore
 import com.brewping.android.store.ModelStore
 import com.brewping.android.ui.theme.BrewMotion
@@ -109,8 +109,8 @@ fun ConversationDetailScreen(
     onSwitchAgent: (conversationId: String?, agentId: String, onDone: () -> Unit) -> Unit,
     onSetApproval: (conversationId: String?, mode: String, onDone: () -> Unit) -> Unit,
     onSetModel: (conversationId: String?, modelId: String?, providerId: String?, onDone: () -> Unit) -> Unit,
-    onFetchFolderRoots: (onResult: (com.brewping.android.model.FolderRoots?) -> Unit) -> Unit,
-    onFetchFolder: (path: String?, onResult: (com.brewping.android.model.FolderBrowse?) -> Unit) -> Unit,
+    onFetchFolderRoots: (onResult: (com.brewping.core.model.FolderRoots?) -> Unit) -> Unit,
+    onFetchFolder: (path: String?, onResult: (com.brewping.core.model.FolderBrowse?) -> Unit) -> Unit,
     onBindWorkdir: (path: String?, onDone: () -> Unit) -> Unit,
     onDecideApproval: (action: String) -> Unit,
     onDismissApproval: () -> Unit,
@@ -626,7 +626,7 @@ private fun ChatRow(item: ChatItem) {
 
 @Composable
 private fun ApprovalDialog(
-    approval: com.brewping.android.model.PendingApprovalInfo,
+    approval: com.brewping.core.model.PendingApprovalInfo,
     onDecide: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {

@@ -46,10 +46,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import com.brewping.android.R
-import com.brewping.android.model.ConversationDirGroup
-import com.brewping.android.model.ConversationSummary
-import com.brewping.android.model.pathLabel
-import com.brewping.android.model.timeLabel
+import com.brewping.core.model.ConversationDirGroup
+import com.brewping.core.model.ConversationSummary
+import com.brewping.core.model.pathLabel
+import com.brewping.core.model.timeLabel
 import com.brewping.android.store.ConversationStore
 import com.brewping.android.ui.theme.BrewMotion
 import com.brewping.android.ui.theme.LatteCard

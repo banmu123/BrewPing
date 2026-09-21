@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 🚨 key 集合必须与 values-zh/strings.xml 完全一致（项目约定）；
+         新增 key 前先在另一侧补齐。中文文案见 values-zh。 -->
+    <string name="app_name">BrewPing</string>
+
+    <!-- Provisioning / connection states -->
+    <string name="not_configured">Not set up</string>
+    <string name="waiting_for_phone">Open BrewPing on your phone to connect this watch</string>
+    <string name="connect_failed">Can\'t reach desktop</string>
+    <string name="desktop_offline">Desktop offline</string>
+    <string name="auth_failed">Not paired — re-provision from phone</string>
+    <string name="server_error">Server error</string>
+    <string name="local_network_unavailable">Local network unavailable</string>
+    <string name="connected_to">Connected: %1$s</string>
+
+    <!-- Home -->
+    <string name="current_status">Current status</string>
+    <string name="conversations">Conversations</string>
+    <string name="approvals">Approvals</string>
+    <string name="voice_command">Voice command</string>
+    <string name="no_conversations">No conversations yet</string>
+    <string name="last_output">Last output</string>
+    <string name="refresh">Refresh</string>
+    <string name="load_failed">Load failed</string>
+
+    <!-- Run phases（与桌面端 ConversationRun 九阶段对齐，v1 不含 submitting/stopping） -->
+    <string name="status_idle">Idle</string>
+    <string name="status_queued">Queued</string>
+    <string name="status_thinking">Thinking…</string>
+    <string name="status_streaming">Generating…</string>
+    <string name="status_stalled">No new output for a while</string>
+    <string name="status_completed">Completed</string>
+    <string name="status_failed">Failed</string>
+
+    <!-- Approval -->
+    <string name="pending_approval">Pending approval</string>
+    <string name="no_approvals">Nothing pending</string>
+    <string name="approve">Approve</string>
+    <string name="reject">Reject</string>
+    <string name="decision_sent">Decision sent</string>
+
+    <!-- Voice -->
+    <string name="speak_now">Speak now…</string>
+    <string name="confirm_send">Send</string>
+    <string name="sending">Sending…</string>
+    <string name="send_failed">Send failed</string>
+    <string name="speech_unavailable">Voice input unavailable on this device</string>
+    <string name="empty_speech">Nothing recognized</string>
+    <string name="cancel">Cancel</string>
+</resources>

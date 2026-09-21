@@ -1,4 +1,4 @@
-package com.brewping.android.model
+package com.brewping.core.model
 
 /**
  * 设备 OS 类型 (matches iOS DeviceOSType)

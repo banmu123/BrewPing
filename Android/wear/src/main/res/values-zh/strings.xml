@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 🚨 key 集合必须与 values/strings.xml 完全一致（项目约定） -->
+    <string name="app_name">BrewPing</string>
+
+    <!-- 配对 / 连接状态 -->
+    <string name="not_configured">尚未配置</string>
+    <string name="waiting_for_phone">在手机上打开 BrewPing 连接这块手表</string>
+    <string name="connect_failed">连不上桌面端</string>
+    <string name="desktop_offline">桌面端离线</string>
+    <string name="auth_failed">未配对 —— 请在手机上重新下发</string>
+    <string name="server_error">服务器错误</string>
+    <string name="local_network_unavailable">无法访问本地网络</string>
+    <string name="connected_to">已连接：%1$s</string>
+
+    <!-- 首页 -->
+    <string name="current_status">当前状态</string>
+    <string name="conversations">对话</string>
+    <string name="approvals">待审批</string>
+    <string name="voice_command">语音指令</string>
+    <string name="no_conversations">还没有对话</string>
+    <string name="last_output">最近输出</string>
+    <string name="refresh">刷新</string>
+    <string name="load_failed">加载失败</string>
+
+    <!-- 执行阶段（与桌面端 ConversationRun 九阶段对齐，v1 不含 submitting/stopping） -->
+    <string name="status_idle">空闲</string>
+    <string name="status_queued">排队中</string>
+    <string name="status_thinking">思考中…</string>
+    <string name="status_streaming">正在生成…</string>
+    <string name="status_stalled">迟迟没有新输出</string>
+    <string name="status_completed">已完成</string>
+    <string name="status_failed">已失败</string>
+
+    <!-- 审批 -->
+    <string name="pending_approval">等待确认</string>
+    <string name="no_approvals">暂无待审批</string>
+    <string name="approve">批准</string>
+    <string name="reject">拒绝</string>
+    <string name="decision_sent">已提交决定</string>
+
+    <!-- 语音 -->
+    <string name="speak_now">请说话…</string>
+    <string name="confirm_send">发送</string>
+    <string name="sending">发送中…</string>
+    <string name="send_failed">发送失败</string>
+    <string name="speech_unavailable">此设备不支持语音输入</string>
+    <string name="empty_speech">没有识别到内容</string>
+    <string name="cancel">取消</string>
+</resources>

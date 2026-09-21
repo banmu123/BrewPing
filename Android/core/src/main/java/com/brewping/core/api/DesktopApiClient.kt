@@ -1,19 +1,21 @@
-package com.brewping.android.api
+package com.brewping.core.api
 
 import android.util.Log
-import com.brewping.android.model.AgentModelsResult
-import com.brewping.android.model.AgentEntry
-import com.brewping.android.model.AgentsResponse
-import com.brewping.android.model.ApprovalDecisionResponse
-import com.brewping.android.model.CommandStatusResponse
-import com.brewping.android.model.ConversationResult
-import com.brewping.android.model.ConversationSummary
-import com.brewping.android.model.ConversationsResult
-import com.brewping.android.model.DesktopDevice
-import com.brewping.android.model.LifecycleResponse
-import com.brewping.android.model.ModelOption
-import com.brewping.android.model.StatusResponse
-import com.brewping.android.model.SubmitResponse
+import com.brewping.core.model.AgentModelsResult
+import com.brewping.core.model.AgentEntry
+import com.brewping.core.model.AgentsResponse
+import com.brewping.core.model.ApprovalDecisionResponse
+import com.brewping.core.model.CommandRunStatus
+import com.brewping.core.model.CommandStatusResponse
+import com.brewping.core.model.ConversationResult
+import com.brewping.core.model.ConversationSummary
+import com.brewping.core.model.ConversationsResult
+import com.brewping.core.model.DesktopDevice
+import com.brewping.core.model.LifecycleResponse
+import com.brewping.core.model.ModelOption
+import com.brewping.core.model.PendingApprovalInfo
+import com.brewping.core.model.StatusResponse
+import com.brewping.core.model.SubmitResponse
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -32,7 +34,7 @@ import java.util.concurrent.TimeUnit
  *  - 写操作（非 GET）额外带 `X-BrewPing-Timestamp`（秒，±120s）+ `X-BrewPing-Nonce`（一次性）。
  * `pairingStore == null`（单元测试桩）时不注入任何鉴权头。
  */
-class DesktopApiClient(private val pairingStore: com.brewping.android.store.PairingStore? = null) {
+class DesktopApiClient(private val pairingStore: com.brewping.core.store.PairingStore? = null) {
 
     companion object {
         private const val TAG = "BrewPingAPI"
@@ -180,12 +182,22 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
      * 提交消息。`conversationId` 非空时显式指定目标对话（对齐 iOS 的
      * `submitter.submit(text:conversationId:)`）—— 不带则由桌面端按
      * 「显式对话 → agent → active」三层回落，可能落进别的对话，UI 层永远显式传。
+     *
+     * `clientCommandId`：**幂等键**（客户端生成）。网络超时后重试时带同一个值，
+     * 桌面端按它去重避免重复执行（与每次请求都变的 `X-BrewPing-Nonce` 是两回事）。
+     * 老桌面端不认识该字段 → 忽略，行为不变。
      */
-    suspend fun submitMessage(device: DesktopDevice, text: String, conversationId: String? = null): SubmitResponse? =
+    suspend fun submitMessage(
+        device: DesktopDevice,
+        text: String,
+        conversationId: String? = null,
+        clientCommandId: String? = null,
+    ): SubmitResponse? =
         withContext(Dispatchers.IO) {
             try {
                 val body = JSONObject().put("text", text).apply {
                     if (!conversationId.isNullOrEmpty()) put("conversationId", conversationId)
+                    if (!clientCommandId.isNullOrEmpty()) put("commandId", clientCommandId)
                 }.toString()
                 val json = post(messageClient, baseUrl(device) + "/api/message", body, device)
                 if (json != null) {
@@ -242,6 +254,8 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
                         modelId = json.optString("modelId", ""),
                         duration = if (json.has("duration") && !json.isNull("duration"))
                             json.optDouble("duration") else null,
+                        // 服务端权威执行阶段（老桌面端没有该字段 → null，UI 回退旧语义）
+                        run = json.optJSONObject("run")?.let { CommandRunStatus.fromJson(it) },
                     )
                 } catch (e: Exception) {
                     Log.w(TAG, "[API] pollCommandStatus parse error: ${e.message}")
@@ -293,6 +307,38 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
             } catch (e: Exception) {
                 Log.w(TAG, "[API] decideApproval error: ${e.message}")
                 null
+            }
+        }
+
+    // ─── GET /api/approvals（挂起命令列表；Wear 审批页用）──────────────────────
+
+    /**
+     * 拉取全部待确认命令（桌面端 `approvalDict` 形状：id / text / reasons / createdAt）。
+     * 返回 null = 网络失败或非 200；空列表 = 没有待审批。
+     */
+    suspend fun fetchApprovals(device: DesktopDevice): List<PendingApprovalInfo>? =
+        withContext(Dispatchers.IO) {
+            val raw = executeRaw(
+                client,
+                signed(Request.Builder().url(baseUrl(device) + "/api/approvals").get(), device, "GET").build(),
+            )
+            when {
+                raw.code == 0 -> null
+                raw.code != 200 || raw.body == null -> null
+                else -> try {
+                    val json = JSONObject(raw.body)
+                    val arr = json.optJSONArray("approvals")
+                    val list = mutableListOf<PendingApprovalInfo>()
+                    if (arr != null) {
+                        for (i in 0 until arr.length()) {
+                            parsePendingApproval(arr.optJSONObject(i))?.let { list.add(it) }
+                        }
+                    }
+                    list
+                } catch (e: Exception) {
+                    Log.w(TAG, "[API] fetchApprovals parse error: ${e.message}")
+                    null
+                }
             }
         }
 
@@ -370,7 +416,7 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
         }
     }
 
-    private fun parseSessionBrief(obj: JSONObject) = com.brewping.android.model.SessionBrief(
+    private fun parseSessionBrief(obj: JSONObject) = com.brewping.core.model.SessionBrief(
         id = obj.optString("id", ""),
         agent = obj.optString("agent", ""),
         agentName = obj.optString("agentName", ""),
@@ -378,23 +424,23 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
     )
 
     /** 解析授权门卫挂起对象（桌面端 `approval` 字段；缺省/畸形返回 null，对齐 iOS）。 */
-    private fun parsePendingApproval(obj: JSONObject?): com.brewping.android.model.PendingApprovalInfo? {
+    private fun parsePendingApproval(obj: JSONObject?): com.brewping.core.model.PendingApprovalInfo? {
         if (obj == null) return null
         val id = obj.optString("id", "")
         if (id.isEmpty()) return null
-        val reasons = mutableListOf<com.brewping.android.model.ApprovalReasonInfo>()
+        val reasons = mutableListOf<com.brewping.core.model.ApprovalReasonInfo>()
         obj.optJSONArray("reasons")?.let { arr ->
             for (i in 0 until arr.length()) {
                 val r = arr.optJSONObject(i) ?: continue
                 reasons.add(
-                    com.brewping.android.model.ApprovalReasonInfo(
+                    com.brewping.core.model.ApprovalReasonInfo(
                         code = r.optString("code", ""),
                         detail = r.optString("detail", ""),
                     )
                 )
             }
         }
-        return com.brewping.android.model.PendingApprovalInfo(
+        return com.brewping.core.model.PendingApprovalInfo(
             id = id,
             text = obj.optString("text", ""),
             reasons = reasons,
@@ -562,7 +608,7 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
 
     // ─── POST /api/pair（配对码换长期 token；公开端点，码一次性 10 分钟有效）────
 
-    suspend fun pairWithCode(device: DesktopDevice, code: String): com.brewping.android.model.PairResult? =
+    suspend fun pairWithCode(device: DesktopDevice, code: String): com.brewping.core.model.PairResult? =
         withContext(Dispatchers.IO) {
             try {
                 val payload = JSONObject().put("code", code.trim())
@@ -572,10 +618,10 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
                     .build()
                 val raw = executeRaw(messageClient, request)
                 if (raw.body == null) {
-                    com.brewping.android.model.PairResult(success = false, error = "Can't reach ${device.name}")
+                    com.brewping.core.model.PairResult(success = false, error = "Can't reach ${device.name}")
                 } else try {
                     val json = JSONObject(raw.body)
-                    com.brewping.android.model.PairResult(
+                    com.brewping.core.model.PairResult(
                         success = json.optBoolean("success", false) && raw.code == 200,
                         token = json.optString("token", ""),
                         deviceId = json.optString("deviceId", ""),
@@ -583,18 +629,18 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
                         error = json.optString("error", "").ifEmpty { null },
                     )
                 } catch (e: Exception) {
-                    com.brewping.android.model.PairResult(success = false, error = "Malformed response")
+                    com.brewping.core.model.PairResult(success = false, error = "Malformed response")
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "[API] pairWithCode error: ${e.message}")
-                com.brewping.android.model.PairResult(success = false, error = "Pair failed: ${e.message}")
+                com.brewping.core.model.PairResult(success = false, error = "Pair failed: ${e.message}")
             }
         }
 
     // ─── 目录浏览（对话级 workdir 绑定用；契约对齐桌面端 folder_browser）────────
 
     /** GET /api/folders/roots —— home + 盘符（Windows）。 */
-    suspend fun fetchFolderRoots(device: DesktopDevice): com.brewping.android.model.FolderRoots? =
+    suspend fun fetchFolderRoots(device: DesktopDevice): com.brewping.core.model.FolderRoots? =
         withContext(Dispatchers.IO) {
             val raw = executeRaw(
                 client,
@@ -607,7 +653,7 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
                 json.optJSONArray("drives")?.let { arr ->
                     for (i in 0 until arr.length()) drives.add(arr.optString(i, ""))
                 }
-                com.brewping.android.model.FolderRoots(
+                com.brewping.core.model.FolderRoots(
                     platform = json.optString("platform", ""),
                     pathSeparator = json.optString("pathSeparator", "/"),
                     homeDir = json.optString("homeDir", ""),
@@ -620,7 +666,7 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
         }
 
     /** GET /api/folders?path= —— 浏览目录（path 缺省 = 根）。 */
-    suspend fun browseFolder(device: DesktopDevice, path: String?): com.brewping.android.model.FolderBrowse? =
+    suspend fun browseFolder(device: DesktopDevice, path: String?): com.brewping.core.model.FolderBrowse? =
         withContext(Dispatchers.IO) {
             val url = buildString {
                 append(baseUrl(device)).append("/api/folders")
@@ -635,7 +681,7 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
             if (raw.code != 200 || raw.body == null) return@withContext null
             try {
                 val json = JSONObject(raw.body)
-                val entries = mutableListOf<com.brewping.android.model.FolderEntry>()
+                val entries = mutableListOf<com.brewping.core.model.FolderEntry>()
                 json.optJSONArray("entries")?.let { arr ->
                     for (i in 0 until arr.length()) {
                         val e = arr.getJSONObject(i)
@@ -645,7 +691,7 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
                         // 服务端 browse 已只返回目录（folder_browser 过滤文件）。
                         if (name.isEmpty() || abs.isEmpty()) continue
                         entries.add(
-                            com.brewping.android.model.FolderEntry(
+                            com.brewping.core.model.FolderEntry(
                                 name = name,
                                 absolutePath = abs,
                                 isUnreadable = e.optString("error", "").isNotEmpty(),
@@ -653,7 +699,7 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
                         )
                     }
                 }
-                com.brewping.android.model.FolderBrowse(
+                com.brewping.core.model.FolderBrowse(
                     path = json.optString("path", ""),
                     parentPath = if (json.has("parentPath") && !json.isNull("parentPath"))
                         json.optString("parentPath") else null,
@@ -797,15 +843,15 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
         )
     }
 
-    private fun parseConversationDetail(obj: JSONObject): com.brewping.android.model.ConversationDetail {
-        val entries = mutableListOf<com.brewping.android.model.TranscriptEntry>()
+    private fun parseConversationDetail(obj: JSONObject): com.brewping.core.model.ConversationDetail {
+        val entries = mutableListOf<com.brewping.core.model.TranscriptEntry>()
         val messages = obj.optJSONArray("messages")
         if (messages != null) {
             val convId = obj.optString("id", "")
             for (i in 0 until messages.length()) {
                 val m = messages.getJSONObject(i)
                 entries.add(
-                    com.brewping.android.model.TranscriptEntry(
+                    com.brewping.core.model.TranscriptEntry(
                         role = m.optString("role", "assistant"),
                         text = m.optString("text", ""),
                         source = optStringOrNull(m, "source"),
@@ -818,7 +864,7 @@ class DesktopApiClient(private val pairingStore: com.brewping.android.store.Pair
                 )
             }
         }
-        return com.brewping.android.model.ConversationDetail(
+        return com.brewping.core.model.ConversationDetail(
             id = obj.optString("id", ""),
             agentId = obj.optString("agentId", ""),
             title = optStringOrNull(obj, "title"),

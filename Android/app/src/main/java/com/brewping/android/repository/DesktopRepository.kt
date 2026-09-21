@@ -1,15 +1,15 @@
 package com.brewping.android.repository
 
 import android.util.Log
-import com.brewping.android.api.DesktopApiClient
+import com.brewping.core.api.DesktopApiClient
 import com.brewping.android.discovery.DesktopDiscoveryManager
-import com.brewping.android.model.AgentEntry
-import com.brewping.android.model.CommandPhase
-import com.brewping.android.model.DesktopDevice
-import com.brewping.android.model.DesktopStatus
-import com.brewping.android.model.SessionBrief
-import com.brewping.android.model.SessionState
-import com.brewping.android.model.StatusResponse
+import com.brewping.core.model.AgentEntry
+import com.brewping.core.model.CommandPhase
+import com.brewping.core.model.DesktopDevice
+import com.brewping.core.model.DesktopStatus
+import com.brewping.core.model.SessionBrief
+import com.brewping.core.model.SessionState
+import com.brewping.core.model.StatusResponse
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -260,13 +260,16 @@ class DesktopRepository(
         _commandPhase.value = CommandPhase.Sending
 
         val response = apiClient.submitMessage(device, text, conversationId)
+        // 🚨 response.approval 是 :core 模块的公开属性 —— 跨模块智能转换被禁止，
+        //    必须先落成本地 val（编译器无法对「不同模块的属性」做 null 精化）。
+        val approvalInfo = response?.approval?.takeIf { response.status == "pending_approval" }
         when {
             // 授权门卫挂起：消息已抵达桌面端但等待确认 —— 不是失败，
             // 也不进入轮询（对齐 iOS：pendingApproval → phase = .idle）。
-            response != null && response.approval != null && response.status == "pending_approval" -> {
-                pendingApprovalId = response.approval.id
+            approvalInfo != null -> {
+                pendingApprovalId = approvalInfo.id
                 pendingApprovalDevice = device
-                _commandPhase.value = CommandPhase.PendingApproval(response.approval)
+                _commandPhase.value = CommandPhase.PendingApproval(approvalInfo)
             }
             response != null && response.commandId.isNotEmpty() -> {
                 pendingApprovalId = null

@@ -29,10 +29,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
 import com.brewping.android.R
-import com.brewping.android.model.AgentEntry
-import com.brewping.android.model.DesktopDevice
-import com.brewping.android.model.ModelOption
-import com.brewping.android.model.pathLabel
+import com.brewping.core.model.AgentEntry
+import com.brewping.core.model.DesktopDevice
+import com.brewping.core.model.ModelOption
+import com.brewping.core.model.pathLabel
 import com.brewping.android.store.ConversationStore
 import com.brewping.android.store.ModelStore
 import com.brewping.android.ui.theme.LatteCard

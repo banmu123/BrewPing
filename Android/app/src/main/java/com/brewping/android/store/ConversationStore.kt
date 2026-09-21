@@ -1,11 +1,11 @@
 package com.brewping.android.store
 
 import android.util.Log
-import com.brewping.android.api.DesktopApiClient
-import com.brewping.android.model.ConversationDetail
-import com.brewping.android.model.ConversationDirGroup
-import com.brewping.android.model.ConversationSummary
-import com.brewping.android.model.DesktopDevice
+import com.brewping.core.api.DesktopApiClient
+import com.brewping.core.model.ConversationDetail
+import com.brewping.core.model.ConversationDirGroup
+import com.brewping.core.model.ConversationSummary
+import com.brewping.core.model.DesktopDevice
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

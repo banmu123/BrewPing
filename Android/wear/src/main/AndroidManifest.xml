@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 🚨 必须是 <manifest> 直接子元素，且 required 不能写 false ——
+         否则会产出「手机 + 手表共用同一个 APK」的形态，Play 不支持该配置。 -->
+    <uses-feature
+        android:name="android.hardware.type.watch"
+        android:required="true" />
+
+    <!-- 网络：与手机端一致（局域网明文 http + NSD 组播预留）。
+         注：API 37（Android 17）起本地网络默认封闭，届时需在此补
+         ACCESS_LOCAL_NETWORK 运行时权限 —— 见根记忆 / 准备清单第 7 节。 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
+    <!-- 语音发指令：系统语音识别 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <application
+        android:name=".WearApp"
+        android:allowBackup="true"
+        android:icon="@drawable/ic_wear_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.BrewPingWear"
+        android:usesCleartextTraffic="true">
+
+        <uses-library
+            android:name="com.google.android.wearable"
+            android:required="false" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Data Layer provisioning：手机把 host / port / token 下发给手表。
+             path 固定 /brewping/provision，payload 为 JSON（见 ProvisionPayload）。 -->
+        <service
+            android:name=".pairing.WearProvisionReceiverService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:path="/brewping/provision"
+                    android:scheme="wear" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

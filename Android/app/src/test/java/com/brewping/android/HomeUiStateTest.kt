@@ -1,12 +1,12 @@
 package com.brewping.android
 
-import com.brewping.android.model.AgentEntry
-import com.brewping.android.model.CommandPhase
-import com.brewping.android.model.DesktopDevice
-import com.brewping.android.model.DesktopStatus
-import com.brewping.android.model.DeviceOSType
-import com.brewping.android.model.ManagedDevice
-import com.brewping.android.model.SessionState
+import com.brewping.core.model.AgentEntry
+import com.brewping.core.model.CommandPhase
+import com.brewping.core.model.DesktopDevice
+import com.brewping.core.model.DesktopStatus
+import com.brewping.core.model.DeviceOSType
+import com.brewping.core.model.ManagedDevice
+import com.brewping.core.model.SessionState
 import com.brewping.android.repository.ConnectionState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

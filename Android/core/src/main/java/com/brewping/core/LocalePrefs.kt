@@ -1,4 +1,4 @@
-package com.brewping.android
+package com.brewping.core
 
 import android.app.Application
 import android.content.Context

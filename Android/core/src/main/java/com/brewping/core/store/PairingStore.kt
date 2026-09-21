@@ -1,4 +1,4 @@
-package com.brewping.android.store
+package com.brewping.core.store
 
 import android.content.Context
 import android.content.SharedPreferences

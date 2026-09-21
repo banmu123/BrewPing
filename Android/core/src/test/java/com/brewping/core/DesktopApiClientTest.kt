@@ -1,7 +1,7 @@
-package com.brewping.android
+package com.brewping.core
 
-import com.brewping.android.api.DesktopApiClient
-import com.brewping.android.model.DesktopDevice
+import com.brewping.core.api.DesktopApiClient
+import com.brewping.core.model.DesktopDevice
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals

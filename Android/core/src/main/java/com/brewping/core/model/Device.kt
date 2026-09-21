@@ -1,4 +1,4 @@
-package com.brewping.android.model
+package com.brewping.core.model
 
 /**
  * Represents a discovered BrewPing Desktop device on the local network.
@@ -123,6 +123,11 @@ data class CommandStatusResponse(
     val failureReason: String = "",
     val modelId: String = "",
     val duration: Double? = null,
+    /**
+     * 服务端**权威**执行阶段（`run` 对象，见 [CommandRunStatus]）。
+     * 老桌面端不返回该字段 → null，调用方回退旧的 status 字符串语义。
+     */
+    val run: CommandRunStatus? = null,
 )
 
 data class LifecycleResponse(

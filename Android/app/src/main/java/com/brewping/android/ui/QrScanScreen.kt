@@ -39,7 +39,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.brewping.android.R
-import com.brewping.android.model.PairPayload
+import com.brewping.core.model.PairPayload
 import com.brewping.android.ui.theme.LatteOnSurface
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap

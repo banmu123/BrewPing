@@ -21,3 +21,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "BrewPing"
 include(":app")
+include(":core")
+include(":wear")

@@ -67,11 +67,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.brewping.android.LocalePrefs
+import com.brewping.core.LocalePrefs
 import com.brewping.android.R
-import com.brewping.android.model.DesktopDevice
-import com.brewping.android.model.DeviceOSType
-import com.brewping.android.model.ManagedDevice
+import com.brewping.core.model.DesktopDevice
+import com.brewping.core.model.DeviceOSType
+import com.brewping.core.model.ManagedDevice
 import com.brewping.android.ui.theme.BrewMotion
 import com.brewping.android.ui.theme.LatteAccent
 import com.brewping.android.ui.theme.LatteBackground
@@ -122,7 +122,7 @@ fun HomeScreen(viewModel: HomeViewModel) {
      */
     var pairScanReturn by remember { mutableStateOf<ManagedDevice?>(null) }
     /** 表单扫码结果（DeviceFormDialog 预填 host/port/name）。 */
-    var qrFormPayload by remember { mutableStateOf<com.brewping.android.model.PairPayload?>(null) }
+    var qrFormPayload by remember { mutableStateOf<com.brewping.core.model.PairPayload?>(null) }
     /** Help / About 页（商店审核要求站内可达：使用说明 / 隐私政策 / 支持 / 商标免责）。 */
     var showHelp by remember { mutableStateOf(false) }
     val discovered by viewModel.discoveredDevices.collectAsState()
@@ -131,10 +131,10 @@ fun HomeScreen(viewModel: HomeViewModel) {
     // ─── 深链配对（系统相机 / 微信扫桌面端二维码 → brewping://pair?...）──────────
     // 与「配对窗扫码」共用同一套「复用已有设备 / 新建并激活」逻辑，
     // 差别只在入口：那条来自 App 内相机，这条来自系统 Intent（冷启动或 onNewIntent）。
-    val deepLinkPayload by com.brewping.android.model.PairingDeepLink.pendingAction.collectAsState()
+    val deepLinkPayload by com.brewping.core.model.PairingDeepLink.pendingAction.collectAsState()
     LaunchedEffect(deepLinkPayload) {
         val payload = deepLinkPayload ?: return@LaunchedEffect
-        com.brewping.android.model.PairingDeepLink.consume()
+        com.brewping.core.model.PairingDeepLink.consume()
         val target = if (payload.host.isNotEmpty()) {
             val existing = devices.firstOrNull {
                 it.host.equals(payload.host, ignoreCase = true) &&
@@ -853,7 +853,7 @@ private fun DeviceFormDialog(
     initialHost: String = "",
     initialPort: String = "8787",
     initialOS: DeviceOSType = DeviceOSType.Mac,
-    scannedPayload: com.brewping.android.model.PairPayload? = null,
+    scannedPayload: com.brewping.core.model.PairPayload? = null,
     onScan: () -> Unit = {},
     onDismiss: () -> Unit,
     onConfirm: (name: String, host: String, port: String, osType: DeviceOSType, pairingCode: String) -> Unit,

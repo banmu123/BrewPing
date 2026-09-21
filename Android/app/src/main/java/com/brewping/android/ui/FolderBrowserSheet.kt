@@ -39,9 +39,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
 import com.brewping.android.R
-import com.brewping.android.model.FolderBrowse
-import com.brewping.android.model.FolderRoots
-import com.brewping.android.model.pathLabel
+import com.brewping.core.model.FolderBrowse
+import com.brewping.core.model.FolderRoots
+import com.brewping.core.model.pathLabel
 import com.brewping.android.ui.theme.LatteCard
 import com.brewping.android.ui.theme.LatteDestructive
 import com.brewping.android.ui.theme.LatteOnSurface

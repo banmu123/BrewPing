@@ -6,7 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.brewping.android.model.PairingDeepLink
+import com.brewping.core.model.PairingDeepLink
+import com.brewping.core.LocalePrefs
 import com.brewping.android.ui.HomeScreen
 import com.brewping.android.ui.HomeViewModel
 import com.brewping.android.ui.theme.BrewPingTheme

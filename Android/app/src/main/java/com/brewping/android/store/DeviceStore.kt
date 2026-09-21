@@ -2,8 +2,8 @@ package com.brewping.android.store
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.brewping.android.model.DeviceOSType
-import com.brewping.android.model.ManagedDevice
+import com.brewping.core.model.DeviceOSType
+import com.brewping.core.model.ManagedDevice
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

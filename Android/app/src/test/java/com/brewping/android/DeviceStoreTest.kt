@@ -3,8 +3,8 @@ package com.brewping.android
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
-import com.brewping.android.model.DeviceOSType
-import com.brewping.android.model.ManagedDevice
+import com.brewping.core.model.DeviceOSType
+import com.brewping.core.model.ManagedDevice
 import com.brewping.android.store.DeviceStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

@@ -1,4 +1,4 @@
-package com.brewping.android.model
+package com.brewping.core.model
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

@@ -4,16 +4,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.brewping.android.CommandReceiver
-import com.brewping.android.model.AgentEntry
-import com.brewping.android.model.CommandPhase
-import com.brewping.android.model.DesktopDevice
-import com.brewping.android.model.ManagedDevice
-import com.brewping.android.model.SessionState
+import com.brewping.core.model.AgentEntry
+import com.brewping.core.model.CommandPhase
+import com.brewping.core.model.DesktopDevice
+import com.brewping.core.model.ManagedDevice
+import com.brewping.core.model.SessionState
 import com.brewping.android.repository.ConnectionState
 import com.brewping.android.repository.DesktopRepository
 import com.brewping.android.store.ConversationStore
 import com.brewping.android.store.DeviceStore
 import com.brewping.android.store.ModelStore
+import com.brewping.android.provisioning.WearProvisionSender
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -201,6 +202,13 @@ class HomeViewModel(
             if (active != null && active.host == device.host) {
                 connectToDevice(active)
             }
+            // Wear provisioning：把当前设备（host/port/token）下发给已连接的手表。
+            // token 用刚换来的新值；无手表连接时静默跳过。
+            WearProvisionSender.sendToWatch(
+                context = appContext,
+                device = active ?: device,
+                token = result.token,
+            )
             onResult(true, msg(com.brewping.android.R.string.paired_with, "Paired with %1\$s", result.deviceName.ifEmpty { device.name }))
         }
     }
@@ -221,7 +229,7 @@ class HomeViewModel(
             name = device.name,
             host = device.ip,
             port = device.port.toString(),
-            osType = com.brewping.android.model.DeviceOSType.fromRaw(device.platform),
+            osType = com.brewping.core.model.DeviceOSType.fromRaw(device.platform),
         )
         deviceStore.addDevice(managed)
         deviceStore.setActive(managed.id)
@@ -236,6 +244,12 @@ class HomeViewModel(
                 val device = deviceStore.activeDevice
                 if (device != null) {
                     connectToDevice(device)
+                    // Wear provisioning（含冷启动首帧）：把手表配置同步成当前激活设备。
+                    // token 未配对（null）时跳过 —— 手表端会显示 "Waiting for phone"。
+                    val token = appPairingStore.token(device.id)
+                    if (token != null) {
+                        WearProvisionSender.sendToWatch(appContext, device, token)
+                    }
                 }
             }
         }
@@ -535,12 +549,12 @@ class HomeViewModel(
 
     // ─── Folder browsing（对话级 workdir 绑定的目录浏览）───────────────────────
 
-    fun fetchFolderRoots(onResult: (com.brewping.android.model.FolderRoots?) -> Unit) {
+    fun fetchFolderRoots(onResult: (com.brewping.core.model.FolderRoots?) -> Unit) {
         val device = _desktopDevice.value ?: run { onResult(null); return }
         viewModelScope.launch { onResult(appPairingApi.fetchFolderRoots(device)) }
     }
 
-    fun fetchFolder(path: String?, onResult: (com.brewping.android.model.FolderBrowse?) -> Unit) {
+    fun fetchFolder(path: String?, onResult: (com.brewping.core.model.FolderBrowse?) -> Unit) {
         val device = _desktopDevice.value ?: run { onResult(null); return }
         viewModelScope.launch { onResult(appPairingApi.browseFolder(device, path)) }
     }

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Wear OS 用系统 DeviceDefault（圆屏 / 方屏自适应），视觉由 Compose 主题接管 -->
+    <style name="Theme.BrewPingWear" parent="android:Theme.DeviceDefault" />
+</resources>

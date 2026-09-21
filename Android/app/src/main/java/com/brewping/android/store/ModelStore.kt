@@ -2,9 +2,9 @@ package com.brewping.android.store
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.brewping.android.api.DesktopApiClient
-import com.brewping.android.model.DesktopDevice
-import com.brewping.android.model.ModelOption
+import com.brewping.core.api.DesktopApiClient
+import com.brewping.core.model.DesktopDevice
+import com.brewping.core.model.ModelOption
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -175,7 +175,7 @@ class ModelStore(
     // ─── 当前生效模型判定（顺序对齐 iOS resolveActive）─────────────────────────
 
     private fun resolveActive(
-        result: com.brewping.android.model.AgentModelsResult,
+        result: com.brewping.core.model.AgentModelsResult,
         models: List<ModelOption>,
         localFallback: String?,
     ): String? {
