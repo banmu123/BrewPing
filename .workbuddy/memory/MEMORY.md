@@ -58,7 +58,16 @@
 
 ## macOS 桌面端
 - 🚨 `DesktopCommands.swift` 是 UI 唯一入口；UI 不直碰 Store/Gate；执行唯一路径 `ConversationCommandService` + `CommandRouter.shared`。
-- `DesktopStrings.swift` 由 `locales.ts` 机械生成 → **改文案两端同批**（键名 ≡ LKey rawValue）；样式照 Latte 令牌
+- 🚨 **对话执行状态单一来源 `ConversationRun`**（`Sources/App/ConversationRun.swift`，纯逻辑、BrewPingCore 内、可 `swift test`）：
+  阶段 idle/submitting/queued/thinking/streaming/stopping/completed/failed/stalled，**绑定 commandId + conversationId**（不用 Agent 全局状态，否则误伤同 Agent 的其它对话）；
+  UI 只调 `indicator(now:)` 拿展示描述，不自行拼阶段。阈值全在 `RunTiming`。
+  💡 后端推的是**累积全文** → 过时帧判定用「前缀关系」（相同=重复、是当前严格前缀=过时、`done=true` 一律接受），无需序号。
+  DesktopAppState：delta 先入 `pendingDelta` 100ms 合并再上屏；`fetchGeneration` 防慢返回覆盖新对话；
+  切/新建/归档对话必须 `cancelRunTracking()`；`reconcileRun` **只认 assistant/error** 才终结命令（user 同 commandId 仅撤乐观占位）。
+  该状态机放 `Sources/App/` 而非 `Sources/BrewPingDesktop/` —— 后者链 SwiftUI App，测试依赖它会启动 GUI。
+- ⚠️ `DesktopStrings.swift` 与 TS 端对齐**仅限 Setup Wizard（`sw*`）组**（`Sources/BrewPingwinDesktop/src/i18n/locales.ts` 注释亦只标注该组）；
+  `chat.*` 等属 **Mac 端专有**、TS 端无对应键 → 改这些组不必同步 TS。旧记忆说的「机械生成」范围过宽，**仓库内并无生成脚本**，改动不会被覆盖。
+  改 Mac 文案前先 grep 该键前缀是否属 `sw` 共享组；样式照 Latte 令牌
   （`LatteButtonStyle` 自带内边距，纯图标传 `size:.icon`；徽章一律 `.fixedSize()`）。
 - 🚨 NSTextView 必须 `scrollableTextView()`；高度钳在 `sizeThatFits`；Enter 走 `textView(_:doCommandBy:)`。空态居中用 `.frame(minHeight:)`。
 - 验证 `swift build --disable-sandbox`（不加会静默失败）；配置验证另走 `tools/verify-cli-config.sh`。

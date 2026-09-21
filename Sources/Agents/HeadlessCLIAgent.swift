@@ -31,7 +31,12 @@ class HeadlessCLIAgent: CodingAgent {
     }
 
     /// `onLaunch` 在子进程真正启动后被调用一次（供外部登记句柄以支持手动停止）。
-    func execute(_ command: String, workdir: String?, onLaunch: ((Process) -> Void)?) -> AgentResult {
+    func execute(
+        _ command: String,
+        workdir: String?,
+        onLaunch: ((Process) -> Void)?,
+        onOutput: ((String) -> Void)? = nil
+    ) -> AgentResult {
         let started = Date()
         func result(_ status: AgentExecutionStatus, _ output: String, _ summary: String? = nil) -> AgentResult {
             AgentResult(
@@ -42,7 +47,8 @@ class HeadlessCLIAgent: CodingAgent {
                 summary: summary ?? AgentResultSummary.make(from: output),
                 filesChanged: [],
                 durationSeconds: Date().timeIntervalSince(started),
-                output: String(output.prefix(8000))
+                // 对话转录是用户数据，不能为了摘要方便而静默截断。
+                output: output
             )
         }
 
@@ -60,9 +66,19 @@ class HeadlessCLIAgent: CodingAgent {
             timeoutSeconds: executionTimeoutSeconds,
             additionalPATHEntries: [executableDir],
             workingDirectory: workdir,
-            onLaunch: onLaunch
+            onLaunch: onLaunch,
+            // 保持与最终落库相同的清理规则，使流式气泡与最终消息完全一致。
+            onOutput: { raw in onOutput?(AgentOutputCleaner.clean(raw)) }
         ) else {
-            return result(.failed, "Failed to launch \(name) (\(path)).")
+            // 能走到这里说明 `detect()` 已确认可执行文件存在 —— 失败几乎总是
+            // 「超过 executionTimeoutSeconds 被终止」（唯一另一条路是极罕见的启动失败）。
+            // 此前一律报 "Failed to launch ..."，把「跑了很久被掐掉」误导成「根本没起来」，
+            // 用户会以为命令压根没执行。
+            return result(
+                .failed,
+                "\(name) did not finish within \(Int(executionTimeoutSeconds))s and was stopped.",
+                "\(name) timed out"
+            )
         }
 
         let output = AgentOutputCleaner.clean(run.output)

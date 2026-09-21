@@ -43,6 +43,24 @@ public enum LKey: String, CaseIterable {
     case chatSendTitle = "chat.sendTitle"
     case chatMe = "chat.me"
     case chatThinking = "chat.thinking"
+    case chatGenerating = "chat.generating"
+    // 执行状态机（ConversationRun）各阶段的如实描述
+    case chatSubmitting = "chat.submitting"
+    case chatQueued = "chat.queued"
+    case chatConnecting = "chat.connecting"
+    case chatStillWorking = "chat.stillWorking"
+    case chatNoNewOutput = "chat.noNewOutput"
+    case chatStopping = "chat.stopping"
+    case chatStopUnconfirmed = "chat.stopUnconfirmed"
+    case chatStopUnconfirmedHint = "chat.stopUnconfirmedHint"
+    case chatStalledHint = "chat.stalledHint"
+    case chatElapsed = "chat.elapsed"
+    case chatSinceLastOutput = "chat.sinceLastOutput"
+    // 可操作反馈
+    case chatJumpToLatest = "chat.jumpToLatest"
+    case chatViewTerminal = "chat.viewTerminal"
+    case chatRetry = "chat.retry"
+    case chatCopyError = "chat.copyError"
     case chatStandby = "chat.standby"
     case chatLandingHint = "chat.landingHint"
     case chatEmptyTitle = "chat.emptyTitle"
@@ -447,6 +465,22 @@ public enum DesktopStrings {
         .chatSendTitle: "发送（Enter）",
         .chatMe: "我",
         .chatThinking: "{agent} 正在思考…",
+        .chatGenerating: "正在生成回复…",
+        .chatSubmitting: "正在提交…",
+        .chatQueued: "已排队，等待执行…",
+        .chatConnecting: "正在连接模型，等待首字…",
+        .chatStillWorking: "仍在处理中…",
+        .chatNoNewOutput: "暂未收到新输出",
+        .chatStopping: "正在停止…",
+        .chatStopUnconfirmed: "停止请求尚未确认",
+        .chatStopUnconfirmedHint: "后台可能仍在运行，可再次停止或查看终端。",
+        .chatStalledHint: "命令仍在后台执行；可查看终端，或停止本次生成。",
+        .chatElapsed: "已用 {sec} 秒",
+        .chatSinceLastOutput: "最后输出 {sec} 秒前",
+        .chatJumpToLatest: "跳到最新消息",
+        .chatViewTerminal: "查看终端",
+        .chatRetry: "重试",
+        .chatCopyError: "复制错误",
         .chatStandby: "{agent} 待命中",
         .chatLandingHint: "在下方输入，或从 iPhone / Apple Watch 发送指令",
         .chatEmptyTitle: "空对话",
@@ -849,6 +883,22 @@ public enum DesktopStrings {
         .chatSendTitle: "Send (Enter)",
         .chatMe: "Me",
         .chatThinking: "{agent} is thinking…",
+        .chatGenerating: "Generating response…",
+        .chatSubmitting: "Submitting…",
+        .chatQueued: "Queued, waiting to run…",
+        .chatConnecting: "Connecting to the model, waiting for the first token…",
+        .chatStillWorking: "Still working…",
+        .chatNoNewOutput: "No new output yet",
+        .chatStopping: "Stopping…",
+        .chatStopUnconfirmed: "Stop request not confirmed",
+        .chatStopUnconfirmedHint: "The command may still be running in the background. Try stopping again, or open the terminal.",
+        .chatStalledHint: "The command is still running in the background. Open the terminal, or stop this generation.",
+        .chatElapsed: "{sec}s elapsed",
+        .chatSinceLastOutput: "last output {sec}s ago",
+        .chatJumpToLatest: "Jump to latest",
+        .chatViewTerminal: "View terminal",
+        .chatRetry: "Retry",
+        .chatCopyError: "Copy error",
         .chatStandby: "{agent} on standby",
         .chatLandingHint: "Type below, or send instructions from iPhone / Apple Watch",
         .chatEmptyTitle: "Empty chat",

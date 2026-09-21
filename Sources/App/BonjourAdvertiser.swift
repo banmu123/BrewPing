@@ -18,12 +18,12 @@ enum BonjourAdvertiser {
     private final class PublishDelegate: NSObject, NetServiceDelegate {
         func netServiceDidPublish(_ sender: NetService) {
             BonjourAdvertiser.publishState = "published"
-            print("Bonjour: DID_PUBLISH name=\(sender.name) type=\(sender.type ?? "?") domain=\(sender.domain ?? "?") port=\(sender.port)")
+            print("Bonjour: DID_PUBLISH name=\(sender.name) type=\(sender.type) domain=\(sender.domain) port=\(sender.port)")
         }
 
         func netService(_ sender: NetService, didNotPublish errorDict: [String: NSNumber]) {
             BonjourAdvertiser.publishState = "failed: \(errorDict)"
-            print("Bonjour: DID_NOT_PUBLISH name=\(sender.name) type=\(sender.type ?? "?") domain=\(sender.domain ?? "?") port=\(sender.port) errorDict=\(errorDict)")
+            print("Bonjour: DID_NOT_PUBLISH name=\(sender.name) type=\(sender.type) domain=\(sender.domain) port=\(sender.port) errorDict=\(errorDict)")
         }
 
         func netServiceDidStop(_ sender: NetService) {

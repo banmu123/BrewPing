@@ -84,7 +84,11 @@ public enum SystemCommand {
         timeoutSeconds: TimeInterval,
         additionalPATHEntries: [String] = [],
         workingDirectory: String? = nil,
-        onLaunch: ((Process) -> Void)? = nil
+        onLaunch: ((Process) -> Void)? = nil,
+        /// 每次收到输出时回传到目前为止的**累积全文**。累积值而非单个字节块可
+        /// 让 UI 在偶发丢帧后由下一帧自动恢复，并避免多字节 UTF-8 刚好跨块时
+        /// 产生永久乱码。
+        onOutput: ((String) -> Void)? = nil
     ) -> (exitCode: Int32, output: String)? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
@@ -107,28 +111,53 @@ public enum SystemCommand {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
+
+        // 必须在 waitUntilExit 之前持续排空管道。此前实现等进程退出后才 read，
+        // 长回复会既无法流式显示，又可能在 pipe 写满后令子进程互相等待。
+        let outputLock = NSLock()
+        var outputData = Data()
+        func consume(_ data: Data) {
+            guard !data.isEmpty else { return }
+            outputLock.lock()
+            outputData.append(data)
+            let text = String(decoding: outputData, as: UTF8.self)
+            outputLock.unlock()
+            onOutput?(text)
+        }
+        let handle = pipe.fileHandleForReading
+        handle.readabilityHandler = { fileHandle in
+            consume(fileHandle.availableData)
+        }
+
+        let completed = DispatchSemaphore(value: 0)
+        // 必须在 run 前登记；极快退出的命令可能在 run 返回前已结束。
+        process.terminationHandler = { _ in
+            completed.signal()
+        }
         do {
             try process.run()
         } catch {
+            handle.readabilityHandler = nil
             return nil
         }
         // 交给调用方登记（用户手动停止时据此 terminate / kill）。
         onLaunch?(process)
-        let completed = DispatchSemaphore(value: 0)
-        let queue = DispatchQueue.global(qos: .userInitiated)
-        queue.async {
-            process.waitUntilExit()
-            completed.signal()
-        }
         guard completed.wait(timeout: .now() + timeoutSeconds) == .success else {
             process.terminate()
+            _ = completed.wait(timeout: .now() + 5)
+            handle.readabilityHandler = nil
             return nil
         }
-        let handle = pipe.fileHandleForReading
-        let data = handle.readDataToEndOfFile()
-        let output = String(decoding: data, as: UTF8.self)
+
+        // 关闭回调后再同步取一次尾部，确保退出瞬间尚未调度的字节不会丢失。
+        handle.readabilityHandler = nil
+        consume(handle.readDataToEndOfFile())
+        outputLock.lock()
+        let output = String(decoding: outputData, as: UTF8.self)
+        outputLock.unlock()
+        return (process.terminationStatus, output
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return (process.terminationStatus, output)
+        )
     }
 
     static func locate(command: String) -> String? {

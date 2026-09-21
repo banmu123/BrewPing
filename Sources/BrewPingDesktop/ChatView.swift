@@ -31,13 +31,18 @@ struct ChatView: View {
     @EnvironmentObject private var app: DesktopAppState
 
     @State private var composerFocused = false
+    /// 用户是否正停在底部。上翻阅读时置为 false，自动跟随随之中止。
+    @State private var atBottom = true
 
+    /// 是否正在接收增量（决定助手气泡用轻量渲染还是完整 Markdown）。
     private var isStreaming: Bool {
-        app.isBusy && !app.messages.isEmpty && app.messages.last?.role == "assistant"
+        guard let phase = app.run?.phase else { return false }
+        return phase == .streaming || phase == .stalled
     }
 
-    private var showThinking: Bool {
-        app.isBusy && (app.messages.isEmpty || app.messages.last?.role != "assistant")
+    /// 是否显示执行状态指示器（提交 / 排队 / 等首字 / 生成中 / 停止中 / 卡住）。
+    private var showIndicator: Bool {
+        app.run?.phase.isActive == true
     }
 
     private var canSend: Bool {
@@ -46,7 +51,7 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if app.messages.isEmpty && !showThinking {
+            if app.messages.isEmpty && !showIndicator {
                 LandingGreeting(agentName: app.convAgentName)
             } else {
                 messageScroll
@@ -60,38 +65,88 @@ struct ChatView: View {
     // MARK: 消息滚动区
 
     private var messageScroll: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 0) {
-                    MessageList(messages: app.messages, isStreaming: isStreaming)
+        GeometryReader { outer in
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        MessageList(messages: app.messages, isStreaming: isStreaming)
 
-                    if showThinking {
-                        ConversationColumn {
-                            HStack(spacing: 8) {
-                                ThinkingDot()
-                                Text(i18n.t(.chatThinking, ["agent": app.convAgentName]))
-                                    .font(LatteFont.xs)
-                                    .foregroundStyle(Latte.mutedForeground)
-                            }
-                            .padding(.bottom, 16)
+                        if showIndicator {
+                            ConversationColumn { RunStatusIndicator() }
                         }
-                    }
 
-                    // 贴底锚点：新消息 / 流式增长 / 思考指示器变化都滚到底
-                    Color.clear.frame(height: 1).id("bottom")
+                        // 贴底锚点 + 自身位置上报（判断用户是否还在底部）
+                        Color.clear
+                            .frame(height: 1)
+                            .id("bottom")
+                            .background(
+                                GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: BottomAnchorKey.self,
+                                        value: geo.frame(in: .named("chatScroll")).maxY
+                                    )
+                                }
+                            )
+                    }
+                    .padding(.vertical, 16)
+                    .scrollTargetLayoutCompat()
                 }
-                .padding(.vertical, 16)
-                .scrollTargetLayoutCompat()
+                .coordinateSpace(name: "chatScroll")
+                .onPreferenceChange(BottomAnchorKey.self) { maxY in
+                    // 锚点落在视口下沿附近（含 48pt 容差）→ 认为用户在底部
+                    atBottom = maxY <= outer.size.height + 48
+                }
+                .onChange(of: app.messages) { _ in
+                    // 用户上翻阅读时**绝不**强制跳底，否则长回复根本读不了。
+                    guard atBottom else { return }
+                    followBottom(proxy)
+                }
+                .onChange(of: app.run?.phase) { _ in
+                    guard atBottom else { return }
+                    followBottom(proxy)
+                }
+                .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
+                .overlay(alignment: .bottomTrailing) {
+                    if !atBottom {
+                        jumpToLatest(proxy)
+                            .padding(.trailing, 20)
+                            .padding(.bottom, 12)
+                    }
+                }
             }
-            .onChange(of: app.messages) { _ in
-                withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
-            }
-            .onChange(of: showThinking) { _ in
-                withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
-            }
-            .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
         }
         .frame(maxHeight: .infinity)
+    }
+
+    /// 跟随底部：流式帧每秒多次抵达，带动画会排队、视觉上反而像卡顿，
+    /// 因此流式期直接贴底，普通消息才保留过渡动画。
+    private func followBottom(_ proxy: ScrollViewProxy) {
+        if isStreaming {
+            proxy.scrollTo("bottom", anchor: .bottom)
+        } else {
+            withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
+        }
+    }
+
+    private func jumpToLatest(_ proxy: ScrollViewProxy) -> some View {
+        Button {
+            atBottom = true
+            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(i18n.t(.chatJumpToLatest))
+                    .font(LatteFont.font10)
+            }
+            .foregroundStyle(Latte.primaryForeground)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(Latte.primary)
+            .clipShape(Capsule())
+            .latteShadow(LatteShadow.panel)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: Composer 停靠区
@@ -116,7 +171,10 @@ struct ChatView: View {
                         Spacer(minLength: 0)
 
                         // 忙碌时发送钮换成停止钮：手动终止生成（含 headless 型 Agent）。
+                        // 「正在停止」期间禁用，避免用户重复点击；停止请求超时仍未确认时
+                        // 由状态机重新开放（见 RunIndicator.showsStop）。
                         if app.isBusy {
+                            let stopping = app.run?.phase == .stopping
                             Button {
                                 Task { await app.stopGeneration() }
                             } label: {
@@ -124,11 +182,12 @@ struct ChatView: View {
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundStyle(Latte.primaryForeground)
                                     .frame(width: 32, height: 32)
-                                    .background(Latte.destructive)
+                                    .background(Latte.destructive.opacity(stopping ? 0.5 : 1))
                                     .clipShape(Circle())
                             }
                             .buttonStyle(.plain)
-                            .help(i18n.t(.barStop))
+                            .disabled(stopping)
+                            .help(stopping ? i18n.t(.chatStopping) : i18n.t(.barStop))
                             .accessibilityLabel(i18n.t(.barStop))
                         } else {
                             Button(action: submit) {
@@ -268,6 +327,7 @@ private extension View {
 
 struct MessageList: View {
     @EnvironmentObject private var i18n: I18n
+    @EnvironmentObject private var app: DesktopAppState
     var messages: [ChatMessage]
     var isStreaming: Bool
 
@@ -329,13 +389,29 @@ struct MessageList: View {
             .padding(.bottom, 16)
 
         case "error":
-            Text(msg.text)
-                .font(LatteFont.mono)
-                .foregroundStyle(Latte.warning)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 12)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(msg.text)
+                    .font(LatteFont.mono)
+                    .foregroundStyle(Latte.warning)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                // 失败必须能**就地处置**：重试 / 查看终端 / 复制错误。
+                // 只给顶部那条会自动消失的错误条，用户根本来不及反应。
+                HStack(spacing: 8) {
+                    errorAction(i18n.t(.chatRetry), systemImage: "arrow.clockwise") {
+                        Task { await app.retry(commandId: msg.commandId) }
+                    }
+                    errorAction(i18n.t(.chatViewTerminal), systemImage: "terminal") {
+                        app.dockOpen = true
+                    }
+                    errorAction(i18n.t(.chatCopyError), systemImage: "doc.on.doc") {
+                        app.copyToPasteboard(msg.text)
+                    }
+                }
+            }
+            .padding(.bottom, 12)
 
         case "system":
             Text(msg.text)
@@ -347,15 +423,207 @@ struct MessageList: View {
                 .padding(.bottom, 12)
 
         default:
-            // 助手消息：无头像无角标，Markdown 直接通栏排版
-            MarkdownView(text: msg.text)
-                .padding(.bottom, 20)
+            if isStreaming && msg.id.hasPrefix("streaming_") {
+                // Markdown 每帧都要全量分块、解析内联样式；长回复在高频更新下会
+                // 显著掉帧。流式期先轻量展示原文，落库后自动换成完整 Markdown。
+                StreamingAssistantMessage(text: msg.text)
+                    .padding(.bottom, 20)
+            } else {
+                // 助手消息：无头像无角标，Markdown 直接通栏排版
+                MarkdownView(text: msg.text)
+                    .padding(.bottom, 20)
+            }
         }
     }
 
     private func timeLabel(_ ms: Double?) -> String? {
         guard let ms, ms > 0 else { return nil }
         return DesktopDateFormat.messageTime(ms, locale: i18n.locale)
+    }
+
+    /// 失败消息下方的就地操作按钮（克制的次级样式，不跟主操作抢视线）。
+    private func errorAction(
+        _ title: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: systemImage).font(.system(size: 10, weight: .medium))
+                Text(title).font(LatteFont.font10)
+            }
+            .foregroundStyle(Latte.secondaryForeground)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Latte.muted)
+            .clipShape(Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - 执行状态指示器
+
+/// 底部锚点的滚动位置上报（判断用户是否还停在底部）。
+private struct BottomAnchorKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// 执行状态指示器：把状态机如实翻译成「现在到底在做什么」+ 已耗时 + 可执行操作。
+///
+/// 只反映**真实执行状态**，不展示也不伪造模型的隐藏思维链。
+/// 内部的 `TimelineView` 每秒自更新一次，因此耗时与「已沉默多久」会持续走动 ——
+/// 用户不必靠猜来判断是不是卡住了。
+struct RunStatusIndicator: View {
+    @EnvironmentObject private var i18n: I18n
+    @EnvironmentObject private var app: DesktopAppState
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            if let run = app.run, run.phase.isActive {
+                indicator(run.indicator(now: context.date))
+                    .padding(.bottom, 16)
+            }
+        }
+    }
+
+    private func indicator(_ info: RunIndicator) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                if info.kind == .stopping || info.kind == .stopConfirmTimeout {
+                    Image(systemName: "stop.circle")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Latte.destructive)
+                } else {
+                    ThinkingDot()
+                }
+
+                Text(primaryText(info))
+                    .font(LatteFont.xs)
+                    .foregroundStyle(Latte.mutedForeground)
+
+                Text(secondsLabel(info))
+                    .font(LatteFont.font10)
+                    .foregroundStyle(Latte.mutedForeground.opacity(0.7))
+                    // 数字宽度固定，避免每秒刷新时文字左右抖动
+                    .monospacedDigit()
+
+                Spacer(minLength: 0)
+            }
+
+            if let detail = detailText(info) {
+                Text(detail)
+                    .font(LatteFont.font10)
+                    .foregroundStyle(Latte.warning)
+            }
+
+            if info.showsStop || info.showsTerminal {
+                HStack(spacing: 8) {
+                    if info.showsTerminal {
+                        smallAction(i18n.t(.chatViewTerminal), systemImage: "terminal") {
+                            app.dockOpen = true
+                        }
+                    }
+                    if info.showsStop {
+                        smallAction(i18n.t(.barStop), systemImage: "stop.fill") {
+                            Task { await app.stopGeneration() }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// 主文案：直接说明当前处在哪个真实阶段。
+    private func primaryText(_ info: RunIndicator) -> String {
+        switch info.kind {
+        case .submitting: return i18n.t(.chatSubmitting)
+        case .queued: return i18n.t(.chatQueued)
+        case .thinking: return i18n.t(.chatConnecting)
+        case .waitingLong: return i18n.t(.chatStillWorking)
+        case .streaming: return i18n.t(.chatGenerating)
+        case .stalled: return i18n.t(.chatNoNewOutput)
+        case .stopping: return i18n.t(.chatStopping)
+        case .stopConfirmTimeout: return i18n.t(.chatStopUnconfirmed)
+        }
+    }
+
+    /// 耗时：提交/排队/等首字看总耗时；已在生成看「距上次输出」。
+    private func secondsLabel(_ info: RunIndicator) -> String {
+        if let silent = info.sinceLastOutputSeconds,
+           info.kind == .streaming || info.kind == .stalled {
+            return i18n.t(.chatSinceLastOutput, ["sec": "\(silent)"])
+        }
+        return i18n.t(.chatElapsed, ["sec": "\(info.elapsedSeconds)"])
+    }
+
+    /// 补充说明：只在「可能让人怀疑卡住」的阶段出现。
+    private func detailText(_ info: RunIndicator) -> String? {
+        switch info.kind {
+        case .waitingLong, .stalled:
+            return i18n.t(.chatStalledHint)
+        case .stopConfirmTimeout:
+            return i18n.t(.chatStopUnconfirmedHint)
+        default:
+            return nil
+        }
+    }
+
+    private func smallAction(
+        _ title: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: systemImage).font(.system(size: 9, weight: .medium))
+                Text(title).font(LatteFont.font10)
+            }
+            .foregroundStyle(Latte.secondaryForeground)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(Latte.muted)
+            .clipShape(Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 流式回复的低开销渲染：不在每一帧做 Markdown 解析，同时保留明确的生成状态。
+/// 最终转录落库后会由 `MarkdownView` 替代，因此代码块、表格等仍以完整样式呈现。
+private struct StreamingAssistantMessage: View {
+    @EnvironmentObject private var i18n: I18n
+    var text: String
+
+    @State private var cursorVisible = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                ThinkingDot()
+                Text(i18n.t(.chatGenerating))
+                    .font(LatteFont.font10)
+                    .foregroundStyle(Latte.mutedForeground)
+            }
+
+            Text(verbatim: text + (cursorVisible ? "▍" : " "))
+                .font(LatteFont.base)
+                .foregroundStyle(Latte.foreground)
+                .lineSpacing(LatteFont.baseLineSpacing)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                cursorVisible = false
+            }
+        }
     }
 }
 

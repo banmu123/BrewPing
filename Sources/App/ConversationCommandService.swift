@@ -254,6 +254,14 @@ enum ConversationCommandService {
             store.setLatestCommand(id: conversationID, commandID: nil)
             DesktopEventBus.shared.post(.conversationsChanged, payload: ["id": conversationID])
         }
+        // 提交失败时不会进入 CommandRunner.finish，因此在这里补齐终端状态复位。
+        // 否则一次立即失败的发送会令同一 Agent 的桌面 composer 永远显示为忙碌。
+        if let state = AgentManager.shared.terminalState(for: agentID) {
+            DispatchQueue.main.async {
+                state.setStatus(.idle)
+                DesktopEventBus.shared.post(.terminalUpdated)
+            }
+        }
         throw SubmitError.sendFailed(reason)
     }
 

@@ -110,12 +110,38 @@ final class CommandRunner {
 
     private func runHeadless(_ info: CommandInfo, provider: CodingAgent, workdir: String?) {
         store.update(info.commandId) { $0.status = .working }
+        let streamLock = NSLock()
+        var lastStreamText = ""
+        var lastStreamAt = Date.distantPast
+        func emitStream(_ text: String) {
+            guard let conversationID = info.conversationId, !text.isEmpty else { return }
+            // CLI 往往会在极短时间内吐出大量小块；最多 20 fps，最后一帧由 finish
+            // 强制补发，既流畅又不会让主线程的 SwiftUI 刷新被事件淹没。
+            streamLock.lock()
+            let shouldEmit = text != lastStreamText
+                && Date().timeIntervalSince(lastStreamAt) >= 0.05
+            if shouldEmit {
+                lastStreamText = text
+                lastStreamAt = Date()
+            }
+            streamLock.unlock()
+            guard shouldEmit else { return }
+            DesktopEventBus.shared.post(
+                .conversationDelta,
+                payload: ConversationDelta(
+                    conversationId: conversationID, commandId: info.commandId, text: text, done: false
+                )
+            )
+        }
+
         // 对话级工作目录：仅 headless 型 Agent 支持（会话型进程的 cwd 在启动时固定）。
         let result: AgentResult
         if let headless = provider as? HeadlessCLIAgent {
             // 把子进程登记进来，用户点「停止生成」时能真的杀掉它。
             result = headless.execute(info.text, workdir: workdir) { [weak self] process in
                 self?.registerProcess(info.commandId, process)
+            } onOutput: { text in
+                emitStream(text)
             }
         } else {
             result = provider.execute(info.text)
@@ -138,10 +164,19 @@ final class CommandRunner {
         default:
             let failureReason = ErrorClassifier.classify(output: result.output, exitCode: nil) ?? .unknown
             var errorMessage = ErrorClassifier.summarize(output: result.output, reason: failureReason)
+            if errorMessage.isEmpty { errorMessage = result.summary }
             if wasStopped { errorMessage = "Stopped by user." }
+            // 🚨 失败 / 被停止时，**已经流出的部分内容不能丢** —— 用户很可能已经读了
+            //    一半，尤其是手动停止的场景。此前这里不传 response，于是半截回复从
+            //    界面上凭空消失、只剩一句错误说明。
+            //    `lastStreamText` 是流式期间最后一帧的累积全文，正是用户看到的内容。
+            streamLock.lock()
+            let partial = lastStreamText.trimmingCharacters(in: .whitespacesAndNewlines)
+            streamLock.unlock()
             finish(
                 info.commandId,
                 status: .failed,
+                response: partial.isEmpty ? nil : partial,
                 error: errorMessage,
                 failureReason: wasStopped ? nil : failureReason.rawValue,
                 duration: result.durationSeconds
@@ -166,13 +201,26 @@ final class CommandRunner {
             return
         }
         store.update(info.commandId) { $0.status = .working }
-        watch(commandId: info.commandId, text: info.text, agent: agent, startOffset: startOffset)
+        watch(
+            commandId: info.commandId,
+            conversationID: info.conversationId,
+            text: info.text,
+            agent: agent,
+            startOffset: startOffset
+        )
     }
 
-    private func watch(commandId: String, text: String, agent: OpenCodeAgent, startOffset: Int) {
+    private func watch(
+        commandId: String,
+        conversationID: String?,
+        text: String,
+        agent: OpenCodeAgent,
+        startOffset: Int
+    ) {
         let renderer = ScreenRenderer(rows: Int(PTYSession.rows), columns: Int(PTYSession.columns))
         var fed = startOffset
         var lastSnapshot: String? = nil
+        var lastStreamText = ""
         var lastChange = Date()
         var sawChange = false
         let sentAt = Date()
@@ -201,6 +249,14 @@ final class CommandRunner {
             }
 
             let extracted = ResponseExtractor.extract(rows: renderer.lines, sentText: text, cwd: agent.cwd)
+            if let extracted, !extracted.text.isEmpty, extracted.text != lastStreamText {
+                lastStreamText = extracted.text
+                emitStream(
+                    conversationID: conversationID,
+                    commandID: commandId,
+                    text: extracted.text
+                )
+            }
             if sawChange,
                Date().timeIntervalSince(lastChange) >= CommandRunner.idleSeconds,
                Date().timeIntervalSince(sentAt) >= CommandRunner.minResponseSeconds {
@@ -243,8 +299,24 @@ final class CommandRunner {
 
         // 转录落库：命令终态回写它所属的对话（单一写入口，与 Windows 端一致）。
         guard let info = finalInfo, let conversationID = info.conversationId else { return }
+        let finalText = response ?? rawOutput ?? ""
+        if !finalText.isEmpty {
+            // 无论中间事件是否被系统合并，终态总会补一帧完整全文。
+            emitStream(conversationID: conversationID, commandID: commandId, text: finalText, done: true)
+        }
         switch status {
         case .failed:
+            // 先落「已产出的部分内容」，再落错误说明 —— 阅读顺序与用户实际经历一致：
+            // 半截回复 → 为什么停在这里。丢掉的半截内容是**不可恢复**的，宁可多显示。
+            if !finalText.isEmpty {
+                ConversationStore.shared.append(
+                    conversationID: conversationID,
+                    role: "assistant",
+                    text: finalText,
+                    source: nil,
+                    commandID: commandId
+                )
+            }
             ConversationStore.shared.append(
                 conversationID: conversationID,
                 role: "error",
@@ -253,7 +325,7 @@ final class CommandRunner {
                 commandID: commandId
             )
         case .completed, .completedWithRaw:
-            let output = response ?? rawOutput ?? ""
+            let output = finalText
             if !output.isEmpty {
                 ConversationStore.shared.append(
                     conversationID: conversationID,
@@ -266,7 +338,35 @@ final class CommandRunner {
         default:
             break
         }
+        // 完成事件除了落库，还必须主动通知桌面端。桌面端不像 HTTP 客户端那样会
+        // 轮询 /api/commands/:id；若只清空 store 里的指针，UI 会继续保留旧快照，
+        // 发送按钮便会永久显示为「停止」。
         ConversationStore.shared.setLatestCommand(id: conversationID, commandID: nil)
+        DesktopEventBus.shared.post(.conversationsChanged, payload: ["id": conversationID])
+
+        // TerminalState 是按 Agent 归属的，不能用当前全局 active agent（用户可能
+        // 已切到另一条对话）。以命令所属对话的 Agent 精确复位运行指示。
+        if let agentID = ConversationStore.shared.get(conversationID)?.agentId,
+           let terminal = AgentManager.shared.terminalState(for: agentID) {
+            DispatchQueue.main.async {
+                terminal.setStatus(.idle)
+                DesktopEventBus.shared.post(.terminalUpdated)
+            }
+        }
+    }
+
+    /// 交互式 OpenCode 的屏幕快照同样以「累积全文」形式推给 UI。连续相同快照
+    /// 不发事件，避免 PTY 的 250ms 轮询造成无意义重绘。
+    private func emitStream(
+        conversationID: String?, commandID: String, text: String, done: Bool = false
+    ) {
+        guard let conversationID, !text.isEmpty else { return }
+        DesktopEventBus.shared.post(
+            .conversationDelta,
+            payload: ConversationDelta(
+                conversationId: conversationID, commandId: commandID, text: text, done: done
+            )
+        )
     }
 
     static func friendly(_ error: Error) -> String {
