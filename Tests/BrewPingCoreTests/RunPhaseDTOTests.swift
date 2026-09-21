@@ -24,7 +24,8 @@ final class RunPhaseDTOTests: XCTestCase {
 
     func testTerminalStatusesMapToCompletedOrFailed() {
         XCTAssertEqual(RunPhaseDTO.derive(status: "completed", lastOutputAt: nil, now: now), "completed")
-        // Windows 侧 rawValue 是 completed_with_raw，Mac 是 completedWithRaw —— 都映射
+        // 线上值：Mac 与 Windows 都是 `completed_with_raw`（`CommandStatus.completedWithRaw`
+        // 的 rawValue）。驼峰那一种也认 —— 它是 case 名，防调用方漏走 rawValue 时静默降级。
         XCTAssertEqual(RunPhaseDTO.derive(status: "completed_with_raw", lastOutputAt: nil, now: now), "completed")
         XCTAssertEqual(RunPhaseDTO.derive(status: "completedWithRaw", lastOutputAt: nil, now: now), "completed")
         XCTAssertEqual(RunPhaseDTO.derive(status: "failed", lastOutputAt: nil, now: now), "failed")

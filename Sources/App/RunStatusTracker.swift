@@ -46,6 +46,10 @@ public enum RunPhaseDTO {
 
     /// status 取 `CommandStatus.rawValue`（queued / sent / working / completed /
     /// completed_with_raw / failed）。
+    ///
+    /// `completedWithRaw` 也一并接受：那是 Swift 枚举的**case 名**，线上值仍是
+    /// `completed_with_raw`。多认一个拼写是为了让漏走 `rawValue` 的调用方不至于
+    /// 静默落进 `default` 变成 `idle`（状态解析错了比多一个 case 危险得多）。
     public static func derive(
         status: String,
         lastOutputAt: Date?,
@@ -57,7 +61,7 @@ public enum RunPhaseDTO {
         case "working":
             guard let last = lastOutputAt else { return "thinking" }
             return now.timeIntervalSince(last) >= stallSeconds ? "stalled" : "streaming"
-        case "completed", "completed_with_raw":
+        case "completed", "completed_with_raw", "completedWithRaw":
             return "completed"
         case "failed":
             return "failed"
