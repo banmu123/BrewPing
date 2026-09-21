@@ -118,7 +118,7 @@ jobs:
           fi
 
   android:
-    name: Android · assembleDebug
+    name: Android · unit tests + phone/Wear builds
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -178,14 +178,16 @@ jobs:
           SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           [ -d "$SDK_DIR" ] || echo "::warning title=Android SDK missing::no SDK directory at $SDK_DIR"
 
-          # ---- 构建 --------------------------------------------------------
+          # ---- 测试 + 构建 -------------------------------------------------
+          # test：:core + :app 的 JVM 单测（83 例，无需设备/模拟器）
+          # assembleDebug：手机端 APK；:wear:assembleDebug：Wear OS 模块
           set +e
-          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/gradle.log
+          ./gradlew test assembleDebug :wear:assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/gradle.log
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -ne 0 ]; then
             reason=$(grep -m 4 -iE 'what went wrong|caused by:|sdk location|permission denied|not found|unsupported|no such file|failed to' /tmp/gradle.log | head -4 | tr '\n' '~' | cut -c1-700)
-            echo "::error title=Gradle assembleDebug failed (exit $status)::${reason:-no matching error line captured}"
+            echo "::error title=Gradle test/assemble failed (exit $status)::${reason:-no matching error line captured}"
             exit "$status"
           fi
 
@@ -210,3 +212,16 @@ jobs:
       - name: README exists in both languages
         run: |
           test -f README.md && test -f README.zh-CN.md || { echo "::error::README.md / README.zh-CN.md missing"; exit 1; }
+      - name: LICENSE is a plain MIT text
+        # GitHub 的 license 识别要求 LICENSE 是**标准文本**：在 MIT 正文后面追加
+        # 任何段落（例如商标声明）都会让仓库元数据识别不出来。商标说明在
+        # TRADEMARKS.md，这里守住回归。
+        run: |
+          first_line=$(head -1 LICENSE | tr -d '\r')
+          [ "$first_line" = "MIT License" ] || { echo "::error::LICENSE must start with 'MIT License', got: $first_line"; exit 1; }
+          grep -q "Permission is hereby granted, free of charge" LICENSE || { echo "::error::LICENSE body is not the standard MIT text"; exit 1; }
+          if grep -qi "trademark" LICENSE; then
+            echo "::error::Trademarks belong in TRADEMARKS.md, not appended to LICENSE (it breaks GitHub license detection)"
+            exit 1
+          fi
+          test -f TRADEMARKS.md || { echo "::error::TRADEMARKS.md is missing"; exit 1; }
