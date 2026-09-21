@@ -129,7 +129,7 @@ pub async fn handle_create_conversation(
                 submission = Some((200, None, Some("pending_approval".to_string())));
             }
             super::approval_gate::Decision::Allow => {
-                match submit_command(&state, &first_message, Some(&conv.id), None, Some("ios")).await {
+                match submit_command(&state, &first_message, Some(&conv.id), None, Some("ios"), None).await {
                     Ok(response) => {
                         submission = Some((
                             200,

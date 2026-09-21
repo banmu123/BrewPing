@@ -141,6 +141,9 @@ final class CommandRunner {
             result = headless.execute(info.text, workdir: workdir) { [weak self] process in
                 self?.registerProcess(info.commandId, process)
             } onOutput: { text in
+                // run 快照依据（任务 §13）：记录「最后输出时刻」，stalled 由
+                // HTTPAPI.commandResponse 权威判定（客户端绝不自己按时间猜）。
+                RunStatusTracker.shared.recordOutput(commandId: info.commandId)
                 emitStream(text)
             }
         } else {

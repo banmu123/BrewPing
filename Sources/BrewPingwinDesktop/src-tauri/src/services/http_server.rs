@@ -84,6 +84,41 @@ struct CommandEntry {
     duration: Option<f64>,
     /// 命令归属的对话（方案 §4.2：轮询响应据此回填真 sessionId）。
     conversation_id: Option<String>,
+    /// 命令创建时刻（epoch ms）—— run 阶段的 startedAt。
+    created_ms: u64,
+    /// 最后一次收到输出的时刻（epoch ms）；尚无输出为 None —— run 阶段据此
+    /// 区分 thinking / streaming / stalled。由 command_runner 在输出块到达时更新。
+    last_output_ms: Option<u64>,
+}
+
+/// `stalled` 判定阈值：与 macOS `Sources/App/ConversationRun.swift` 的
+/// `RunTiming.stallSeconds`（30s）一致 —— 两端同一权威数值。
+const RUN_STALL_MS: u64 = 30_000;
+
+/// 当前 unix 毫秒（run 快照时间戳用）。
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// 服务端**权威**执行阶段推导（任务 §13）：
+/// 只使用命令的真实状态 + 输出活跃时刻，绝不由客户端猜。
+/// 阶段词表与 macOS `ConversationRun.RunPhase` 对齐，不发明新状态：
+/// `submitting` / `stopping` 是纯客户端阶段，服务端不产生。
+fn run_phase(status: &str, last_output_ms: Option<u64>, now_ms: u64) -> &'static str {
+    match status {
+        "queued" | "sent" => "queued",
+        "working" => match last_output_ms {
+            None => "thinking",
+            Some(t) if now_ms.saturating_sub(t) >= RUN_STALL_MS => "stalled",
+            Some(_) => "streaming",
+        },
+        "completed" | "completed_with_raw" => "completed",
+        "failed" => "failed",
+        _ => "idle",
+    }
 }
 
 impl CommandStore {
@@ -105,8 +140,18 @@ impl CommandStore {
                 model_id: None,
                 duration: None,
                 conversation_id: conversation_id.map(|c| c.to_string()),
+                created_ms: now_ms(),
+                last_output_ms: None,
             },
         );
+    }
+
+    /// 输出块到达：刷新该命令的「最后输出时刻」（run 阶段的 streaming / stalled 依据）。
+    pub async fn mark_output(&self, command_id: &str) {
+        let mut map = self.commands.write().await;
+        if let Some(entry) = map.get_mut(command_id) {
+            entry.last_output_ms = Some(now_ms());
+        }
     }
 
     /// 命令是否仍在飞行中（queued / working）——归档前置检查用。
@@ -173,6 +218,12 @@ struct MessageBody {
     /// 显式指定 agent：路由到当前 active 对话（不改变对话绑定的 agent）。
     #[serde(rename = "agentId", default)]
     agent_id: Option<String>,
+    /// 客户端**幂等键**（Wear v1 起使用；任务 §14）：超时重试带同一个值时，
+    /// 若桌面端已有该命令则直接返回其状态，绝不重复执行。
+    /// 与传输层的 `X-BrewPing-Nonce`（每次都变、防重放）语义无关。
+    /// 老客户端不传 → None，行为与从前完全一致。
+    #[serde(rename = "commandId", default)]
+    command_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -634,6 +685,33 @@ async fn handle_send_message(
         );
     }
 
+    // ── 幂等（任务 §14）────────────────────────────────────────────────────
+    // Wear / 手机网络超时后重试时带同一个客户端 commandId：若桌面端已注册过该
+    // 命令（含执行中 / 已完成），直接返回其当前状态，**绝不重复执行**。
+    // 注意：挂在授权门卫上的命令（pending_approval）不在 CommandStore 里，
+    // 重试会重新走授权判定 —— 与首次行为一致，语义正确。
+    if let Some(client_id) = body.command_id.as_deref() {
+        if !client_id.trim().is_empty() {
+            if let Some(existing) = state.command_store.get(client_id.trim()).await {
+                log::info!("Idempotent replay for command {client_id} (status: {})", existing.status);
+                return Json(SuccessResponse {
+                    success: true,
+                    default_agent: None,
+                    session_id: Some(
+                        existing
+                            .conversation_id
+                            .clone()
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    ),
+                    status: Some(existing.status.clone()),
+                    command_id: Some(client_id.trim().to_string()),
+                    error: None,
+                })
+                .into_response();
+            }
+        }
+    }
+
     // 授权档位是**对话级**设置：取该对话固化的档位，未设置才回落全局默认
     //（旧对话 / iOS 创建的对话没有显式档位）。
     let target_conv = body
@@ -657,6 +735,7 @@ async fn handle_send_message(
             body.conversation_id.as_deref(),
             body.agent_id.as_deref(),
             None,
+            body.command_id.as_deref(),
         )
         .await
         {
@@ -746,19 +825,27 @@ async fn resolve_command_target(
 ///
 /// 用户消息由这里唯一写入对话转录（方案 §6.3 写路径单一出口），
 /// 执行交给 `command_runner::execute_agent_command`（命令状态唯一写入点）。
+///
+/// `client_command_id`：客户端幂等键（仅 HTTP 直发路径传入；见任务 §14）。
 pub async fn submit_command(
     state: &AppState,
     text: &str,
     conversation_id: Option<&str>,
     agent_id: Option<&str>,
     source: Option<&str>,
+    client_command_id: Option<&str>,
 ) -> Result<SuccessResponse, StatusCode> {
     let (conv_id, agent_id) = resolve_command_target(state, conversation_id, agent_id).await?;
 
     // Ensure terminal entry exists（桌面路径原有行为，HTTP 路径此前缺失，统一补上）
     command_runner::ensure_terminal_entry(state, &agent_id).await;
 
-    let command_id = format!("cmd_{}", &uuid::Uuid::new_v4().to_string()[..8]);
+    // 幂等键：客户端提供时原样采用（handle_send_message 已做过重放检查）；
+    // 未提供（老客户端 / 桌面端 / 批准路径）→ 服务端生成，行为与从前一致。
+    let command_id = match client_command_id {
+        Some(id) if !id.trim().is_empty() => id.trim().to_string(),
+        _ => format!("cmd_{}", &uuid::Uuid::new_v4().to_string()[..8]),
+    };
     log::info!(
         "Message received: '{}' -> {} (command: {}, agent: {})",
         text,
@@ -829,6 +916,9 @@ struct CommandStatusResponse {
     model_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     duration: Option<f64>,
+    /// 服务端权威执行阶段快照（任务 §13；老客户端可忽略）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run: Option<serde_json::Value>,
 }
 
 /// GET /api/message/{id} — poll command status from CommandStore.
@@ -839,19 +929,33 @@ async fn handle_get_message(
     let entry = state.command_store.get(&id).await;
 
     match entry {
-        Some(e) => Json(CommandStatusResponse {
-            command_id: id.clone(),
-            // 真实的对话归属（TC-CA-04）；未知命令回落 "unknown"（与旧契约一致）。
-            session_id: e.conversation_id.clone().unwrap_or_else(|| "unknown".to_string()),
-            status: e.status,
-            response: e.response,
-            raw_output: None,
-            error: e.error,
-            failure_reason: e.failure_reason,
-            model_id: e.model_id,
-            duration: e.duration,
-        })
-        .into_response(),
+        Some(e) => {
+            // run 快照：由桌面端从真实状态 + 输出活跃时刻权威推导（stalled 在这里判，
+            // 客户端绝不自己按时间猜 —— 任务 §13）。
+            let ts = now_ms();
+            let phase = run_phase(&e.status, e.last_output_ms, ts);
+            let run = serde_json::json!({
+                "commandId": id,
+                "phase": phase,
+                "startedAtMs": e.created_ms,
+                "lastOutputAtMs": e.last_output_ms,
+                "updatedAtMs": ts,
+            });
+            Json(CommandStatusResponse {
+                command_id: id.clone(),
+                // 真实的对话归属（TC-CA-04）；未知命令回落 "unknown"（与旧契约一致）。
+                session_id: e.conversation_id.clone().unwrap_or_else(|| "unknown".to_string()),
+                status: e.status,
+                response: e.response,
+                raw_output: None,
+                error: e.error,
+                failure_reason: e.failure_reason,
+                model_id: e.model_id,
+                duration: e.duration,
+                run: Some(run),
+            })
+            .into_response()
+        }
         // 未知 commandId（桌面端重启清空内存队列 / id 打错）→ 404 终态，
         // 与 macOS HTTPAPI.commandResponse 一致。客户端把 404 视为
         // "这条命令查不到了" 而不是网络抖动，避免无限轮询。
@@ -1034,7 +1138,7 @@ async fn handle_decide_approval(
             // 批准后回**提交时所属的对话**执行（pending 记住了归属，
             // 与 macOS ConversationCommandService.decide 一致）；
             // 缺省（旧 pending / 桌面路径）回落 active 对话。
-            match submit_command(&state, &text, resolution.conversation_id.as_deref(), None, None)
+            match submit_command(&state, &text, resolution.conversation_id.as_deref(), None, None, None)
                 .await
             {
                 Ok(response) => Json(response).into_response(),
@@ -1292,6 +1396,90 @@ mod tests {
         assert_eq!(e.status, "failed");
         assert_eq!(e.error.as_deref(), Some("boom"));
         assert_eq!(e.failure_reason.as_deref(), Some("process_exited"));
+    }
+
+    // TC-CS-03  run 阶段推导：只映射真实状态，stalled 阈值与 macOS RunTiming 一致（30s）
+    #[test]
+    fn run_phase_matches_conversation_run_vocabulary() {
+        let now = 1_000_000u64;
+        assert_eq!(run_phase("queued", None, now), "queued");
+        assert_eq!(run_phase("sent", None, now), "queued");
+        assert_eq!(run_phase("working", None, now), "thinking");
+        assert_eq!(run_phase("working", Some(now - 1_000), now), "streaming");
+        assert_eq!(run_phase("working", Some(now - 29_999), now), "streaming");
+        assert_eq!(run_phase("working", Some(now - RUN_STALL_MS), now), "stalled");
+        assert_eq!(run_phase("completed", Some(now - 999_999), now), "completed");
+        assert_eq!(run_phase("completed_with_raw", None, now), "completed");
+        assert_eq!(run_phase("failed", None, now), "failed");
+        assert_eq!(run_phase("unknown_status", None, now), "idle");
+    }
+
+    // TC-CS-04  mark_output 记录最后输出时刻（thinking → streaming / stalled 的依据）
+    // NOTE: 多线程运行时（同 TC-CS-01）
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn command_store_mark_output() {
+        let store = CommandStore::new();
+        store.insert_pending("cmd_out", Some("conv_out")).await;
+        assert!(store.get("cmd_out").await.unwrap().last_output_ms.is_none());
+        store.mark_output("cmd_out").await;
+        assert!(store.get("cmd_out").await.unwrap().last_output_ms.is_some());
+    }
+
+    // TC-HT-IDEM  幂等重放：同 commandId 二次 POST 返回原命令，不重复执行（任务 §14）
+    // NOTE: 多线程运行时（同 TC-CS-01）
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn message_idempotent_replay_same_command_id() {
+        let srv = spawn_server().await;
+        let body = r#"{"text":"hello","commandId":"cmd_client_idem_1"}"#;
+        let (_, first) = post(srv.port, "/api/message", body);
+        assert_eq!(first["success"], true);
+        assert_eq!(first["commandId"], "cmd_client_idem_1");
+
+        let (_, second) = post(srv.port, "/api/message", body);
+        assert_eq!(second["commandId"], "cmd_client_idem_1", "重试必须返回同一命令");
+
+        // 转录里该用户消息只有一条（没有重复执行）
+        let conv_id = first["sessionId"].as_str().unwrap().to_string();
+        let (_, detail) = get(srv.port, &format!("/api/conversations/{conv_id}"));
+        let user_entries: Vec<&serde_json::Value> = detail["conversation"]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|m| m["role"] == "user" && m["text"] == "hello")
+            .collect();
+        assert_eq!(user_entries.len(), 1, "同 commandId 不得产生第二条用户消息");
+    }
+
+    // TC-HT-RUN  GET /api/message/{id} 携带服务端权威 run 快照（任务 §13）
+    // NOTE: 多线程运行时（同 TC-CS-01）
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn message_status_carries_authoritative_run() {
+        let srv = spawn_server().await;
+        let (_, v) = post(
+            srv.port,
+            "/api/message",
+            r#"{"text":"hello","commandId":"cmd_run_1"}"#,
+        );
+        let cmd = v["commandId"].as_str().unwrap().to_string();
+        let (_, status) = get(srv.port, &format!("/api/message/{cmd}"));
+        let run = &status["run"];
+        assert!(run.is_object(), "响应必须携带 run 快照");
+        assert_eq!(run["commandId"], cmd.as_str());
+        let phase = run["phase"].as_str().unwrap();
+        assert!(
+            [
+                "queued",
+                "thinking",
+                "streaming",
+                "stalled",
+                "completed",
+                "failed"
+            ]
+            .contains(&phase),
+            "phase 必须来自 ConversationRun 词表：{phase}"
+        );
+        assert!(run["startedAtMs"].is_u64());
+        assert!(run["updatedAtMs"].is_u64());
     }
 
     // TC-CS-03  边界：对不存在的 commandId 做状态迁移不得 panic、不得凭空创建记录

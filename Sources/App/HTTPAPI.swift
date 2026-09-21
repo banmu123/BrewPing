@@ -412,6 +412,21 @@ enum HTTPAPI {
             return .json(400, "Bad Request", ["success": false, "error": "expected JSON body {\"text\": \"...\"}"])
         }
 
+        // ── 幂等（任务 §14）──────────────────────────────────────────────────
+        // Wear / 手机网络超时后重试时带同一个客户端 commandId：若桌面端已注册过
+        // 该命令（含执行中 / 已完成），直接返回其当前状态，**绝不重复执行**。
+        // 挂在授权门卫上的命令（pending_approval）不在 CommandStore 里，重试会
+        // 重新走授权判定 —— 与首次行为一致。老客户端不传该字段，行为不变。
+        if let clientID = body["commandId"] as? String, !clientID.isEmpty,
+           let existing = CommandStore.shared.get(clientID) {
+            return .json(200, "OK", [
+                "success": true,
+                "commandId": existing.commandId,
+                "sessionId": existing.sessionId,
+                "status": existing.status.rawValue
+            ])
+        }
+
         // 对话路由（三层回落：显式 ID → 当前激活对话 → 以当前默认 Agent 新建）
         // 与授权判定、执行都走 `ConversationCommandService` —— 桌面端 UI 走同一条路径，
         // 不存在"手机端生效、桌面端不生效"的分叉。
@@ -565,6 +580,17 @@ enum HTTPAPI {
             "sessionId": info.sessionId,
             "status": info.status.rawValue,
             "createdAt": ISO8601DateFormatter().string(from: info.createdAt)
+        ]
+        // 服务端**权威**执行阶段快照（任务 §13）：由命令真实状态 + 输出活跃时刻
+        // 推导，stalled 在这里判（客户端绝不自己按时间猜）。阶段词表与
+        // `ConversationRun.RunPhase` 对齐；老客户端可忽略该字段。
+        let lastOutputAt = RunStatusTracker.shared.lastOutputAt(commandId: id)
+        object["run"] = [
+            "commandId": id,
+            "phase": RunPhaseDTO.derive(status: info.status.rawValue, lastOutputAt: lastOutputAt),
+            "startedAtMs": Int(info.createdAt.timeIntervalSince1970 * 1000),
+            "lastOutputAtMs": lastOutputAt.map { Int($0.timeIntervalSince1970 * 1000) } ?? NSNull(),
+            "updatedAtMs": Int(Date().timeIntervalSince1970 * 1000)
         ]
         if let response = info.response { object["response"] = response }
         if let rawOutput = info.rawOutput { object["rawOutput"] = rawOutput }

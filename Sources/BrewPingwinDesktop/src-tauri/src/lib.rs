@@ -429,6 +429,7 @@ async fn send_command(
         Some(&conv_id),
         None,
         Some("desktop"),
+        None,
     )
     .await
     {

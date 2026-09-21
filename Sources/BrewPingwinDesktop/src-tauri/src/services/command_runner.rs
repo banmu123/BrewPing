@@ -421,6 +421,10 @@ pub async fn execute_agent_command(
                 stdout_text.push_str(&chunk);
                 line_buf.push_str(&chunk);
 
+                // run 阶段依据（任务 §13）：记录「最后输出时刻」，stalled 由
+                // handle_get_message 据此权威判定（客户端绝不自己猜）。
+                state.command_store.mark_output(&command_id).await;
+
                 let mut lines: Vec<String> =
                     line_buf.split('\n').map(|s| s.to_string()).collect();
                 line_buf = lines.pop().unwrap_or_default();
