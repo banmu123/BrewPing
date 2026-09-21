@@ -12,7 +12,7 @@
 - BOM：`strip_prefix('\u{feff}')`，不只 JSON —— TOML/YAML 行首 BOM 会静默丢整段配置。8787 被旧进程占 → curl 打的是旧进程。
 
 ## CI / Release 元数据
-- 🚨 **`main` CI 红是第一优先级**；判断仓库质量**先看 CI 实际结论**。定位到步：`GET /actions/runs` → `/runs/{id}/jobs` 看每步 conclusion —— **Build 步过 + Unit tests 步挂 = 编译没问题、断言失败**。⚠️ `/actions/jobs/{id}/logs` 公开仓库也要高权限（401）→ 靠步粒度 + 静态镜像。
+- 🚨 **`main` CI 红是第一优先级**；判断仓库质量**先看 CI 实际结论**。定位到步：`GET /actions/runs` → `/runs/{id}/jobs` 看每步 conclusion —— **Build 步过 + Unit tests 步挂 = 编译没问题、断言失败**。⚠️ `/actions/jobs/{id}/logs` 公开仓库也要高权限（401）→ 靠步粒度 + 静态镜像。🚨 判绿**必须先断言 job 数**（run 刚创建时 `jobs=[]`，`all([])` 恒 True → 会误报全绿）。
 - 🚨 **Swift 本机无法验证** → 改纯逻辑必须**用 Python 逐条镜像「实现 × 断言」**。实战：`CommandStatus.completedWithRaw` 的 rawValue 是 `completed_with_raw`，测试却断言驼峰 → `derive` 落 default 返回 `idle` → main 两次 CI 红。
 - Release 元数据：`GET /releases/tags/<tag>` 取 `id` → `PATCH /releases/<id>` 只传 `{name}`（tag/asset/正文不动）。首 tag `v1.0.0`（名已规范）；⚠️ Windows 内部版本号仍 `0.1.0`。分发统一走 GitHub Release。
 - 🚨 **发行状态事实（勿夸大）**：iOS/watchOS **已提交 App Review、未公开发布**（仅 TestFlight）；Android **构建就绪、未提交 Google Play**；Wear **在仓库内、未发布**。文档**不得写成「已上架」**。
