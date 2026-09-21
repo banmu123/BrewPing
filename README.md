@@ -14,7 +14,7 @@ BrewPing runs a small desktop service on your Mac or Windows machine and drives 
 already installed there. Pair your phone over the local network, then send instructions, follow
 progress, and approve risky commands from iPhone, Apple Watch, or Android.
 
-*Your agents, your models, your machine — from wherever you are.*
+*Your agents, your models, your machine — driven from your phone, on your own network.*
 
 <div align="center">
 
@@ -25,7 +25,7 @@ progress, and approve risky commands from iPhone, Apple Watch, or Android.
 ![iOS](https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=F0F0F0)
 ![watchOS](https://img.shields.io/badge/watchOS-11.6%2B-000000?logo=apple&logoColor=F0F0F0)
 ![Android](https://img.shields.io/badge/Android-8%2B-3DDC84?logo=android&logoColor=white)
-![Swift tests](https://img.shields.io/badge/swift%20tests-41%20passing-brightgreen)
+![Swift tests](https://img.shields.io/badge/swift%20tests-66%20passing-brightgreen)
 
 **⚡ Quick start (macOS, from source):**
 
@@ -251,9 +251,8 @@ Except for `POST /api/pair` and `GET /api/status`, every endpoint requires
 | POST | `/api/agents/:id/switch` | Switch the active agent |
 | GET | `/api/agents/:id/models` | Models configured for that agent (providers → models) |
 | POST | `/api/agents/models/default` | Set the default model |
-| POST | `/api/message` | Send a message |
-| GET | `/api/message` | List messages |
-| GET | `/api/message/:id` | Query the status of one command |
+| POST | `/api/message` | Send a message (optional `commandId` = client idempotency key) |
+| GET | `/api/message/:id` | One command's status, including the authoritative execution phase (`run.phase`) |
 | POST | `/api/session/start` | Start a session |
 | POST | `/api/session/stop` | Stop a session |
 | GET / POST | `/api/approvals/mode` | Read or change the approval mode |
@@ -262,7 +261,18 @@ Except for `POST /api/pair` and `GET /api/status`, every endpoint requires
 | GET / POST | `/api/conversations` | List or create conversations |
 | GET / PATCH / DELETE | `/api/conversations/:id` | Read, update, or delete one conversation |
 | POST | `/api/conversations/:id/activate` | Activate a conversation |
+| GET | `/api/folders/roots` | Directory roots for the working-folder picker |
+| GET | `/api/folders?path=` | Browse sub-directories (directories only) |
+| POST | `/api/agents/workdir` | Set or clear an agent's default working folder |
 | POST | `/api/discovery/refresh` | Refresh local network discovery |
+
+`run.phase` is computed by the desktop from the command's real state and its last output timestamp:
+`queued` / `thinking` / `streaming` / `stalled` / `completed` / `failed`. `stalled` is decided by
+the desktop (30 seconds without new output) — clients display it, they never guess it.
+
+`POST /api/message` accepts an optional client-generated `commandId`. Send the **same** value when
+retrying after a timeout and the desktop returns the existing command instead of executing it twice.
+This is separate from `X-BrewPing-Nonce`, which is a transport-level replay guard.
 
 ## ⚙️ Configuration
 
@@ -290,13 +300,17 @@ BrewPing keeps its state in `~/.brewping/`:
 
 ## 🧪 Testing & CI
 
-- **Swift unit tests** — `swift test` runs 41 tests over the vendor-native configuration modules
-  (Claude Code / Codex / OpenCode / pi merge and write invariants), which is where silent config
-  corruption would otherwise hide.
+- **Swift unit tests** — `swift test` runs **66 tests** over the vendor-native configuration
+  modules (Claude Code / Codex / OpenCode / pi merge and write invariants), the conversation
+  execution state machine, and the HTTP run-status derivation. Silent config corruption and
+  "is it stuck?" regressions would otherwise hide there.
+- **Android unit tests** — `:core` and `:app` hold **83 JVM unit tests** that need no device
+  (`cd Android && ./gradlew test`); CI additionally builds the phone app and the Wear OS module.
 - **GitHub Actions** — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) builds and tests the
-  Swift core on macOS and compiles the iOS + watchOS targets with signing disabled on every push and
-  pull request.
-- **Windows** — the Rust side has its own `cargo test` suite (`Sources/BrewPingwinDesktop/src-tauri`).
+  Swift core on macOS, compiles the iOS + watchOS targets with signing disabled, and runs the
+  Windows and Android suites — on every push and pull request, plus a nightly schedule.
+- **Windows** — the Rust side has its own **318-case** `cargo test --locked` suite
+  (`Sources/BrewPingwinDesktop/src-tauri`).
 - **Release** — pushing a `v*` tag triggers
   [`.github/workflows/release-mac.yml`](.github/workflows/release-mac.yml), which builds a universal
   binary, signs with Developer ID, notarizes, staples, and attaches the DMG to the GitHub release.
@@ -310,6 +324,7 @@ BrewPing keeps its state in `~/.brewping/`:
 | iPhone | iOS 17.0 or later |
 | Apple Watch | watchOS 11.6 or later (paired with the iPhone app) |
 | Android | Android 8.0 or later (minSdk 26) |
+| Wear OS | Wear OS 3.0 or later (minSdk 30) — the module is in the repository but **not released yet** |
 | Network | Phone/watch and computer on the **same local network** |
 | Agents | At least one of OpenCode / Claude Code / Codex CLI / pi installed on the computer |
 
@@ -321,7 +336,9 @@ BrewPing keeps its state in `~/.brewping/`:
 - **[Provider management migration](docs/BrewPing-Provider管理-Lody新建Provider迁移方案.md)** — provider config internals
 - **[Folder browsing design](docs/BrewPing-获取文件夹-Windows落地方案.md)** — working-folder binding
 - **[App Store pre-submission review](docs/AppStore-PreSubmission-Review.md)** — review checklist we ran before submitting
-- **[Relay server](relay-server/README.md)** — the experimental, **not yet wired** relay (read the warning first)
+- **[Project status](docs/PROJECT_STATUS.md)** — platforms, test counts, maintenance process, known limitations
+- **[Trademarks](TRADEMARKS.md)** — third-party names used to describe compatibility
+- **[Relay prototype](experimental/relay-server/README.md)** — experimental, **not wired into any client**, outside the product's security boundary
 
 ## 🏗️ Tech Stack
 
@@ -333,7 +350,7 @@ BrewPing keeps its state in `~/.brewping/`:
 | iOS / watchOS | SwiftUI, WatchConnectivity |
 | Android | Kotlin + Jetpack Compose (minSdk 26, JDK 17) |
 | Transport | HTTP on the local network, Bonjour/mDNS discovery, Bearer token + nonce |
-| Relay (experimental) | TypeScript + ws + express — not wired into any client yet |
+| Relay prototype (experimental, not shipped) | TypeScript + ws + express — parked under `experimental/`, no client connects to it |
 
 ## 📁 Project Structure
 
@@ -350,8 +367,9 @@ Sources/
 ios/
 ├── BrewPing/             # iPhone app
 └── Watch/                # Apple Watch app
-Android/                  # Android app (Jetpack Compose)
-relay-server/             # TypeScript relay — experimental, not connected
+Android/                  # Android phone app + Wear OS module (Jetpack Compose)
+experimental/
+└── relay-server/         # parked TypeScript prototype — not part of the shipped product
 Scripts/                  # packaging (build-mac-app.sh) + entitlement/Info.plist for the DMG
 docs/                     # design notes + privacy policy
 logo/                     # app icons and logo
@@ -359,13 +377,17 @@ logo/                     # app icons and logo
 
 ## 🚧 Beyond the local network
 
-Local-network pairing is BrewPing's starting point, not its final shape.
+BrewPing ships **local-network only**. There is no official public relay, no hosted service, and
+nothing in this repository proxies your traffic to the internet.
 
-`relay-server/` contains a TypeScript relay that is **not wired into the clients yet** — it is
-experimental, has **no authentication**, and logs relayed payloads. Do not deploy it on a public or
-untrusted network until both are fixed (see `relay-server/README.md`). Until it is connected,
-BrewPing stays deliberately local: no accounts, no analytics, no third-party SDKs, and no traffic
-leaving the network you own.
+`experimental/relay-server/` is a **parked prototype**: it is not part of the shipped product, no
+client connects to it, it has no authentication, and it logs relayed payloads. Do not deploy it to a
+public or untrusted network (see its README). It is kept for reference only — the product path does
+not include it, and it is not on the roadmap as a shipped component.
+
+If you want to reach your own computer from a different network, that is a **network problem you
+solve on your side** — for example with a VPN overlay such as Tailscale or WireGuard. BrewPing does
+not operate, configure, or endorse that setup.
 
 ## 🤝 Contributing
 
@@ -376,7 +398,7 @@ what CI runs, and the conventions this repo follows. Security reports: [SECURITY
 
 OpenCode, Claude, Claude Code, Codex, and pi are trademarks of their respective owners. BrewPing is
 not affiliated with, endorsed by, or sponsored by them; these names appear only to describe
-compatibility.
+compatibility — see **[TRADEMARKS.md](TRADEMARKS.md)** for the per-name list.
 
 BrewPing connects only to devices **you configured**, on your own local network. It does not connect
 to third-party devices and does not provide a public relay.

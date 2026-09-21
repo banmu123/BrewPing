@@ -12,7 +12,7 @@
 
 BrewPing 在你的 Mac 或 Windows 上跑一个小型桌面服务，驱动**你已经装好**的 CLI Agent。手机在局域网内配对一次，之后就能从 iPhone、Apple Watch 或 Android 发送指令、跟进进度，并在危险命令执行前批准或拒绝。
 
-*你的 Agent、你的模型、你的电脑 —— 人在哪儿都能用。*
+*你的 Agent、你的模型、你的电脑 —— 在同一个局域网里，用手机发指令。*
 
 <div align="center">
 
@@ -23,7 +23,7 @@ BrewPing 在你的 Mac 或 Windows 上跑一个小型桌面服务，驱动**你�
 ![iOS](https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=F0F0F0)
 ![watchOS](https://img.shields.io/badge/watchOS-11.6%2B-000000?logo=apple&logoColor=F0F0F0)
 ![Android](https://img.shields.io/badge/Android-8%2B-3DDC84?logo=android&logoColor=white)
-![Swift tests](https://img.shields.io/badge/swift%20tests-41%20passing-brightgreen)
+![Swift tests](https://img.shields.io/badge/swift%20tests-66%20passing-brightgreen)
 
 **⚡ 快速开始（macOS，源码构建）：**
 
@@ -215,9 +215,8 @@ npm install -g @earendil-works/pi-coding-agent
 | POST | `/api/agents/:id/switch` | 切换当前 Agent |
 | GET | `/api/agents/:id/models` | 该 Agent 配置的模型（providers → models） |
 | POST | `/api/agents/models/default` | 设置默认模型 |
-| POST | `/api/message` | 发送消息 |
-| GET | `/api/message` | 消息列表 |
-| GET | `/api/message/:id` | 查询单条命令状态 |
+| POST | `/api/message` | 发送消息（可选 `commandId` = 客户端幂等键） |
+| GET | `/api/message/:id` | 单条命令状态，含服务端权威执行阶段（`run.phase`） |
 | POST | `/api/session/start` | 启动会话 |
 | POST | `/api/session/stop` | 结束会话 |
 | GET / POST | `/api/approvals/mode` | 读取或修改授权档位 |
@@ -226,7 +225,15 @@ npm install -g @earendil-works/pi-coding-agent
 | GET / POST | `/api/conversations` | 列出或创建对话 |
 | GET / PATCH / DELETE | `/api/conversations/:id` | 读取、修改或删除单条对话 |
 | POST | `/api/conversations/:id/activate` | 激活某条对话 |
+| GET | `/api/folders/roots` | 工作目录选择器的根列表 |
+| GET | `/api/folders?path=` | 浏览子目录（只返回目录） |
+| POST | `/api/agents/workdir` | 设置或清除某个 Agent 的默认工作目录 |
 | POST | `/api/discovery/refresh` | 刷新局域网发现 |
+
+`run.phase` 由桌面端根据命令的真实状态与最后输出时刻推导：
+`queued` / `thinking` / `streaming` / `stalled` / `completed` / `failed`。其中 `stalled` 由桌面端判定（30 秒没有新输出）—— 客户端只展示，绝不自己猜。
+
+`POST /api/message` 接受可选的客户端 `commandId`：网络超时后重试时带**同一个值**，桌面端会返回既有命令而不是重复执行。它与传输层的 `X-BrewPing-Nonce`（防重放）是两回事。
 
 ## ⚙️ 配置
 
@@ -247,9 +254,10 @@ BrewPing 的状态都在 `~/.brewping/`：
 
 ## 🧪 测试与 CI
 
-- **Swift 单元测试** —— `swift test` 共 41 个用例，覆盖四个厂商原生配置模块（Claude Code / Codex / OpenCode / pi 的合并与写回不变量）—— 这正是配置被静默改坏最容易藏身的地方。
-- **GitHub Actions** —— [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 在每次 push / PR 上跑 Swift 核心的构建与测试，并以关闭签名的方式编译 iOS + watchOS 目标。
-- **Windows 端** —— Rust 侧有独立的 `cargo test`（`Sources/BrewPingwinDesktop/src-tauri`）。
+- **Swift 单元测试** —— `swift test` 共 **66 个用例**，覆盖四个厂商原生配置模块（Claude Code / Codex / OpenCode / pi 的合并与写回不变量）、对话执行状态机，以及 HTTP 执行阶段的推导规则 —— 配置被静默改坏、「不知道是否卡住」最容易藏身的就是这些地方。
+- **Android 单元测试** —— `:core` 与 `:app` 共 **83 个 JVM 单测**，不需要设备（`cd Android && ./gradlew test`）；CI 另外构建手机端与 Wear OS 模块。
+- **GitHub Actions** —— [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 在每次 push / PR 上跑 Swift 核心的构建与测试、以关闭签名的方式编译 iOS + watchOS 目标，并运行 Windows 与 Android 测试；另有每日定时运行以捕捉 runner 工具链漂移。
+- **Windows 端** —— Rust 侧有独立的 **318 例** `cargo test --locked`（`Sources/BrewPingwinDesktop/src-tauri`）。
 - **发布** —— 推 `v*` tag 触发 [`.github/workflows/release-mac.yml`](.github/workflows/release-mac.yml)：构建 universal 二进制 → Developer ID 签名 → 公证 → staple → 把 DMG 挂到 GitHub Release。
 
 ## 📋 环境要求
@@ -261,6 +269,7 @@ BrewPing 的状态都在 `~/.brewping/`：
 | iPhone | iOS 17.0 或更高 |
 | Apple Watch | watchOS 11.6 或更高（与 iPhone App 配对使用） |
 | Android | Android 8.0 或更高（minSdk 26） |
+| Wear OS | Wear OS 3.0 或更高（minSdk 30）—— 模块已在仓库内，但**尚未发布** |
 | 网络 | 手机/手表与电脑处于**同一局域网** |
 | Agent | 电脑上至少装了 OpenCode / Claude Code / Codex CLI / pi 之一 |
 
@@ -272,7 +281,9 @@ BrewPing 的状态都在 `~/.brewping/`：
 - **[Provider 管理迁移方案](docs/BrewPing-Provider管理-Lody新建Provider迁移方案.md)** —— 配置内部实现
 - **[获取文件夹落地方案](docs/BrewPing-获取文件夹-Windows落地方案.md)** —— 工作目录绑定
 - **[App Store 提审前自查](docs/AppStore-PreSubmission-Review.md)** —— 提交前跑过的审核清单
-- **[Relay Server](relay-server/README.md)** —— 实验性、**尚未接线**的中继（先读警示）
+- **[项目状态](docs/PROJECT_STATUS.md)** —— 平台、测试数量、维护流程与已知限制
+- **[商标](TRADEMARKS.md)** —— 仅用于说明兼容性的第三方名称
+- **[中继原型](experimental/relay-server/README.md)** —— 实验性、**未接入任何客户端**，不在产品安全边界内
 
 ## 🏗️ 技术栈
 
@@ -284,7 +295,7 @@ BrewPing 的状态都在 `~/.brewping/`：
 | iOS / watchOS | SwiftUI、WatchConnectivity |
 | Android | Kotlin + Jetpack Compose（minSdk 26、JDK 17） |
 | 传输 | 局域网 HTTP、Bonjour/mDNS 发现、Bearer token + nonce |
-| 中继（实验性） | TypeScript + ws + express —— 尚未接入任何客户端 |
+| 中继原型（实验性、未发布） | TypeScript + ws + express —— 停在 `experimental/`，没有任何客户端连接它 |
 
 ## 📁 项目结构
 
@@ -301,8 +312,9 @@ Sources/
 ios/
 ├── BrewPing/             # iPhone App
 └── Watch/                # Apple Watch App
-Android/                  # Android App（Jetpack Compose）
-relay-server/             # TypeScript 中继 —— 实验性、未接线
+Android/                  # Android 手机端 + Wear OS 模块（Jetpack Compose）
+experimental/
+└── relay-server/         # 停放中的 TypeScript 原型 —— 不属于已发布产品
 Scripts/                  # 打包脚本（build-mac-app.sh）+ DMG 用 entitlements/Info.plist
 docs/                     # 设计文档 + 隐私政策
 logo/                     # 应用图标与 logo
@@ -310,9 +322,11 @@ logo/                     # 应用图标与 logo
 
 ## 🚧 局域网之外
 
-本地网络配对是 BrewPing 的起点，不是终点。
+BrewPing 只发布**局域网**能力：没有官方公网中继、没有托管服务，仓库里也没有任何东西会把你的流量代理到公网。
 
-`relay-server/` 里有一个 TypeScript 中继，**尚未接入任何客户端** —— 它是实验性的、**没有鉴权**、并且会把中转的消息 payload 写进日志。在修好这两点之前，不要把它部署到公网或任何不可信网络（详见 `relay-server/README.md`）。在它接上之前，BrewPing 刻意只活在局域网里：无账号、无 analytics、无第三方 SDK、没有任何流量离开你自己的网络。
+`experimental/relay-server/` 是一个**停放中的原型**：它不属于已发布产品，没有任何客户端连接它，没有鉴权，并且会把中转的 payload 写进日志。不要把它部署到公网或任何不可信网络（详见其 README）。它只作参考保留 —— 不在产品链路上，也不在「即将发布」的路线里。
+
+如果你想从另一个网络访问自己的电脑，那是**你自己那一侧的网络问题** —— 比如用 Tailscale、WireGuard 这类 VPN 组网解决。BrewPing 不提供、不配置，也不背书这套方案。
 
 ## 🤝 参与贡献
 
@@ -320,7 +334,7 @@ logo/                     # 应用图标与 logo
 
 ## ⚠️ 商标声明
 
-OpenCode、Claude、Claude Code、Codex、pi 等名称归各自所有者所有。BrewPing 与这些厂商**没有任何隶属、赞助或背书关系**；提及这些名称仅用于说明兼容性。
+OpenCode、Claude、Claude Code、Codex、pi 等名称归各自所有者所有。BrewPing 与这些厂商**没有任何隶属、赞助或背书关系**；提及这些名称仅用于说明兼容性，逐个名称的说明见 **[TRADEMARKS.md](TRADEMARKS.md)**。
 
 BrewPing 只连接**你自己配置过**、且位于你自己局域网内的设备。它不会连接第三方设备，也不提供公网中继。
 
