@@ -1299,7 +1299,23 @@ mod tests {
         authorized: bool,
     ) -> (u16, String) {
         let payload = body.unwrap_or("");
-        let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("连接 HTTP 服务失败");
+        // 🚨 整套测试并发跑时，Windows 上偶发 connect 超时（WSAETIMEDOUT 10060）——
+        //    单个用例隔离跑 5/5 稳定，说明是 socket 资源竞争，不是产品缺陷。
+        //    这里重试几次把它压掉，免得把环境抖动误报成回归（CI 上也更稳）。
+        let mut stream = None;
+        for attempt in 0..5 {
+            match TcpStream::connect(("127.0.0.1", port)) {
+                Ok(s) => {
+                    stream = Some(s);
+                    break;
+                }
+                Err(e) if attempt == 4 => {
+                    panic!("连接 HTTP 服务失败（重试 5 次）: {e}");
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(200)),
+            }
+        }
+        let mut stream = stream.expect("stream must be set by the retry loop");
         stream
             .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
