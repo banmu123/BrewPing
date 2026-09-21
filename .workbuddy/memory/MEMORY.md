@@ -5,6 +5,7 @@
 ## 环境事实（Windows 本机）
 - 🚨 回显常坏 → 落盘再 Read；沙箱拦 Start-Process/taskkill。Git Bash coreutils 常缺、cd 坏、npm 是 WSL shim → 不 cd、全绝对路径、长任务后台跑；⚠️ 查找一律用 Grep/Glob（`cmd || echo` 工具缺失时会**假报「无命中」**）。
 - 🆕 工具链都在本机：JDK 17 `D:\study\java\devlop\jdk17`（默认 JAVA_HOME 是 jdk25，对 Gradle 8.14 偏新 → 显式指定）；Android SDK `D:\software\androidSDK`；Mac 侧 Xcode `/Applications/Xcode.app`。WinPS5.1 写文件 `[IO.File]::WriteAllText` + UTF8 no-BOM。
+- 🚨 **推送「卡住」≠ 失败**（GCM 在沙箱弹不出交互窗口）：先用 `rev-list --left-right --count` 核对 remote 与 HEAD —— 实测有次 6.5 分钟无输出的 push **其实已推送成功**；`GIT_TERMINAL_PROMPT=0` 下凭据没被 GCM 供上时会快速报 `could not read Username`，重试即可。⚠️ Git Bash 的 `timeout` 是 Windows 自带 exe（`timeout /T`，用它包 git 会报无效语法），限时改用 `GIT_HTTP_LOW_SPEED_TIME`；`git credential fill` 只查字段存在性，**绝不回显输出**（会打印 token）。
 - 🚨 前台 git rebase 被强杀曾毁 .git → git 秒完成或后台落盘轮询；cwd 丢用 `git -C`。**推送前必须先拉取**（用户明令）：fetch → `rev-list --left-right --count` → 落后则 **merge（绝不用 rebase）** → **merge 后核对 tracked 数与有无目录级 ` D`**（曾误删整个 `ios/`，用 `git restore --source=HEAD --staged --worktree ios/` 恢复）；`core.filemode=false` 时提交**不带 `-- paths`**。
 - 双方都改的 append-only 文件（memory）会与远端冲突 → **先备份 → untracked 同名日志先移开（否则 merge 直接中止）→ `git checkout --` 还原 → merge → 再把两侧内容回填/追加**。占位符**禁用真实主机名与个人信息**。
 - 🚨 **网络间歇被 TLS 拦截**（本机安全软件 HTTPS 扫描）：502 / `CRYPT_E_NO_REVOCATION_CHECK`(0x80092012) / openssl `20`。**首选 `-c http.sslBackend=schannel` 重试**（常第 1~3 次通过）；`schannelCheckRevoke=false` 无效。仅反复失败且**确认只读**才 `sslVerify=false`。SDK 包同样被掐断 → Python `urllib` + `HTTP Range` 续传。
