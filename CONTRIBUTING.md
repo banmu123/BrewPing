@@ -24,14 +24,14 @@ machine. Two consequences worth knowing before you open a PR:
 | `Sources/BrewPing` | CLI entry point |
 | `ios/BrewPing`, `ios/Watch` | iPhone and Apple Watch apps |
 | `Android` | Android app (Jetpack Compose) |
-| `relay-server` | Experimental TypeScript relay — **not wired into any client** |
+| `experimental/relay-server` | Parked TypeScript prototype — **not part of the shipped product, no client connects to it** |
 
 ## Build and test
 
 ```bash
 # Swift core + macOS app
 swift build                    # all targets
-swift test                     # 41 unit tests (vendor-native config invariants)
+swift test                     # 66 unit tests (config invariants + execution state machine)
 ./build-app.sh                 # produces build/BrewPing Desktop.app
 
 # iOS / watchOS
@@ -44,8 +44,10 @@ python3 ios/Scripts/check_localization.py
 cd Sources/BrewPingwinDesktop && npm install && npm run tauri dev
 cargo test                     # in Sources/BrewPingwinDesktop/src-tauri
 
-# Android
-cd Android && ./gradlew assembleDebug
+# Android (phone app + Wear OS module)
+cd Android && ./gradlew test             # 83 JVM unit tests (:core + :app)
+cd Android && ./gradlew assembleDebug    # phone APK
+cd Android && ./gradlew :wear:assembleDebug   # Wear OS APK (module in repo, not released yet)
 ```
 
 ## What CI runs
@@ -56,8 +58,10 @@ cd Android && ./gradlew assembleDebug
 2. **Apple targets** — compiles the iOS and watchOS schemes with signing disabled, so a broken
    project file or a missing resource fails the PR instead of the release.
 3. **Windows desktop** — `npm ci` + `npx tsc` on the frontend, `cargo test --locked` on the Rust side.
-4. **Android** — `./gradlew assembleDebug` with JDK 17 (the APK itself is not published from CI).
-5. **Hygiene** — LICENSE present, no compiled artifacts (`build*/`, `dist/`, `target/`, `*.app`,
+4. **Android** — `./gradlew test assembleDebug :wear:assembleDebug` with JDK 17 — the 83 JVM unit
+   tests plus both app modules (no APK is published from CI).
+5. **Hygiene** — LICENSE present **and still a plain MIT text** (extra sections appended to it
+   break GitHub's license detection), no compiled artifacts (`build*/`, `dist/`, `target/`, `*.app`,
    `node_modules`, `DerivedData`) committed, both READMEs present.
 
 The same suite also runs **nightly** (`schedule`) on the default branch: that is how toolchain drift
@@ -75,9 +79,14 @@ notarization → staple → DMG attached to the GitHub release.
   that way unless there is a strong reason.
 - **User-facing strings ship in both languages.** macOS strings live in
   `Sources/BrewPingDesktop/DesktopStrings.swift`, Windows in `src/i18n/locales.ts`, iOS in
-  `*.lproj/Localizable.strings`. Change both ends in the same PR — and run the localization check.
+  `*.lproj/Localizable.strings`, and Android / Wear OS in `res/values/strings.xml` +
+  `res/values-zh/strings.xml` (identical key sets on both sides). Change both ends in the same PR —
+  and run the localization check.
 - **New Swift files must be registered in the Xcode project** when they belong to the iOS/watchOS
   targets (a file that is not in the project simply will not compile into the app).
+- **Facts live in one place.** Test counts, platform requirements, and the relay's status are
+  stated in `README.md` / `README.zh-CN.md` and `docs/PROJECT_STATUS.md`. When a suite grows or a
+  platform requirement changes, update them in the same PR instead of letting the numbers drift.
 - **Configuration writes are dangerous by nature.** Any change to how an agent's config is merged or
   written must come with a test: silently corrupting someone's `~/.claude/settings.json` is the worst
   failure mode this project has.

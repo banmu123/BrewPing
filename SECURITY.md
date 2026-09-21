@@ -33,9 +33,10 @@ product, so the security boundary is:
 ## Explicitly out of scope
 
 - Anyone who already has the pairing token or physical/administrative access to the paired computer.
-- The **experimental `relay-server/`**, which is deliberately unauthenticated, logs relayed payloads,
-  and is **not wired into any client**. It is published as an early prototype; running it on a public
-  network is unsupported (see `relay-server/README.md`).
+- The **experimental `experimental/relay-server/`** prototype, which is deliberately unauthenticated,
+  logs relayed payloads, and is **not wired into any client**. It is parked for reference only and
+  sits outside the product's security boundary; running it on a public network is unsupported (see
+  `experimental/relay-server/README.md`).
 - Third-party agents themselves (OpenCode, Claude Code, Codex CLI, pi) and their own configuration
   schemas — report those upstream.
 - Social engineering, phishing, or attacks requiring the user to disable security features.
