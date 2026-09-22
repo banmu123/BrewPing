@@ -628,7 +628,8 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
     /// App 被 WCSession 在后台唤醒时代理不了系统授权弹窗，
     /// 若此时 `authorizationStatus` 还是 `.notDetermined`，
     /// `recognitionTask` 会立刻失败 —— 手表只会看到 "Recognition failed"，无从排查。
-    /// 因此在前台启动时主动请求一次，把权限提前确定下来。
+    /// 因此只在手表语音真正送达且 App 在前台时**按需**请求（见 `transcribeAndForward`）：
+    /// 用户的语音指令本身就是弹窗的上下文，不在启动期请求（5.1.1(iv) Just-in-Time）。
     func requestSpeechAuthorizationIfNeeded() {
         let status = SFSpeechRecognizer.authorizationStatus()
         guard status == .notDetermined else {
@@ -768,7 +769,8 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
         guard speechStatus == .authorized else {
             BrewPingLog.audio.error("Speech recognition not authorized (status=\(speechStatus.rawValue, privacy: .public))")
             try? FileManager.default.removeItem(at: audioURL)
-            sendCommandResult(status: "failed", text: "Speech recognition not authorized")
+            // 已拒绝：系统不会再弹框。给手表端一句能落地的指引，而不是干巴巴的 "not authorized"。
+            sendCommandResult(status: "failed", text: "Speech recognition is disabled for BrewPing. Enable it in Settings and try again.")
             return
         }
 

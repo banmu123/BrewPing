@@ -15,6 +15,9 @@ struct QRScannerView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var cameraError: String?
+    /// 相机错误是否属于「权限被拒」—— 只有这种情况才给「打开系统设置」出口
+    /// （无相机 / 不支持是设备能力问题，去设置里也解决不了）。
+    @State private var cameraDenied = false
 
     var body: some View {
         NavigationStack {
@@ -24,7 +27,10 @@ struct QRScannerView: View {
                 } else {
                     QRCaptureRepresentable(
                         onScanned: onScanned,
-                        onError: { cameraError = $0 }
+                        onError: {
+                            cameraError = $0
+                            cameraDenied = $1
+                        }
                     )
                     .ignoresSafeArea()
                     reticle
@@ -60,6 +66,8 @@ struct QRScannerView: View {
     }
 
     /// 无法扫码时的降级视图（模拟器无相机 / 权限被拒 / 设备不支持）。
+    /// 权限被拒时附「打开系统设置」—— 被拒后系统不会再弹框，这是唯一恢复途径
+    /// （5.1.1(iv)：拒绝要在功能现场得到清晰说明与出路，且不影响手动输码配对）。
     private func unavailableView(_ message: String) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "camera.fill")
@@ -70,6 +78,16 @@ struct QRScannerView: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 32)
+            if cameraDenied {
+                Button {
+                    PermissionCenter.openSystemSettings()
+                } label: {
+                    Label(L("Open Settings"), systemImage: "gear")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.bpPrimary)
+            }
             Text("You can still enter the 6-digit pairing code manually.")
                 .font(.footnote)
                 .multilineTextAlignment(.center)
@@ -82,7 +100,9 @@ struct QRScannerView: View {
 /// `AVCaptureSession` 的 SwiftUI 包装。
 private struct QRCaptureRepresentable: UIViewControllerRepresentable {
     let onScanned: (String) -> Void
-    let onError: (String) -> Void
+    /// 相机错误回调。第二个参数：是否属于「权限被拒」（决定扫码页要不要给
+    /// 「打开系统设置」出口；无相机 / 不支持不是权限问题，给了也没用）。
+    let onError: (String, Bool) -> Void
 
     func makeUIViewController(context: Context) -> ScannerViewController {
         let controller = ScannerViewController()
@@ -97,7 +117,7 @@ private struct QRCaptureRepresentable: UIViewControllerRepresentable {
 /// 纯 AVFoundation 的扫码控制器。
 final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     var onScanned: ((String) -> Void)?
-    var onError: ((String) -> Void)?
+    var onError: ((String, Bool) -> Void)?
 
     private let session = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
@@ -136,18 +156,21 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
         case .authorized:
             configureSession()
         case .notDetermined:
+            // 🚨 相机权限只在这里（用户主动点「Scan QR Code」进入扫码页）按需请求，
+            // 不在 App 启动期、不在权限说明卡里请求（5.1.1(iv) Just-in-Time）。
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 DispatchQueue.main.async {
                     guard let self else { return }
                     if granted {
                         self.configureSession()
                     } else {
-                        self.onError?(L("Camera access was denied. Enable it in Settings to scan."))
+                        self.onError?(L("Camera access was denied. Enable it in Settings to scan."), true)
                     }
                 }
             }
         default:
-            onError?(L("Camera access was denied. Enable it in Settings to scan."))
+            // 已拒绝 / 受限：系统不会再弹框，只能去系统设置里打开 —— 给出明确出路。
+            onError?(L("Camera access was denied. Enable it in Settings to scan."), true)
         }
     }
 
@@ -158,15 +181,15 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
         guard let device = AVCaptureDevice.default(for: .video),
               let input = try? AVCaptureDeviceInput(device: device),
               session.canAddInput(input) else {
-            // 模拟器没有相机设备，会走到这里。
-            onError?(L("Camera is not available on this device."))
+            // 模拟器没有相机设备，会走到这里。（非权限问题，不给「打开系统设置」）
+            onError?(L("Camera is not available on this device."), false)
             return
         }
         session.addInput(input)
 
         let output = AVCaptureMetadataOutput()
         guard session.canAddOutput(output) else {
-            onError?(L("Camera is not available on this device."))
+            onError?(L("Camera is not available on this device."), false)
             return
         }
         session.addOutput(output)

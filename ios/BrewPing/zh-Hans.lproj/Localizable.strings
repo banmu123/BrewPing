@@ -265,17 +265,17 @@
 "Make sure your iPhone and your computer are on the same Wi-Fi (same subnet), and that Local Network access is allowed: Settings → Privacy & Security → Local Network → BrewPing. Some routers block device discovery (AP isolation or guest networks) — in that case add the IP manually." = "请确认 iPhone 与电脑连的是同一个 Wi-Fi（同一网段），并在「设置 → 隐私与安全性 → 本地网络」中允许 BrewPing。部分路由器会拦截设备发现（AP 隔离、访客网络或跨网段）——这种情况下直接手动输入 IP 即可。";
 "Enter IP Manually" = "手动输入 IP";
 
-/* MARK: - Permissions card (逐一授权 / 一键授权) */
+/* MARK: - 权限说明卡（说明 + 继续；5.1.1(iv)：不出现「授权」类按钮） */
 "Permissions" = "权限";
-"BrewPing needs these permissions to find your computer on the local network. Grant them one by one, or all at once." = "需要以下权限才能在局域网里发现你的电脑。可以逐个授权，也可以一键全部授权。";
+"BrewPing uses these permissions to connect to and control your computer." = "BrewPing 使用这些权限来连接和控制你的电脑。";
+"Tap Continue to start looking for your computer. Camera and Speech Recognition are requested only when you use those features." = "点「继续」开始查找你的电脑。相机和语音识别只会在你使用对应功能时才请求。";
 "Local Network" = "本地网络";
 "Used to discover your computer over Bonjour." = "用于通过 Bonjour 自动发现你的电脑。";
 "Camera" = "相机";
 "Only for scanning the pairing QR code." = "仅用于扫描配对二维码。";
 "Speech Recognition" = "语音识别";
 "Transcribes the voice commands you send from your Watch." = "用于转写你从手表发出的语音指令。";
-"Grant" = "授权";
-"Grant All" = "一键授权全部";
+"Continue" = "继续";
 "Allowed" = "已授权";
 "Denied" = "已拒绝";
 "Not granted" = "未授权";

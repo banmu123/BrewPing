@@ -151,18 +151,21 @@ struct ContentView: View {
                     // （对着一台就在跟前的电脑说"添加第一台电脑/去下载"是噪音）。
                     ScrollView {
                         VStack(spacing: 16) {
-                            // 权限没齐时，权限卡就是当前最该看的东西：自动发现被挡住的
+                            // 本地网络没就绪时，权限说明卡就是当前最该看的东西：自动发现被挡住的
                             // 原因只有它说得清（本地网络一旦被拒，系统不再弹窗）。
-                            // 🚨 必须等状态**读过一次**（`hasRefreshed`）才允许渲染：首帧三项
-                            // 权限都还是初始值，「未确定」会被当成「没授权」，卡片闪一下再消失。
-                            if permissions.hasRefreshed, !permissions.allGranted {
+                            // 🚨 5.1.1(iv)：卡片可见性只看本地网络 —— 相机 / 语音识别在真正
+                            // 使用对应功能时才按需请求（扫码 / 手表语音），不能拿「还没授权」
+                            // 把用户摁在权限页上。状态徽章仍如实显示这两项的系统状态。
+                            // 🚨 必须等状态**读过一次**（`hasRefreshed`）才允许渲染：首帧
+                            // 「未确定」会被当成「没授权」，卡片闪一下再消失。
+                            if permissions.hasRefreshed, !permissions.localNetwork.isGranted {
                                 permissionCard
                             }
                             // 🚨 「下载桌面端」引导卡只在**确实搜过一轮且一无所获**后才出现。
                             // 早先只判 `discoveredHosts.isEmpty`，于是自动发现还在跑的窗口里
                             //（此刻用户的电脑就在网络上）这张卡会先渲染出来，等「附近」列表
                             // 出来才消失 —— 表现为每次进页面都「闪一下下载桌面端」。
-                            if discoverySettled, bonjour.discoveredHosts.isEmpty, permissions.allGranted {
+                            if discoverySettled, bonjour.discoveredHosts.isEmpty, permissions.localNetwork.isGranted {
                                 emptyStateCard
                             }
                             nearbyCard
@@ -173,22 +176,24 @@ struct ContentView: View {
                     .tint(Color.bpPrimary)
                     .onAppear {
                         permissions.attach(bonjour)
-                        // 🚨 进设备页就探测 —— iOS 没有本地网络权限的查询 API，
-                        // 「发起一次 Bonjour 浏览」本身就是唯一的查询方式。若先看
-                        // UserDefaults 再决定要不要探测，首装（容器为空）会永远不探测，
-                        // 也就永远拿不到 `.ready`、标记永远写不进去（TestFlight 首装
-                        // 自动发现死锁）。即使系统已经授权也会被挡在外面。
-                        // 「连续弹多个框」不会回归：语音 / 相机仍只由权限卡点击触发
-                        // （PermissionCenter 的既定设计），这里只有本地网络一个系统框。
-                        // 真正的权限结论仍由 `handleBrowserState` 从浏览器状态判定。
-                        bonjour.startSearching()
+                        // 🚨 5.1.1(iv)：本地网络的系统授权框**必须**由权限说明卡的
+                        // 「Continue」触发（requestLocalNetwork → startSearching），
+                        // 不能一进页面就自动弹。所以首装（从未授权过，
+                        // `hasEverBeenGranted` 为假）这里**不**探测 —— 用户首屏看到的
+                        // 是说明卡 + Continue，点下才进入授权 + 发现流程。
+                        // 已授权过的用户照旧静默自动扫描（不会再看到系统弹框）。
+                        // 注意这与旧的「hasEverBeenGranted 门禁」不同：当年门禁挡死的是
+                        // 首装的探测路径（永远拿不到 `.ready`，TestFlight 自动发现死锁）；
+                        // 现在首装的探测路径仍然存在，只是改由用户点 Continue 主动触发。
+                        if BonjourDiscovery.hasEverBeenGranted {
+                            bonjour.startSearching()
+                        }
                         didAttemptDiscovery = true
                     }
                     // 🚨 自动探测得出的权限结论必须回灌给 PermissionCenter：
-                    // 它只在 `attach()` 时同步过一次，之后只有用户手动点「授权」才会
-                    // 通过轮询更新 —— 于是 `onAppear` 里那次自动 `startSearching()`
-                    // 判定的「已授权 / 被拒」永远进不了权限卡，`allGranted` 也永远为假
-                    // （已授权的用户会一直看到权限卡，被拒的用户拿不到正确的措辞）。
+                    // 它只在 `attach()` 时同步过一次，之后只有用户点「Continue」
+                    // 触发的探测会通过轮询更新 —— 于是自动扫描判定的「已授权 / 被拒」
+                    // 若不回灌，权限说明卡会一直停在过去的状态。
                     .onReceive(bonjour.$localNetwork) { _ in permissions.refresh() }
                     .onDisappear { bonjour.stopSearching() }
                 } else {
@@ -266,17 +271,19 @@ struct ContentView: View {
                 // 决定收到手表语音后要不要在本机回放（后台唤醒时不出声）。
                 watchBridge.appIsActive = (newPhase == .active)
 
-                // 回到前台刷新权限状态，并重新探测：
-                // - 已授权 → 无声续扫；
-                // - 已拒绝 → iOS 不会再弹框，用户在系统设置里打开后能立刻接上（必须自动）；
-                // - 从未探测（首装容器为空）→ 现在也会启动（不再被 UserDefaults 挡住）。
-                // 唯独「正在等授权」时不重启 —— startSearching() 会先 stopSearching()，
-                // 把挂着系统授权框的浏览器 cancel 掉（`.ready` 就永远等不到了）。
-                // 不再用 hasEverBeenGranted 判断：它只表示「曾到过 .ready」，
-                // 不代表「系统当前是否允许」。
+                // 回到前台刷新权限状态。自动（重新）探测只允许两类场景，**都不会再弹系统框**：
+                // - 已确认被拒 → 用户在系统设置里打开后回前台要立刻接上
+                //   （被拒状态下再探测不会弹框，只重跑发现）；
+                // - 曾经授权过 → 无声续扫（系统不会再弹框）。
+                // 从未授权（首装、还没点 Continue）绝不自动探测 —— 那会绕过说明卡
+                // 直接弹系统框（5.1.1(iv)）。唯独「正在等授权」时不重启：
+                // startSearching() 会先 stopSearching()，把挂着系统授权框的浏览器
+                // cancel 掉（`.ready` 就永远等不到了）。
                 guard newPhase == .active, deviceStore.devices.isEmpty else { return }
                 permissions.refresh()
-                if !bonjour.isWaitingForPermission {
+                if bonjour.localNetwork == .denied {
+                    bonjour.startSearching()
+                } else if BonjourDiscovery.hasEverBeenGranted, !bonjour.isWaitingForPermission {
                     bonjour.startSearching()
                 }
             }
@@ -514,18 +521,28 @@ struct ContentView: View {
         }
     }
 
-    /// 权限卡：三项权限的状态 + 单项「授权」+「一键授权全部」。
+    /// 权限说明卡（5.1.1(iv) 合规版）：只解释用途，唯一主按钮是「Continue」。
     ///
-    /// 设计约束（来自用户反馈）：**不允许把三个系统授权框连着弹出来**。
-    /// 所以每个按钮都对应一次显式点击；「一键授权全部」交给 PermissionCenter 做
-    /// 串行编排（语音 → 相机 → 本地网络），一步落定再进下一步，弹窗不会重叠。
+    /// Apple 审核要求：系统授权框之前的自定义说明页**不得**出现「Grant / Allow」类
+    /// 按钮（用户会误以为点按钮就是在做授权决策），要用「Continue / Next」等继续
+    /// 语义。因此这里：
+    /// - 三行只做「权限 → 实际用途」的说明 + 实时状态徽章，**没有任何请求按钮**；
+    /// - 「Continue」只推进流程：进入本地网络授权 + 发现（见 `PermissionCenter`）；
+    /// - 相机 / 语音识别由系统在真正使用对应功能时按需请求（扫码页 / 手表语音），
+    ///   本卡不请求它们；
+    /// - 仅当本地网络**已被拒**时才出现「Open Settings」（iOS 只弹一次授权框，
+    ///   被拒后唯一出路是系统设置；这不是首次授权入口）。
     private var permissionCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(L("Permissions"), systemImage: "lock.shield")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Color.bpForeground)
-            Text(L("BrewPing needs these permissions to find your computer on the local network. Grant them one by one, or all at once."))
+            Text(L("BrewPing uses these permissions to connect to and control your computer."))
                 .font(.system(size: 12))
+                .foregroundStyle(Color.bpMutedForeground)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(L("Tap Continue to start looking for your computer. Camera and Speech Recognition are requested only when you use those features."))
+                .font(.system(size: 11))
                 .foregroundStyle(Color.bpMutedForeground)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -533,61 +550,59 @@ struct ContentView: View {
                 icon: "wifi",
                 title: L("Local Network"),
                 detail: L("Used to discover your computer over Bonjour."),
-                status: localNetworkStatus,
-                step: .localNetwork
-            ) {
-                permissions.requestLocalNetwork()
-            }
+                status: localNetworkStatus
+            )
             permissionRow(
                 icon: "camera",
                 title: L("Camera"),
                 detail: L("Only for scanning the pairing QR code."),
-                status: permissions.camera,
-                step: .camera
-            ) {
-                permissions.requestCamera()
-            }
+                status: permissions.camera
+            )
             permissionRow(
                 icon: "waveform",
                 title: L("Speech Recognition"),
                 detail: L("Transcribes the voice commands you send from your Watch."),
-                status: permissions.speech,
-                step: .speech
-            ) {
-                permissions.requestSpeech()
-            }
+                status: permissions.speech
+            )
 
-            HStack(spacing: 8) {
-                Button {
-                    permissions.requestAll()
-                } label: {
-                    HStack(spacing: 6) {
-                        if permissions.requestingAll {
-                            ProgressView().controlSize(.small)
-                        }
-                        Text(L("Grant All")).font(.system(size: 13, weight: .semibold))
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(Color.bpPrimary)
-                .disabled(permissions.requestingAll)
-
-                // 被拒的权限只能去系统设置里打开（iOS 只弹一次授权框）
-                if permissions.hasDenied || !bonjour.localNetwork.isGranted {
+            if localNetworkStatus == .denied {
+                // 已被拒：系统不会再弹框，Continue 已无意义，唯一出路是系统设置。
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L("Local Network permission is denied. Enable it in Settings → Privacy & Security → Local Network."))
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.bpMutedForeground)
+                        .fixedSize(horizontal: false, vertical: true)
                     Button {
                         PermissionCenter.openSystemSettings()
                     } label: {
                         Label(L("Open Settings"), systemImage: "gear")
                             .font(.system(size: 13, weight: .semibold))
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
                     .tint(Color.bpPrimary)
                 }
-                Spacer(minLength: 0)
+                .padding(.top, 2)
+            } else {
+                // 唯一主按钮：「Continue」。只推进流程（进入本地网络授权 + 发现），
+                // 不冒充授权决策本身。
+                Button {
+                    permissions.requestLocalNetwork()
+                } label: {
+                    HStack(spacing: 6) {
+                        if isProbingLocalNetwork {
+                            ProgressView().controlSize(.small)
+                        }
+                        Text(L("Continue"))
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(Color.bpPrimary)
+                .disabled(isProbingLocalNetwork)
+                .padding(.top, 2)
             }
-            .padding(.top, 2)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -601,6 +616,13 @@ struct ContentView: View {
         }
     }
 
+    /// 本地网络正在探测 / 等授权（系统框可能正挂着）：期间禁用 Continue ——
+    /// startSearching() 会先掐掉挂着授权框的浏览器，`.ready` 就永远等不到了。
+    /// 探测窗口若已结束仍无结论，按钮恢复可点（用户可重试）。
+    private var isProbingLocalNetwork: Bool {
+        bonjour.localNetwork == .requesting && bonjour.isSearching
+    }
+
     /// 本地网络状态映射成 `PermissionCenter.Status`：它来自 Bonjour 探测而不是系统 API，
     /// `.requesting`（尚未落定）在 UI 上按「未授权」呈现，同时仍保留「授权」按钮可重试。
     private var localNetworkStatus: PermissionCenter.Status {
@@ -611,12 +633,12 @@ struct ContentView: View {
         }
     }
 
+    /// 权限说明行：图标 + 名称 + 状态徽章 + 一句用途说明。**没有任何按钮** ——
+    /// 徽章如实反映系统真实状态（不显示假的「Granted」），请求动作全部发生在
+    /// 对应功能的使用现场（扫码页 / 手表语音 / 权限卡的 Continue）。
     private func permissionRow(icon: String, title: String, detail: String,
-                               status: PermissionCenter.Status,
-                               step: PermissionCenter.Step,
-                               request: @escaping () -> Void) -> some View {
-        let isCurrent = permissions.requestingAll && permissions.currentStep == step
-        return HStack(alignment: .top, spacing: 10) {
+                               status: PermissionCenter.Status) -> some View {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 15))
                 .foregroundStyle(Color.bpPrimary)
@@ -638,16 +660,6 @@ struct ContentView: View {
             if status == .granted {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(Color.bpPrimary)
-            } else if isCurrent {
-                ProgressView().controlSize(.small)
-            } else {
-                Button(action: request) {
-                    Text(L("Grant")).font(.system(size: 12, weight: .semibold))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .tint(Color.bpPrimary)
-                .disabled(permissions.requestingAll)
             }
         }
     }
