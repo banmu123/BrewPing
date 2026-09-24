@@ -8,17 +8,13 @@
   </a>
 </p>
 
-**A remote control for the coding agents running on your own computer.**
+**A local-network remote control for coding agents running on your own computer.**
 
-BrewPing runs a small desktop service on your Mac or Windows machine and drives the CLI agents
-already installed there. Pair your phone over the local network, then send instructions, follow
-progress, and approve risky commands from iPhone, Apple Watch, or Android.
+BrewPing lets you monitor, control, and approve coding-agent tasks running on your own Mac or Windows
+computer — from your iPhone, Apple Watch, or Android phone. Pair once over your local network, and the
+work stays on your machine: no account, no analytics, no server of ours in the path.
 
 *Your agents, your models, your machine — driven from your phone, on your own network.*
-
-> **Availability:** macOS and Windows are **released** (`v1.0.0`) · iOS / watchOS are **in App
-> Review** (TestFlight only, no App Store listing yet) · Android is **built but not submitted** to
-> Google Play · Wear OS is in the repository, **unreleased**. Details: [Availability](#-availability).
 
 <div align="center">
 
@@ -31,19 +27,21 @@ progress, and approve risky commands from iPhone, Apple Watch, or Android.
 ![Android](https://img.shields.io/badge/Android-8%2B-3DDC84?logo=android&logoColor=white)
 ![Swift tests](https://img.shields.io/badge/swift%20tests-66%20passing-brightgreen)
 
-**⚡ Quick start (macOS, from source):**
-
-```bash
-git clone https://github.com/banmu123/BrewPing.git && cd BrewPing && ./build-app.sh && open "build/BrewPing Desktop.app"
-```
-
-→ open **Show Pairing Code** in the menu bar, scan the QR code with the iPhone app
-· or grab the prebuilt, signed & notarized DMG from **[commitbrew.com](https://www.commitbrew.com/#download)**
-· full guide: [🚀 Quick Start](#-quick-start)
-
 </div>
 
----
+## ⬇️ Download
+
+| Platform | Get it |
+|---|---|
+| **iPhone / Apple Watch** | **Available on the App Store** — search for **BrewPing** |
+| **macOS** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) — signed & notarized DMG · or the [download page](https://www.commitbrew.com/#download) |
+| **Windows** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) — `setup.exe` / `.msi` (Windows 10/11 + WebView2) |
+| **Android** | Build from source — `cd Android && ./gradlew assembleDebug` |
+| **Source** | `git clone https://github.com/banmu123/BrewPing.git` |
+
+The macOS and Windows builds on the release page are the same code as this repository at tag `v1.0.0`.
+Which surfaces are shipped, in-repo-but-unreleased, or not started is spelled out in
+[Platform status](#-platform-status) — and nowhere else.
 
 ## 📸 Screenshots
 
@@ -55,17 +53,34 @@ git clone https://github.com/banmu123/BrewPing.git && cd BrewPing && ./build-app
   <sub><b>macOS desktop</b> &nbsp;·&nbsp; <b>iPhone</b></sub>
 </p>
 
+## What BrewPing is — and what it is not
+
+**BrewPing is not a coding agent.** It does not write code, it does not call a model on your behalf,
+and it does not replace the tools you already use.
+
+It is a **remote interface for coding agents that are already running on your own computer**. The
+agent does the actual work; BrewPing is how you watch it, steer it, and approve what it is about to do
+— without sitting at that machine.
+
+```
+Coding agent   →  does the actual coding work   (OpenCode / Claude Code / Codex CLI / pi)
+BrewPing       →  lets you monitor, control, and approve that work remotely
+```
+
+BrewPing ships no agent and no model. It detects the CLI agents you installed, reads the
+configuration they already have, and drives them exactly as they are — your subscriptions,
+credentials, and settings stay where they are.
+
 ## 🎯 Who is it for?
 
-- You run a coding agent — OpenCode, Claude Code, Codex CLI, or pi — on a Mac or Windows machine,
-  and you want to kick off work, check progress, or approve a risky command **without sitting at
-  that machine**.
+- You run a coding agent — OpenCode, Claude Code, Codex CLI, or pi — on a Mac or Windows machine, and
+  you want to kick off work, check progress, or approve a risky command **without sitting at that
+  machine**.
 - You want that from your **phone or watch**: one hand, one glance, no remote desktop.
-- You care that your code, prompts, and agent output **stay on your own machines** — BrewPing ships
-  no account system, no analytics, and no server of ours in the path.
+- You care that your code, prompts, and agent output **stay on your own machines**.
 
-It is **not** for you if: you don't have any of those CLI agents installed (BrewPing drives them, it
-does not replace them), or you are looking for a hosted coding agent that runs in the cloud.
+**Not for you if:** you don't have any of those CLI agents installed (BrewPing drives them, it does
+not replace them), or you are looking for a hosted coding agent that runs in the cloud.
 
 ## 🤔 Why BrewPing instead of SSH, remote desktop, or a hosted agent?
 
@@ -78,157 +93,71 @@ does not replace them), or you are looking for a hosted coding agent that runs i
 | Your code and prompts stay on your machines | ✓ | ✓ | usually not | ✓ (local network only) |
 | Works with several agents + model switching | ✗ | ✗ | ✗ | ✓ |
 
-## ✨ Highlights
+## ✨ Features
 
-### 📲 Send a command from anywhere in your home
+- **Remote monitoring** — live agent status and streaming output, rendered as Markdown, on your phone
+  or watch.
+- **Remote control** — start and stop sessions, send instructions, switch the active agent and model.
+- **Approval gate** — dangerous commands are held until you approve them; a pending request times out
+  as *denied*, never as approved.
+- **Local-first** — commands and output travel only between your phone and the computer you paired.
+- **No account, no sign-up** — pairing is a one-time 6-digit code, not a login.
+- **Automatic discovery** — Bonjour/mDNS finds computers on the current Wi-Fi; manual host and port is
+  always available as a fallback.
+- **Four agents, one interface** — OpenCode, Claude Code, Codex CLI, and pi, with per-agent model
+  switching ([details](#-supported-coding-agents)).
+- **iPhone, Apple Watch, Android** — the Watch app takes voice-dictated instructions and shows the
+  reply; the Android app shares the same flow.
+- **Conversations and working folders** — conversations are bound to a folder, so file operations
+  happen where the conversation lives. Agent, model, and approval level are set **per conversation**.
+- **Multi-device** — pair several computers and switch between them from the device bar.
+- **Bilingual UI** — English and Simplified Chinese, switchable in-app without a restart.
 
-Start the desktop service, pair once, and send instructions from your phone. BrewPing shows the
-agent's status while the command runs and returns the output when it finishes — you do not have to
-stay at the keyboard.
-
-### 🧩 Keep using the agents and models you already configured
-
-BrewPing does not replace your agents or their logins. It discovers the CLI agents installed on your
-computer, reads the models each one is configured with, and lets you switch the active agent or model
-remotely. Your subscriptions, credentials, and permission settings stay exactly where they are.
-
-### 🛡️ Approve risky commands before they run
-
-Commands are checked before they reach the agent. BrewPing classifies dangerous operations
-(`rm -rf`, `git reset --hard`, `curl | sh`, and more) and holds them for your approval. Pick a mode:
-block only dangerous commands, confirm every command, or run without confirmations. Pending requests
-time out as **denied** — silence is never an approval.
-
-### ⌚ iPhone, Apple Watch and Android
-
-Both phone apps share the same flow: discover computers on the current Wi-Fi, or add one by host and
-port; pair by scanning the QR code or typing the 6-digit code; then browse conversations, send
-instructions, switch agents and models, and approve commands. The Watch app sends voice-dictated
-instructions, switches agents and models with swipes, and lets you read the reply without pulling out
-your phone.
-
-### 📁 Conversations and working folders stay together
-
-Conversations are grouped by the folder each one is bound to. Pin, archive, and reopen them; bind a
-working folder to a conversation so file operations happen where the conversation lives; and set
-agent, model, and approval level **per conversation**.
-
-### 🔍 Find your computer automatically
-
-Bonjour/mDNS discovery finds computers on the current Wi-Fi without typing an IP address. If the
-network blocks multicast (AP isolation, guest networks), add the host and port by hand — BrewPing
-tells you exactly what to check.
-
-### 🖥️ More built in
-
-- **Multi-device** — pair more than one computer and switch between them from the device bar.
-- **In-app language switch** — English and Simplified Chinese, switched inside the app without
-  restarting it.
-- **Markdown transcripts** — read agent output rendered as Markdown, including long responses.
-- **Local network only** — no account, no analytics, no third-party SDKs; commands and output travel
-  only between your phone and your own computer.
-- **Demo device (iOS)** — try the whole flow with no Mac and no hardware.
-
-## 🏗️ Architecture
+## 🔄 How it works
 
 ```
-┌──────────────┐    HTTP API     ┌─────────────────────────┐
-│    Phone     │ ◄────────────►  │   BrewPing Desktop      │
-│ iOS / Android│   same Wi-Fi    │  macOS menu bar + window│
-└──────┬───────┘   Bonjour       │  or Windows (Tauri)     │
-       │            discovery    └───────────┬─────────────┘
-       │ WatchConnectivity                   │ PTY / CLI
-┌──────┴───────┐                  ┌──────────┴─────────────┐
-│ Apple Watch  │                  │  opencode · claude     │
-│  (watchOS)   │                  │  codex · pi            │
-└──────────────┘                  └────────────────────────┘
+┌──────────────────────────────────────┐
+│          Your Mac / Windows          │
+│                                      │
+│   Coding agent                       │
+│   OpenCode · Claude Code ·           │
+│   Codex CLI · pi                     │
+│              │                       │
+│        BrewPing Desktop              │
+└──────────────┼───────────────────────┘
+               │   local network
+               │   HTTP API + Bonjour/mDNS discovery
+        ┌──────┴───────┐
+        │              │
+     iPhone        Apple Watch
+        │              │
+   monitor · control · approve
 ```
 
-- **Desktop service** — a Swift core (`Sources/App`, `Sources/Agents`, `Sources/PTY`,
-  `Sources/Session`, `Sources/Protocol`) exposing an HTTP API on your LAN, supervising agent
-  processes, and gating commands through the approval check. The Windows desktop reimplements the
-  same API surface in Rust (Tauri 2 + axum) and is covered by the same clients.
-- **Clients** — iOS and watchOS apps (SwiftUI), Android app (Jetpack Compose), and a CLI
-  (`swift run BrewPing …`). Clients never talk to each other, and never to a machine you did not pair.
-- **Auth** — a one-time 6-digit code becomes a long-lived token; every `/api/*` call carries
-  `Authorization: Bearer <token>`, and writes additionally carry `X-BrewPing-Timestamp` +
-  `X-BrewPing-Nonce` (120-second window, replay-protected).
+1. Your agent runs on your computer, exactly as it does today.
+2. BrewPing Desktop sits next to it, exposes a local HTTP API, and supervises the agent process.
+3. Your phone or watch discovers the computer on the same network and pairs with a one-time code.
+4. From there you monitor, instruct, and approve — the network never leaves your LAN.
 
-## 📦 Availability
+## 📦 Platform status
 
-What you can install today, and what is still in the pipeline:
-
-| Surface | Status | How to get it |
+| Platform | Status | Notes |
 |---|---|---|
-| macOS desktop | **Released** (`v1.0.0`) | Signed & notarized DMG from the [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0), or build from source |
-| Windows desktop | **Released** (`v1.0.0`) | `setup.exe` / `.msi` attached to the same release, or `npm run tauri dev` |
-| iPhone / Apple Watch | **In App Review** — not publicly available yet | Build from source with Xcode until Apple approves |
-| Android phone | **Built, not submitted** to Google Play | `cd Android && ./gradlew assembleDebug` |
-| Wear OS watch | **In the repository, not released** | Build from source; on no store |
+| **iOS** | **Available** — App Store | iPhone only (iOS 17.0+); search for **BrewPing** |
+| **watchOS** | **Available** — App Store | Ships with the iPhone app (watchOS 11.6+); voice-dictated instructions, swipe to switch agent/model |
+| **macOS** | **Available** — GitHub Release `v1.0.0` | macOS 13.0+; universal binary (Apple Silicon + Intel), Developer ID signed, notarized, stapled |
+| **Windows** | **Available** — GitHub Release `v1.0.0` | Windows 10/11 + WebView2; `setup.exe` / `.msi` |
+| **Android** | **Built, not published** | Android 8.0+ (`minSdk` 26); builds from this repository, not yet submitted to Google Play |
+| **Wear OS** | **In the repository, not released** | `Android/wear` builds and is covered by CI; no device testing, no store submission |
+| **Cross-network** | **Not supported** | Local network only — no hosted service and no official public relay |
 
-BrewPing ships **local-network only** — there is no hosted service and no official public relay, so
-none of the clients talk to anything but the computer you paired.
+"Built" means the artifact can be produced from this repository. It does **not** mean it is available
+to the public. Anything not listed as *Available* above is not shipped.
 
-## 🚀 Quick Start
+## 🧠 Supported coding agents
 
-### 🍎 macOS desktop (build from source)
-
-```bash
-git clone https://github.com/banmu123/BrewPing.git
-cd BrewPing
-./build-app.sh                          # produces build/BrewPing Desktop.app
-open "build/BrewPing Desktop.app"
-```
-
-Prefer a prebuilt binary? The DMG on [commitbrew.com](https://www.commitbrew.com/#download) is
-Developer ID signed, notarized, and stapled, so it opens without Gatekeeper warnings.
-
-### 🪟 Windows desktop (Tauri 2 + axum)
-
-```bash
-cd Sources/BrewPingwinDesktop
-npm install
-npm run tauri dev
-```
-
-### 📱 iPhone / Apple Watch
-
-```bash
-open ios/BrewPing.xcodeproj             # set your team, then Run
-```
-
-The iOS app uses bundle IDs `com.brewping.ios` and `com.brewping.ios.watchkitapp`.
-
-### 🤖 Android
-
-```bash
-cd Android && ./gradlew assembleDebug   # Windows: gradlew.bat assembleDebug
-```
-
-### 🔗 Pair your phone
-
-1. In BrewPing Desktop, open **Show Pairing Code** — a 6-digit code (and a QR code) appears.
-2. On your phone, scan the QR code, or tap **Add Device** and enter the code.
-3. Both devices must be on the **same local network**. BrewPing has no public relay and never
-   connects to a machine you did not configure.
-
-The pairing code is single-use and expires after 10 minutes. On iOS the token is stored in the
-Keychain; on the desktop it lives in `~/.brewping/pairing.json` with `0600` permissions.
-
-### ⌨️ Use BrewPing from the CLI
-
-```bash
-swift run BrewPing start                        # start an OpenCode session in a PTY
-swift run BrewPing status                       # show the current session status
-swift run BrewPing send "Fix the failing test"  # send a message to the session
-swift run BrewPing attach                       # attach to the running session (Ctrl+D to detach)
-swift run BrewPing stop                         # stop the session
-```
-
-## 🧠 Supported agents
-
-BrewPing drives the CLI agents already installed on your computer. Product names and trademarks
-belong to their respective owners (see [Trademarks](#-trademarks)).
+BrewPing drives CLI agents **you installed yourself**. It never bundles or redistributes them, and it
+never replaces their configuration — it reads what is there.
 
 | Agent | Mode | Command | Configuration read from |
 |-------|------|---------|-------------------------|
@@ -253,127 +182,103 @@ npm install -g @openai/codex
 npm install -g @earendil-works/pi-coding-agent
 ```
 
-## 🔌 HTTP API
+Product names and trademarks belong to their respective owners — see [TRADEMARKS.md](TRADEMARKS.md).
 
-Except for `POST /api/pair` and `GET /api/status`, every endpoint requires
-`Authorization: Bearer <token>`. Write endpoints additionally require `X-BrewPing-Timestamp` and
-`X-BrewPing-Nonce`.
+## 🚀 Getting started
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/pair` | Exchange a 6-digit pairing code for a long-lived token (public) |
-| GET | `/api/status` | Device status, read-only health check (public) |
-| GET | `/api/protocol/state` | Protocol state snapshot |
-| GET | `/api/agents` | Installed agents |
-| POST | `/api/agents/default` | Set the default agent |
-| POST | `/api/agents/:id/switch` | Switch the active agent |
-| GET | `/api/agents/:id/models` | Models configured for that agent (providers → models) |
-| POST | `/api/agents/models/default` | Set the default model |
-| POST | `/api/message` | Send a message (optional `commandId` = client idempotency key) |
-| GET | `/api/message/:id` | One command's status, including the authoritative execution phase (`run.phase`) |
-| POST | `/api/session/start` | Start a session |
-| POST | `/api/session/stop` | Stop a session |
-| GET / POST | `/api/approvals/mode` | Read or change the approval mode |
-| GET | `/api/approvals` | Pending approval requests |
-| POST | `/api/approvals/:id` | `approve`, `deny`, or `always_approve` |
-| GET / POST | `/api/conversations` | List or create conversations |
-| GET / PATCH / DELETE | `/api/conversations/:id` | Read, update, or delete one conversation |
-| POST | `/api/conversations/:id/activate` | Activate a conversation |
-| GET | `/api/folders/roots` | Directory roots for the working-folder picker |
-| GET | `/api/folders?path=` | Browse sub-directories (directories only) |
-| POST | `/api/agents/workdir` | Set or clear an agent's default working folder |
-| POST | `/api/discovery/refresh` | Refresh local network discovery |
+### 1. Install BrewPing Desktop
 
-`run.phase` is computed by the desktop from the command's real state and its last output timestamp:
-`queued` / `thinking` / `streaming` / `stalled` / `completed` / `failed`. `stalled` is decided by
-the desktop (30 seconds without new output) — clients display it, they never guess it.
+- **macOS** — download the DMG from the [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0)
+  (or the [download page](https://www.commitbrew.com/#download)), open it, and drag **BrewPing Desktop**
+  into Applications. It is signed, notarized, and stapled, so Gatekeeper opens it without warnings.
+- **Windows** — download `setup.exe` or the `.msi` from the same release and install it.
+- **From source (macOS)**:
 
-`POST /api/message` accepts an optional client-generated `commandId`. Send the **same** value when
-retrying after a timeout and the desktop returns the existing command instead of executing it twice.
-This is separate from `X-BrewPing-Nonce`, which is a transport-level replay guard.
+  ```bash
+  git clone https://github.com/banmu123/BrewPing.git
+  cd BrewPing
+  ./build-app.sh                          # produces build/BrewPing Desktop.app
+  open "build/BrewPing Desktop.app"
+  ```
 
-## ⚙️ Configuration
+### 2. Install the phone app
 
-BrewPing keeps its state in `~/.brewping/`:
+- **iPhone / Apple Watch** — install **BrewPing** from the App Store.
+- **Android** — build and install from source:
 
-- `device.json` — device identity (device ID, name)
-- `pairing.json` — pairing token and temporary code (permissions `0600`)
-- `approval.json` — global approval mode and always-allow rules (permissions `0600`)
-- `config.json` — agent configuration (default agent, model preferences)
-- `session.json` — current session state
+  ```bash
+  cd Android && ./gradlew assembleDebug   # Windows: gradlew.bat assembleDebug
+  ```
 
-## 🔒 Privacy & security
+### 3. Pair your phone
 
-- **No account, no analytics, no third-party SDKs, no server operated by us.** Commands you send,
-  the output your agent returns, and any speech that is transcribed travel only between your phone
-  (or watch) and the computer you paired. Full text: [privacy policy](docs/privacy.html).
-- **Token handling** — the pairing code is single-use and expires in 10 minutes; the token it
-  exchanges for is stored with `0600` permissions on the desktop and in the iOS Keychain. Write
-  requests are timestamped and nonce-protected (120-second replay window).
-- **Approval gating is scoped on purpose** — it intercepts commands at the point where they enter the
-  agent, so a shell command that an agent pushes on its own is not covered by this release. Treat it
-  as a safety net for *your* instructions, not as a sandbox for the agent.
-- **No third-party agent is bundled or redistributed.** BrewPing only detects and runs the CLI tools
-  you installed yourself; installers above point at each vendor's own distribution channel.
+1. In BrewPing Desktop, open **Show Pairing Code** — a 6-digit code and a QR code appear.
+2. On your phone, scan the QR code, or tap **Add Device** and type the code.
+3. Both devices must be on the **same local network**.
 
-## 🧪 Testing & CI
+The pairing code is single-use and expires after 10 minutes.
 
-- **Swift unit tests** — `swift test` runs **66 tests** over the vendor-native configuration
-  modules (Claude Code / Codex / OpenCode / pi merge and write invariants), the conversation
-  execution state machine, and the HTTP run-status derivation. Silent config corruption and
-  "is it stuck?" regressions would otherwise hide there.
-- **Android unit tests** — `:core` and `:app` hold **83 JVM unit tests** that need no device
-  (`cd Android && ./gradlew test`); CI additionally builds the phone app and the Wear OS module.
-- **GitHub Actions** — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) builds and tests the
-  Swift core on macOS, compiles the iOS + watchOS targets with signing disabled, and runs the
-  Windows and Android suites — on every push and pull request, plus a nightly schedule.
-- **Windows** — the Rust side has its own **318-case** `cargo test --locked` suite
-  (`Sources/BrewPingwinDesktop/src-tauri`).
-- **Release** — pushing a `v*` tag triggers
-  [`.github/workflows/release-mac.yml`](.github/workflows/release-mac.yml), which builds a universal
-  binary, signs with Developer ID, notarizes, staples, and attaches the DMG to the GitHub release.
-  The workflow needs Apple signing secrets that are **not** configured in this repository, so the
-  `v1.0.0` macOS packages were built locally by the maintainer and attached by hand (see
-  [Project status](docs/PROJECT_STATUS.md)).
+### 4. Point it at an agent
 
-## 📋 Requirements
+BrewPing lists the agents it found on the computer. Pick one, choose a working folder, and send your
+first instruction — you can switch agent and model at any time, per conversation.
 
-| Platform | Requirement |
-|---|---|
-| macOS desktop | macOS 13.0 or later (built as a universal binary: Apple Silicon + Intel) |
-| Windows desktop | Windows 10/11 with WebView2 (Tauri 2) |
-| iPhone | iOS 17.0 or later |
-| Apple Watch | watchOS 11.6 or later (paired with the iPhone app) |
-| Android | Android 8.0 or later (minSdk 26) |
-| Wear OS | Wear OS 3.0 or later (minSdk 30) — the module is in the repository but **not released yet** |
-| Network | Phone/watch and computer on the **same local network** |
-| Agents | At least one of OpenCode / Claude Code / Codex CLI / pi installed on the computer |
+Full setup detail, including manual host/port entry when multicast is blocked, is in
+[docs/](docs/) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## 📚 Documentation
+### ⌨️ Use BrewPing from the CLI
 
-- **[Privacy policy](docs/privacy.html)** — what BrewPing does and does not touch
-- **[iOS structure & modules](docs/BrewPing-iOS端结构与模块划分.md)** — iPhone app layout and state flow
-- **[Windows multi-conversation design](docs/BrewPing-Windows端多对话管理实现方案.md)** — desktop conversation model
-- **[Provider management migration](docs/BrewPing-Provider管理-Lody新建Provider迁移方案.md)** — provider config internals
-- **[Folder browsing design](docs/BrewPing-获取文件夹-Windows落地方案.md)** — working-folder binding
-- **[App Store pre-submission review](docs/AppStore-PreSubmission-Review.md)** — the checklist we ran, at the point the iOS build went into App Review
-- **[Project status](docs/PROJECT_STATUS.md)** — platforms, test counts, maintenance process, known limitations
-- **[Trademarks](TRADEMARKS.md)** — third-party names used to describe compatibility
-- **[Relay prototype](experimental/relay-server/README.md)** — experimental, **not wired into any client**, outside the product's security boundary
+```bash
+swift run BrewPing start                        # start an OpenCode session in a PTY
+swift run BrewPing status                       # show the current session status
+swift run BrewPing send "Fix the failing test"  # send a message to the session
+swift run BrewPing attach                       # attach to the running session (Ctrl+D to detach)
+swift run BrewPing stop                         # stop the session
+```
 
-## 🏗️ Tech Stack
+## 🔒 Security & privacy
 
-| Layer | Technology |
-|-------|-----------|
-| Core service | Swift 5.9 (SwiftPM), no third-party Swift dependencies |
-| macOS desktop | SwiftUI + AppKit (window + menu bar), Hardened Runtime, notarized |
-| Windows desktop | Tauri 2 + axum + React 19 + Vite + Tailwind CSS 4 |
-| iOS / watchOS | SwiftUI, WatchConnectivity |
-| Android | Kotlin + Jetpack Compose (minSdk 26, JDK 17) |
-| Transport | HTTP on the local network, Bonjour/mDNS discovery, Bearer token + nonce |
-| Relay prototype (experimental, not shipped) | TypeScript + ws + express — parked under `experimental/`, no client connects to it |
+- **Local network only.** No account, no analytics, no third-party SDKs, and no server operated by us
+  is in the request path. Commands, agent output, and transcribed speech travel only between your
+  phone (or watch) and the computer you paired. Full text: [privacy policy](docs/privacy.html).
+- **Pairing, not login.** A one-time 6-digit code (single use, 10-minute expiry) is exchanged for a
+  long-lived token. Every `/api/*` request carries `Authorization: Bearer <token>`; writes also carry
+  `X-BrewPing-Timestamp` and `X-BrewPing-Nonce`, giving a 120-second replay-protected window.
+- **The token is equivalent to command execution on that machine.** It is stored with `0600`
+  permissions on the desktop (`~/.brewping/pairing.json`) and in the iPhone Keychain.
+- **The approval gate is a safety net, not a sandbox.** It intercepts commands at the point they enter
+  the agent. A shell command the agent spawns on its own is *not* covered. Treat it as a guard for
+  **your** instructions, not as isolation for the agent.
+- **Cross-network access is your own call.** BrewPing does not operate, configure, or endorse a relay;
+  if you need it, that is a network problem you solve on your side (for example with a VPN overlay such
+  as Tailscale or WireGuard).
 
-## 📁 Project Structure
+Local state lives in `~/.brewping/`: `device.json` (identity), `pairing.json` (token, `0600`),
+`approval.json` (approval mode and always-allow rules, `0600`), `config.json` (agent and model
+preferences), `session.json` (current session).
+
+See [SECURITY.md](SECURITY.md) for the full security model and what is explicitly out of scope.
+
+## 🏗️ Architecture
+
+- **Desktop service** — a Swift core (`Sources/App`, `Sources/Agents`, `Sources/PTY`,
+  `Sources/Session`, `Sources/Protocol`, Swift 5.9 / SwiftPM, no third-party Swift dependencies). It
+  exposes an HTTP API on your LAN, supervises agent processes, and gates commands through the approval
+  check. The Windows build reimplements the same API surface in Rust (Tauri 2 + axum + React) and is
+  covered by the same clients.
+- **Clients** — iOS and watchOS (SwiftUI + WatchConnectivity), Android (Kotlin + Jetpack Compose), and
+  a CLI (`swift run BrewPing …`). Clients never talk to each other, and never to a machine you did not
+  pair.
+- **Discovery** — Bonjour/mDNS on the local network, with manual host and port as a fallback.
+- **Transport & auth** — HTTP on the LAN; a bearer token on every call, plus timestamp and nonce on
+  writes.
+- **Run status** — the desktop derives the authoritative execution phase for a command
+  (`queued` / `thinking` / `streaming` / `stalled` / `completed` / `failed`) and serves it through the
+  API. Clients display it; they never guess whether a run is stuck.
+- **HTTP API** — `POST /api/pair` and `GET /api/status` are public; everything else needs the bearer
+  token. Endpoints cover agents (`/api/agents…`), messages and run status (`/api/message…`), sessions
+  (`/api/session…`), approvals (`/api/approvals…`), conversations (`/api/conversations…`), and
+  folders (`/api/folders…`).
 
 ```
 Sources/
@@ -385,35 +290,51 @@ Sources/
 ├── BrewPing/             # CLI entry point (start / status / send / attach / stop)
 ├── BrewPingDesktop/      # macOS SwiftUI app (window + menu bar)
 └── BrewPingwinDesktop/   # Windows desktop (Tauri 2 + axum + React)
-ios/
-├── BrewPing/             # iPhone app
-└── Watch/                # Apple Watch app
-Android/                  # Android phone app + Wear OS module (Jetpack Compose)
-experimental/
-└── relay-server/         # parked TypeScript prototype — not part of the shipped product
+ios/                      # iPhone app + Apple Watch app
+Android/                  # Android phone app + Wear OS module
 Scripts/                  # packaging (build-mac-app.sh) + entitlement/Info.plist for the DMG
 docs/                     # design notes + privacy policy
-logo/                     # app icons and logo
 ```
 
-## 🚧 Beyond the local network
+## 📚 Documentation
 
-BrewPing ships **local-network only**. There is no official public relay, no hosted service, and
-nothing in this repository proxies your traffic to the internet.
+- **[Privacy policy](docs/privacy.html)** — what BrewPing does and does not touch
+- **[Project status](docs/PROJECT_STATUS.md)** — platforms, test counts, maintenance process, known limitations
+- **[iOS structure & modules](docs/BrewPing-iOS端结构与模块划分.md)** — iPhone app layout and state flow
+- **[Windows multi-conversation design](docs/BrewPing-Windows端多对话管理实现方案.md)** — desktop conversation model
+- **[Provider management](docs/BrewPing-Provider管理-Lody新建Provider迁移方案.md)** — provider config internals
+- **[Folder browsing](docs/BrewPing-获取文件夹-Windows落地方案.md)** — working-folder binding
+- **[Trademarks](TRADEMARKS.md)** — third-party names used to describe compatibility
 
-`experimental/relay-server/` is a **parked prototype**: it is not part of the shipped product, no
-client connects to it, it has no authentication, and it logs relayed payloads. Do not deploy it to a
-public or untrusted network (see its README). It is kept for reference only — the product path does
-not include it, and it is not on the roadmap as a shipped component.
+## 🤝 Contributing & development
 
-If you want to reach your own computer from a different network, that is a **network problem you
-solve on your side** — for example with a VPN overlay such as Tailscale or WireGuard. BrewPing does
-not operate, configure, or endorse that setup.
+Issues and pull requests are welcome. Build commands, CI expectations, and repository conventions live
+in **[CONTRIBUTING.md](CONTRIBUTING.md)**; security reports go through **[SECURITY.md](SECURITY.md)**.
 
-## 🤝 Contributing
+Sanity check before opening a PR — every suite runs without a device or emulator:
 
-Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for build commands,
-what CI runs, and the conventions this repo follows. Security reports: [SECURITY.md](SECURITY.md).
+```bash
+swift test --disable-sandbox                       # 66 Swift tests (macOS)
+cargo test --locked                                # 318 Rust tests (Sources/BrewPingwinDesktop/src-tauri)
+cd Android && ./gradlew test                       # 109 Android tests (:core + :app)
+```
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs all of the above plus an iOS + watchOS
+compile and repository-hygiene checks on every push and pull request, with a nightly schedule to catch
+runner toolchain drift.
+
+## 🗺️ Roadmap
+
+Direction, not commitments — nothing here is shipped yet:
+
+- **More agent integrations.** The agent catalog is built to be extended beyond the four supported today.
+- **Wear OS client.** The module is in the repository and builds in CI, but it is not released and has
+  not been through device testing or store submission.
+- **Smoother multi-device workflows.** Pairing several computers works today; per-device context and
+  faster switching are the next step.
+
+**Not planned:** a hosted service or an official public relay. Cross-network access stays a user-side
+network setup.
 
 ## ⚠️ Trademarks
 
@@ -421,15 +342,12 @@ OpenCode, Claude, Claude Code, Codex, and pi are trademarks of their respective 
 not affiliated with, endorsed by, or sponsored by them; these names appear only to describe
 compatibility — see **[TRADEMARKS.md](TRADEMARKS.md)** for the per-name list.
 
-BrewPing connects only to devices **you configured**, on your own local network. It does not connect
-to third-party devices and does not provide a public relay.
-
 ## 📄 License
 
 [MIT](LICENSE).
 
 BrewPing does not bundle or redistribute any third-party agent. It only detects and runs the
-command-line tools you have already installed on your own computer (see [Trademarks](#-trademarks)).
+command-line tools you have already installed on your own computer.
 
 ## 🙏 Credits
 

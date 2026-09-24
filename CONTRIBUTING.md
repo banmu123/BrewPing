@@ -45,7 +45,7 @@ cd Sources/BrewPingwinDesktop && npm install && npm run tauri dev
 cargo test                     # in Sources/BrewPingwinDesktop/src-tauri
 
 # Android (phone app + Wear OS module)
-cd Android && ./gradlew test             # 83 JVM unit tests (:core + :app)
+cd Android && ./gradlew test             # 109 JVM unit tests (:core + :app)
 cd Android && ./gradlew assembleDebug    # phone APK
 cd Android && ./gradlew :wear:assembleDebug   # Wear OS APK (module in repo, not released yet)
 ```
@@ -58,7 +58,7 @@ cd Android && ./gradlew :wear:assembleDebug   # Wear OS APK (module in repo, not
 2. **Apple targets** — compiles the iOS and watchOS schemes with signing disabled, so a broken
    project file or a missing resource fails the PR instead of the release.
 3. **Windows desktop** — `npm ci` + `npx tsc` on the frontend, `cargo test --locked` on the Rust side.
-4. **Android** — `./gradlew test assembleDebug :wear:assembleDebug` with JDK 17 — the 83 JVM unit
+4. **Android** — `./gradlew test assembleDebug :wear:assembleDebug` with JDK 17 — the 109 JVM unit
    tests plus both app modules (no APK is published from CI).
 5. **Hygiene** — LICENSE present **and still a plain MIT text** (extra sections appended to it
    break GitHub's license detection), no compiled artifacts (`build*/`, `dist/`, `target/`, `*.app`,

@@ -13,12 +13,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -36,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brewping.core.BrewPingConfig
+import com.brewping.core.LocalePrefs
 import com.brewping.android.R
 import com.brewping.android.ui.theme.LatteAccent
 import com.brewping.android.ui.theme.LatteBackground
@@ -55,16 +58,16 @@ import com.brewping.android.ui.theme.LattePrimary
  *   - 第三方商标免责声明
  * 缺这些会被追问（iOS 侧是 2.1 / 5.1.2 / 5.2.1）。
  *
- * 与 iOS 的两处**有意差异**：
- *   1. 语言切换不放在这里 —— Android 顶栏已有 `LanguageMenuButton`（
- *      功能等价，只是位置不同，见 `HomeScreen.kt`）；
- *   2. 暂无「添加演示设备」段 —— Android 尚未实现 Demo 模式（对齐清单 P1）。
+ * 段序与 iOS `HelpView` 对齐：
+ *   Language → How BrewPing works → Set up your computer → Try it without a computer
+ *   → Privacy → Support → Legal → About。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HelpScreen(onDismiss: () -> Unit) {
+fun HelpScreen(onDismiss: () -> Unit, onAddDemoDevice: () -> Unit) {
     val context = LocalContext.current
     val version = remember(context) { BrewPingConfig.displayVersion(context) }
+    val currentLangMode = remember(context) { LocalePrefs.mode(context) }
 
     fun open(url: String) {
         runCatching {
@@ -109,6 +112,29 @@ fun HelpScreen(onDismiss: () -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
+            // ─── 语言（对齐 iOS HelpView 的第 1 段）──────────────────────────
+            HelpSection(stringResource(R.string.language)) {
+                LocalePrefs.LangMode.entries.forEach { mode ->
+                    SelectRow(
+                        label = stringResource(
+                            when (mode) {
+                                LocalePrefs.LangMode.System -> R.string.follow_system
+                                LocalePrefs.LangMode.Zh -> R.string.lang_zh
+                                LocalePrefs.LangMode.En -> R.string.lang_en
+                            }
+                        ),
+                        selected = mode == currentLangMode,
+                        onClick = {
+                            LocalePrefs.setMode(context, mode)
+                            // 语言变更需要重建 Activity 才能让已解析的资源生效
+                            // （与顶栏 LanguageMenuButton 同一行为）。
+                            (context as? android.app.Activity)?.recreate()
+                        },
+                    )
+                }
+                HelpFootnote(stringResource(R.string.help_language_body))
+            }
+
             // ─── 使用说明 ────────────────────────────────────────────────────
             HelpSection(stringResource(R.string.help_how_title)) {
                 HelpBody(stringResource(R.string.help_how_body))
@@ -124,6 +150,19 @@ fun HelpScreen(onDismiss: () -> Unit) {
                 NumberedStep(4, stringResource(R.string.help_step_enter))
                 Spacer(Modifier.height(2.dp))
                 HelpFootnote(stringResource(R.string.help_no_account))
+            }
+
+            // ─── 不用电脑也能试（对齐 iOS HelpView 的 Try it without a computer）──
+            HelpSection(stringResource(R.string.help_demo_title)) {
+                HelpBody(stringResource(R.string.help_demo_body))
+                Spacer(Modifier.height(2.dp))
+                LinkRow(
+                    label = stringResource(R.string.help_add_demo_device),
+                    onClick = {
+                        onAddDemoDevice()
+                        onDismiss()
+                    },
+                )
             }
 
             // ─── 隐私 ────────────────────────────────────────────────────────
@@ -241,7 +280,7 @@ private fun NumberedStep(index: Int, text: String) {
     }
 }
 
-/** 可点链接行（隐私政策 / 支持邮箱） */
+/** 可点链接行（隐私政策 / 支持邮箱 / 添加演示设备） */
 @Composable
 private fun LinkRow(label: String, onClick: () -> Unit) {
     Row(
@@ -258,5 +297,32 @@ private fun LinkRow(label: String, onClick: () -> Unit) {
             fontWeight = FontWeight.Medium,
             color = LattePrimary,
         )
+    }
+}
+
+/** 单选行（语言段用）：选中项右侧显示对勾，与 iOS 的 `Picker` 等价。 */
+@Composable
+private fun SelectRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            color = LatteOnSurface,
+            modifier = Modifier.weight(1f),
+        )
+        if (selected) {
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = null,
+                tint = LattePrimary,
+                modifier = Modifier.size(16.dp),
+            )
+        }
     }
 }

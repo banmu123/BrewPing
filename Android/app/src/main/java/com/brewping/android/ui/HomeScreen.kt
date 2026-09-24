@@ -125,6 +125,7 @@ fun HomeScreen(viewModel: HomeViewModel) {
     var qrFormPayload by remember { mutableStateOf<com.brewping.core.model.PairPayload?>(null) }
     /** Help / About 页（商店审核要求站内可达：使用说明 / 隐私政策 / 支持 / 商标免责）。 */
     var showHelp by remember { mutableStateOf(false) }
+    val demoDeviceName = stringResource(R.string.demo_device_name)
     val discovered by viewModel.discoveredDevices.collectAsState()
     val pairingVersion by viewModel.pairingVersion.collectAsState()
 
@@ -327,7 +328,7 @@ fun HomeScreen(viewModel: HomeViewModel) {
     // ─── Add Device Dialog ────────────────────────────────────────────────────
     if (showAddDevice) {
         DeviceFormDialog(
-            title = "Add Device",
+            title = stringResource(R.string.add_device),
             scannedPayload = qrFormPayload,
             onScan = { qrTarget = "form"; showQrScan = true },
             onDismiss = { showAddDevice = false; qrFormPayload = null },
@@ -354,7 +355,7 @@ fun HomeScreen(viewModel: HomeViewModel) {
     // ─── Edit Device Dialog ───────────────────────────────────────────────────
     editingDevice?.let { device ->
         DeviceFormDialog(
-            title = "Edit Device",
+            title = stringResource(R.string.edit_device),
             initialName = device.name,
             initialHost = device.host,
             initialPort = device.port,
@@ -394,7 +395,10 @@ fun HomeScreen(viewModel: HomeViewModel) {
 
     // ─── Help / About（商店审核要求站内可达）────────────────────────────────
     if (showHelp) {
-        HelpScreen(onDismiss = { showHelp = false })
+        HelpScreen(
+            onDismiss = { showHelp = false },
+            onAddDemoDevice = { viewModel.addDemoDevice(demoDeviceName) },
+        )
     }
 
     // ─── QR 扫码（配对码 / 添加设备表单）─────────────────────────────────────

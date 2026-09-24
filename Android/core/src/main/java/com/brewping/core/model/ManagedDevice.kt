@@ -1,5 +1,7 @@
 package com.brewping.core.model
 
+import com.brewping.core.demo.DemoBackend
+
 /**
  * 设备 OS 类型 (matches iOS DeviceOSType)
  */
@@ -31,6 +33,16 @@ data class ManagedDevice(
 ) {
     val displayName: String
         get() = "${osType.label} $name"
+
+    /**
+     * 是否为内置 Demo 设备（对齐 iOS `ManagedDevice.isDemo`）。
+     *
+     * 用主机名**派生**判定，而不是新增一个存储字段：旧版本已写进
+     * `SharedPreferences` 的 JSON 里没有这个键，加一个非可选字段会让反序列化失败、
+     * 把用户设备列表整个清空。
+     */
+    val isDemo: Boolean
+        get() = host.trim().equals(DemoBackend.HOST, ignoreCase = true)
 
     fun baseUrl(): String? {
         val h = host.trim()

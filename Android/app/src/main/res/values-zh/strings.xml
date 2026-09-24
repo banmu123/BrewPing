@@ -148,4 +148,30 @@
     <string name="help_legal_body">OpenCode、Claude、Claude Code、Codex 与 pi 是各自所有者的商标。BrewPing 与它们无从属、背书或赞助关系。</string>
     <string name="help_about_title">关于</string>
     <string name="help_version">版本</string>
+
+    <!-- ─── 设备表单标题（此前硬编码英文，中文界面会露出英文）───────────── -->
+    <string name="add_device">添加设备</string>
+    <string name="edit_device">编辑设备</string>
+
+    <!-- ─── Help：语言段（对齐 iOS HelpView 的 Language 段）────────────── -->
+    <string name="lang_zh">中文</string>
+    <string name="lang_en">English</string>
+    <string name="help_language_body">App 内切换，无需改动手机系统语言。</string>
+
+    <!-- ─── Help：不用电脑也能试（Demo 入口，对齐 iOS Try it without a computer） -->
+    <string name="help_demo_title">不用电脑也能试</string>
+    <string name="help_demo_body">添加一台演示设备即可走通完整流程 —— 不需要电脑，也不需要任何硬件。演示设备会在本机上模拟状态、Agent 列表、会话控制与审批。</string>
+    <string name="help_add_demo_device">添加演示设备</string>
+    <string name="demo_device_name">演示 Mac</string>
+
+    <!-- ─── Demo 后端文案（由 BrewPingApp 注入 :core，随应用内语言切换）──── -->
+    <string name="demo_host_label">演示 Mac（模拟）</string>
+    <string name="demo_command_response">%1$s\n\n这条回复由演示设备模拟生成，用于在没有电脑的情况下走通完整流程。</string>
+    <string name="demo_command_failed">命令失败（模拟）。</string>
+    <string name="demo_conversation_title_bound">当下是哪个目录</string>
+    <string name="demo_conversation_title_unbound">你好</string>
+    <string name="demo_system_prompt_bound">当前工作目录是 D:\cakewalk。</string>
+    <string name="demo_system_prompt_unbound">未绑定工作目录。</string>
+    <string name="demo_reply_bound">当前目录是 D:\cakewalk。\n\n这是 **演示设备** 模拟的回复，用来演示对话列表与转录的完整流程。</string>
+    <string name="demo_reply_unbound">你好！有什么可以帮你的？\n\n这是 **演示设备** 模拟的回复，用来演示对话列表与转录的完整流程。</string>
 </resources>

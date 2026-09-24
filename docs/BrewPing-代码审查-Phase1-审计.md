@@ -83,7 +83,7 @@
 | `ui/HomeViewModel.kt:109` | `statusPollJob` | **恒为 null** | 只在 :569/:622 被 `cancel()`，**从未赋值**；真正的轮询在 `repository/DesktopRepository.kt:89/134` | 低 | 删（连带两处 no-op cancel） |
 | `ui/HomeViewModel.kt:57` | `val messageText`（公开 StateFlow） | **0 收集者** | 只在 :285/:354/:615 写、无人读；UI 用的是 `HomeScreen.kt` 自己的同名局部变量 | 低 | 删 |
 | `ui/HomeViewModel.kt` | `sendMessage`(≈:350) 及整条 `_messageText` 链路 | **0 调用点** | 首页"直接发消息"链路未接线 | 低-中 | 删整链（连带 :284/:350 等） |
-| `CommandReceiver.kt:10` | `class CommandReceiver` | **生产 0 调用** | 在 `MainActivity.kt:37` 注入、`HomeViewModel.kt:33/639` 持有，**方法从未被调用**；唯一使用者是 `test/CommandReceiverTest.kt` | 中 | ⚠️ 删的话要**连同测试一起删**（否则测试变孤儿，基线会红）。建议先确认是否打算接线 |
+| `CommandReceiver.kt:10` | `class CommandReceiver` | **生产 0 调用** | 在 `MainActivity.kt:37` 注入、`HomeViewModel.kt:33/639` 持有，**方法从未被调用**；唯一使用者是 `test/CommandReceiverTest.kt` | 中 | ✅ **已处置（2026-09-24）：删除文件 + 其测试 + `:app` 注入链**。选「删除」而非「接线/收敛」的论证见 `BrewPing-Android-iOS-功能对齐审查.md` §3.1（该抽象存在的前提——非 UI 入站通道——在 Android 上不存在） |
 | `ui/theme/Color.kt:49-60` | `BrewPingBackground` 等 12 个颜色常量 | **0** | 文件注释自称"逐步迁移后删除" | 低 | 删 |
 | `repository/DesktopRepository.kt:94` 等 | `start()`、`setDefaultAgent/startSession/stopSession/refreshDiscovery`(:188/199/226/378) | 唯一调用者是被上表判死的 HomeViewModel 方法 | 中 | 保留下层 `DesktopApiClient` + 其单测，删 Repository 层这几个转发 |
 
@@ -285,7 +285,7 @@
 7. 跨 target 的同名类型（`ConversationStore`/`ContentView`/`LatteTheme`/`ConversationSummary` 等）
 8. `ios/BrewPing/LanguageManager.swift:114 applyExternal` —— **在确认 Watch→iPhone 语言同步入口之前不删**
 9. `Sources/Agents/AgentManager.swift:108 refreshAgents()` —— **在确认"启动后不重扫 Agent"是有意行为之前不删**
-10. Android `CommandReceiver` —— 删它必须连测试一起删，先确认是否打算接线
+10. ~~Android `CommandReceiver` —— 删它必须连测试一起删，先确认是否打算接线~~ ✅ **已处置（2026-09-24）**：连同 `CommandReceiverTest.kt`（5 例）与 `:app` 注入链删除；单测基线 83 → 109 中的 -5 即此项（`:app` 47 → 42）
 
 ---
 

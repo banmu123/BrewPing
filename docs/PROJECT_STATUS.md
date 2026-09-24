@@ -5,7 +5,7 @@ kind matters:
 
 1. **Repository state** — visible in the files, code, and git history of this repository.
 2. **Reproducible results** — the build and test commands listed below produce them on your machine.
-3. **Distribution status maintained by the project owner** — store submission, review, and beta
+3. **Distribution status maintained by the project owner** — store listings, review, and beta
    distribution happen in App Store Connect, Google Play Console, and TestFlight. Those live
    **outside** this repository and cannot be re-derived from it; the entries below are the maintainer's
    own record, and the linked stores/releases can be checked independently.
@@ -13,7 +13,7 @@ kind matters:
 **No adoption metrics are claimed.** The project does not publish user counts, download numbers, or
 third-party usage data, because none of that is verifiable from inside the repository.
 
-Last reviewed: 2026-09-21.
+Last reviewed: 2026-09-24.
 
 ---
 
@@ -21,7 +21,7 @@ Last reviewed: 2026-09-21.
 
 | | |
 |---|---|
-| Status | **Actively developed.** The two desktop builds have published releases; the mobile clients are at different stages — see [Distribution status](#11-distribution-status) |
+| Status | **Actively developed.** Both desktop builds and the iPhone / Apple Watch apps have published releases; Android is built but not published — see [Distribution status](#11-distribution-status) |
 | Main branch | `main` — all work lands here; there are no maintenance branches |
 | Latest release | `v1.0.0` (git tag), published as a GitHub Release |
 | Release assets | macOS: three signed + notarized DMG variants (universal / Apple Silicon / Intel) · Windows: `setup.exe` and `.msi` |
@@ -37,14 +37,14 @@ repository; it does **not** mean the surface is publicly available.
 |---|---|---|---|
 | macOS desktop | **Released** | `v1.0.0` GitHub Release — Universal / Apple Silicon / Intel DMG, Developer ID signed, notarized, stapled | GitHub Release, or build from source |
 | Windows desktop | **Released** | `v1.0.0` GitHub Release — `setup.exe` + `.msi` | GitHub Release, or `npm run tauri dev` |
-| iPhone / Apple Watch | **Submitted to App Review** — not publicly released | Builds uploaded to App Store Connect and distributed to TestFlight testers | Until Apple approves: build from source with Xcode |
+| iPhone / Apple Watch | **Available** — App Store | The iPhone app, with its Apple Watch app, distributed through the App Store | App Store (search for **BrewPing**) |
 | Android phone | **Built and ready — not submitted** to Google Play | `./gradlew assembleDebug` and the release bundle build cleanly; already targets API 36 as Google Play requires | Build from source |
 | Wear OS watch | **Not released** | `Android/wear` module builds and is covered by CI | Build from source; on no store |
 
-The macOS and Windows rows are checkable against the GitHub Release itself. The mobile rows come from
-the maintainer's own record (kind 3 above). There is **no App Store listing and no Google Play listing**
-at the time of writing, and no store install numbers, download counts, or tester counts are claimed
-anywhere in this repository.
+The macOS, Windows, and iPhone / Apple Watch rows are checkable against the GitHub Release and the
+App Store listing. The Android and Wear OS rows come from the maintainer's own record (kind 3 above):
+there is **no Google Play listing** at the time of writing. No store install numbers, download counts,
+or tester counts are claimed anywhere in this repository.
 
 ## 2. Supported platforms
 
@@ -52,8 +52,8 @@ anywhere in this repository.
 |---|---|---|
 | macOS desktop | macOS 13.0+ | Universal binary (Apple Silicon + Intel); signed, notarized, stapled |
 | Windows desktop | Windows 10/11 + WebView2 | Tauri 2 + axum; ships as `setup.exe` / `.msi` |
-| iPhone | iOS 17.0+ | `com.brewping.ios` · **in App Review**, TestFlight testers only |
-| Apple Watch | watchOS 11.6+ | Paired with the iPhone app; voice dictation + reply reading · **in App Review** |
+| iPhone | iOS 17.0+ | `com.brewping.ios` · **available on the App Store** |
+| Apple Watch | watchOS 11.6+ | Paired with the iPhone app; voice dictation + reply reading · **available on the App Store** |
 | Android phone | Android 8.0+ (minSdk 26) | Jetpack Compose; `targetSdk`/`compileSdk` 36 · **built, not submitted to Google Play** |
 | Wear OS watch | Wear OS 3.0+ (minSdk 30) | **In repository, not released yet** — see limitations |
 | Network | Phone/watch and computer on the same local network | No public relay is shipped |
@@ -66,7 +66,7 @@ Unit tests live next to the code they cover and run **without a device or emulat
 |---|---|---|---|
 | Swift core | `Tests/BrewPingCoreTests/` | **66** | `swift test` (macOS) |
 | Windows desktop (Rust) | `Sources/BrewPingwinDesktop/src-tauri` | **318** | `cargo test --locked` |
-| Android (`:core` + `:app`) | `Android/core/src/test`, `Android/app/src/test` | **83** | `cd Android && ./gradlew test` |
+| Android (`:core` + `:app`) | `Android/core/src/test`, `Android/app/src/test` | **109** | `cd Android && ./gradlew test` |
 
 CI — [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) — runs on every push and PR, plus a
 **nightly** schedule:
@@ -126,10 +126,10 @@ These are real, currently true, and worth knowing before judging the project:
    installed and configured by the user. Their own behaviour, versions, and configuration formats
    are out of this project's control.
 4. **The approval gate is not a sandbox** (repeated on purpose).
-5. **The mobile clients are not publicly available yet.** iOS/watchOS is **in App Review**
-   (TestFlight testers only, no App Store listing); Android builds cleanly but has **not been
-   submitted to Google Play**; the `Android/wear` module has had no device testing and no store
-   submission. See [Distribution status](#11-distribution-status).
+5. **Android and Wear OS are not published.** The Android app builds cleanly but has **not been
+   submitted to Google Play**, and the `Android/wear` module has had no device testing and no store
+   submission. iOS, watchOS, macOS, and Windows are released. See
+   [Distribution status](#11-distribution-status).
 6. **The relay prototype is not on the product path.** It is parked under `experimental/` with no
    client wired to it.
 7. **Windows packaging version metadata is not aligned with the release version** (internal
@@ -137,9 +137,9 @@ These are real, currently true, and worth knowing before judging the project:
 8. **No automated UI tests.** Desktop, iOS/watchOS, Android, and Wear UI behaviour is verified
    manually.
 9. **Single maintainer.** Bus factor is 1; response times depend on one person.
-10. **App Store / TestFlight metrics are not in the repository.** Install counts, ratings, and
-    TestFlight tester numbers live in App Store Connect and cannot be verified from this repo — they
-    are intentionally not claimed anywhere in the documentation.
+10. **App Store metrics are not in the repository.** Install counts, ratings, and tester numbers live
+    in App Store Connect and cannot be verified from this repo — they are intentionally not claimed
+    anywhere in the documentation.
 
 ## 7. Reproducing this status
 

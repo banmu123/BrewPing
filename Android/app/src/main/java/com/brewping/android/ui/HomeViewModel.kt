@@ -3,7 +3,6 @@ package com.brewping.android.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.brewping.android.CommandReceiver
 import com.brewping.core.model.AgentEntry
 import com.brewping.core.model.CommandPhase
 import com.brewping.core.model.DesktopDevice
@@ -31,7 +30,6 @@ sealed interface ConversationRoute {
 class HomeViewModel(
     private val repository: DesktopRepository,
     private val deviceStore: DeviceStore,
-    private val commandReceiver: CommandReceiver,
     val conversationStore: ConversationStore,
     val modelStore: ModelStore,
     /** App 上下文：用于取本地化字符串（测试中可为 null → 回退英文原文）。 */
@@ -146,7 +144,27 @@ class HomeViewModel(
     private val _pairingVersion = MutableStateFlow(0)
     val pairingVersion: StateFlow<Int> = _pairingVersion.asStateFlow()
 
-    fun isPaired(deviceId: String): Boolean = appPairingStore.isPaired(deviceId)
+    /**
+     * 是否已配对。
+     *
+     * Demo 设备**天然算已配对**（本地模拟、没有密钥），对齐 iOS
+     * `DeviceAuth.isPaired`（`if device.isDemo { return true }`）——
+     * 否则 Demo 会卡在「需要配对」而根本走不通。
+     */
+    fun isPaired(deviceId: String): Boolean {
+        val managed = deviceStore.devices.value.firstOrNull { it.id == deviceId }
+        if (managed?.isDemo == true) return true
+        return appPairingStore.isPaired(deviceId)
+    }
+
+    /**
+     * 添加内置 Demo 设备并切换过去（Help 页「不用电脑试一试」入口，
+     * 对齐 iOS `HelpView` 的 `DeviceStore.shared.addDemoDevice()`）。
+     */
+    fun addDemoDevice(name: String) {
+        val device = deviceStore.addDemoDevice(name)
+        setActiveDevice(device.id)
+    }
 
     /**
      * 用 6 位配对码（或扫码得到的 payload）配对当前设备。
@@ -646,14 +664,13 @@ class HomeViewModel(
     class Factory(
         private val repository: DesktopRepository,
         private val deviceStore: DeviceStore,
-        private val commandReceiver: CommandReceiver,
         private val conversationStore: ConversationStore,
         private val modelStore: ModelStore,
         private val appContext: android.content.Context? = null,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return HomeViewModel(repository, deviceStore, commandReceiver, conversationStore, modelStore, appContext) as T
+            return HomeViewModel(repository, deviceStore, conversationStore, modelStore, appContext) as T
         }
     }
 }

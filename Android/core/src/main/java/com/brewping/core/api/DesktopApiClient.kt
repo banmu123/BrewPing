@@ -16,6 +16,7 @@ import com.brewping.core.model.ModelOption
 import com.brewping.core.model.PendingApprovalInfo
 import com.brewping.core.model.StatusResponse
 import com.brewping.core.model.SubmitResponse
+import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -34,7 +35,16 @@ import java.util.concurrent.TimeUnit
  *  - 写操作（非 GET）额外带 `X-BrewPing-Timestamp`（秒，±120s）+ `X-BrewPing-Nonce`（一次性）。
  * `pairingStore == null`（单元测试桩）时不注入任何鉴权头。
  */
-class DesktopApiClient(private val pairingStore: com.brewping.core.store.PairingStore? = null) {
+class DesktopApiClient(
+    private val pairingStore: com.brewping.core.store.PairingStore? = null,
+    /**
+     * 可选拦截器，用于 Demo 模式（见 `com.brewping.core.demo.DemoInterceptor`）。
+     *
+     * 放在这一层是为了让 Demo **对全部调用点透明**：真实设备走网络、Demo 设备被短路，
+     * 上面这 40 个方法一行都不用改。生产路径默认 `null`（不注入任何拦截器）。
+     */
+    interceptor: Interceptor? = null,
+) {
 
     companion object {
         private const val TAG = "BrewPingAPI"
@@ -44,18 +54,21 @@ class DesktopApiClient(private val pairingStore: com.brewping.core.store.Pairing
     }
 
     private val client = OkHttpClient.Builder()
+        .apply { interceptor?.let { addInterceptor(it) } }
         .connectTimeout(DEFAULT_TIMEOUT, TimeUnit.SECONDS)
         .readTimeout(DEFAULT_TIMEOUT, TimeUnit.SECONDS)
         .writeTimeout(DEFAULT_TIMEOUT, TimeUnit.SECONDS)
         .build()
 
     private val sessionClient = OkHttpClient.Builder()
+        .apply { interceptor?.let { addInterceptor(it) } }
         .connectTimeout(SESSION_TIMEOUT, TimeUnit.SECONDS)
         .readTimeout(SESSION_TIMEOUT, TimeUnit.SECONDS)
         .writeTimeout(SESSION_TIMEOUT, TimeUnit.SECONDS)
         .build()
 
     private val messageClient = OkHttpClient.Builder()
+        .apply { interceptor?.let { addInterceptor(it) } }
         .connectTimeout(MESSAGE_TIMEOUT, TimeUnit.SECONDS)
         .readTimeout(MESSAGE_TIMEOUT, TimeUnit.SECONDS)
         .writeTimeout(MESSAGE_TIMEOUT, TimeUnit.SECONDS)
