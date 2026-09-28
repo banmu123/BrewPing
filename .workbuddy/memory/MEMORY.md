@@ -6,13 +6,13 @@
 - 回显常坏→落盘再 Read；沙箱拦 Start-Process/taskkill；不 cd、全绝对路径；查找一律 Grep/Glob。PS5.1 写文件 `[IO.File]::WriteAllText`+UTF8 no-BOM。
 - 工具链：JDK17 `D:\study\java\devlop\jdk17`（显式 JAVA_HOME）；SDK `D:\software\androidSDK`。**无 `gh` CLI** → urllib+git 凭据调 GitHub API；`git credential fill` 绝不回显。
 - 🚨 推送「卡住」≠失败：`rev-list --left-right --count` 核对。推送前必先拉取：fetch→落后则 **merge（绝不 rebase）**→核对误删（曾删 `ios/`）。前台 rebase 被强杀曾毁 .git→后台跑+落盘轮询。
-- 🚨 TLS 间歇拦截（502/0x80092012）：首选 `-c http.sslBackend=schannel`；SDK 包用 HTTP Range 续传。BOM：TOML/YAML 行首 BOM 静默丢配置。
+- 🚨 TLS 间歇拦截（502/0x80092012）：**git 首选 `-c http.sslBackend=schannel`；curl 走 schannel 反而必挂**（报 `CRYPT_E_NO_REVOCATION_CHECK` / `HTTP:000`，同机同时刻 git 却正常）→ **curl 必须加 `--ssl-no-revoke`**；SDK 包用 HTTP Range 续传。BOM：TOML/YAML 行首 BOM 静默丢配置。
 - 🚨 memory 等 append-only 文件双方都改必冲突 → 备份 → untracked 同名日志先移开 → `git checkout --` 还原 → merge → 回填；占位符禁用真实主机名/个人信息。8787 被旧进程占 → curl 打的是旧进程。GitKraken 动过的仓库留悬空 remote ref（`cannot lock ref`）→ 写回 `refs/remotes/origin/<branch>` 再 `fetch --all --prune`，**别先** `remote prune`。
 
 ## CI / Release
 - 🚨 main CI 红是第一优先级。定位：GET /actions/runs → /runs/{id}/jobs 每步 conclusion；判绿**必先断言 job 数**（jobs=[] 时 all([]) 恒 True）。
 - 🚨 Swift 改纯逻辑本机无法验证 → Python 逐条镜像「实现×断言」。
-- Release：GET /releases/tags/<tag> 取 id → PATCH 只传 {name}。🚨 **发行状态事实（勿夸大，2026-09-24 更新）**：**iOS / watchOS 已上架 App Store**（App Store 链接暂不公开，README 只写「search for BrewPing」）；macOS / Windows 走 GitHub Release `v1.0.0`；**Android 未提交 Google Play、Wear OS 未发布**。README 双语 + `docs/PROJECT_STATUS.md` 三处必须同口径，别再写「App Review / 未公开发布」。
+- Release：GET /releases/tags/<tag> 取 id → PATCH 只传 {name}。🚨 **发行状态事实（勿夸大，2026-09-24 更新）**：**iOS / watchOS 已上架 App Store**（**链接已公开**：`https://apps.apple.com/us/app/brewping/id6812269598`，App ID `6812269598`，bundleId `com.brewping.ios`，最低 iOS 17.0，**付费 $4.99**，2026-09-24 上架；README 双语已带可点击 App Store 徽章 + 链接，不再是「search for BrewPing」）；macOS / Windows 走 GitHub Release `v1.0.0`；**Android 未提交 Google Play、Wear OS 未发布**。README 双语 + `docs/PROJECT_STATUS.md` 三处必须同口径，别再写「App Review / 未公开发布」。
 
 ## iOS / Watch
 - 只做 iPhone（TARGETED_DEVICE_FAMILY=1）；iOS 17；TEAM TGA82PM3DZ；隐私政策源 `docs/privacy.html`。⚠️ ASC 截屏页签由**该版本所附构建**的 `UIDeviceFamily` 决定 → **重新 Archive 上传，不是补图**。

@@ -19,6 +19,7 @@ BrewPing 让你在自己的 Mac 或 Windows 上监控、操作并审批正在运
 [![CI](https://github.com/banmu123/BrewPing/actions/workflows/ci.yml/badge.svg)](https://github.com/banmu123/BrewPing/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/banmu123/BrewPing?style=social)](https://github.com/banmu123/BrewPing/stargazers)
+[![App Store](https://img.shields.io/badge/App%20Store-Download-0D96F6?logo=appstore&logoColor=white)](https://apps.apple.com/us/app/brewping/id6812269598)
 ![macOS](https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=F0F0F0)
 ![iOS](https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=F0F0F0)
 ![watchOS](https://img.shields.io/badge/watchOS-11.6%2B-000000?logo=apple&logoColor=F0F0F0)
@@ -31,7 +32,7 @@ BrewPing 让你在自己的 Mac 或 Windows 上监控、操作并审批正在运
 
 | 端 | 获取方式 |
 |---|---|
-| **iPhone / Apple Watch** | **已在 App Store 上架** —— 搜索 **BrewPing** |
+| **iPhone / Apple Watch** | **[前往 App Store 下载](https://apps.apple.com/us/app/brewping/id6812269598)** |
 | **macOS** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) —— 已签名并公证的 DMG · 或走[官网下载页](https://www.commitbrew.com/#download) |
 | **Windows** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) —— `setup.exe` / `.msi`（Windows 10/11 + WebView2） |
 | **Android** | 源码构建 —— `cd Android && ./gradlew assembleDebug` |
@@ -125,7 +126,7 @@ BrewPing 不带 Agent、不带模型。它发现你装好的 CLI Agent，读取�
 
 | 平台 | 状态 | 说明 |
 |---|---|---|
-| **iOS** | **已上架** —— App Store | 仅 iPhone（iOS 17.0+）；搜索 **BrewPing** |
+| **iOS** | **已上架** —— [App Store](https://apps.apple.com/us/app/brewping/id6812269598) | 仅 iPhone（iOS 17.0+） |
 | **watchOS** | **已上架** —— App Store | 随 iPhone App 一起发布（watchOS 11.6+）；支持语音口述指令、滑动切换 Agent 与模型 |
 | **macOS** | **已发布** —— GitHub Release `v1.0.0` | macOS 13.0+；universal 二进制（Apple Silicon + Intel），Developer ID 签名、公证、staple |
 | **Windows** | **已发布** —— GitHub Release `v1.0.0` | Windows 10/11 + WebView2；`setup.exe` / `.msi` |
@@ -181,7 +182,7 @@ npm install -g @earendil-works/pi-coding-agent
 
 ### 2. 安装手机端
 
-- **iPhone / Apple Watch** —— 从 App Store 安装 **BrewPing**。
+- **iPhone / Apple Watch** —— 从 [App Store](https://apps.apple.com/us/app/brewping/id6812269598) 安装 **BrewPing**。
 - **Android** —— 源码构建并安装：
 
   ```bash

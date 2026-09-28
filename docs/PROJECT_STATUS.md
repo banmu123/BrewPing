@@ -37,7 +37,7 @@ repository; it does **not** mean the surface is publicly available.
 |---|---|---|---|
 | macOS desktop | **Released** | `v1.0.0` GitHub Release — Universal / Apple Silicon / Intel DMG, Developer ID signed, notarized, stapled | GitHub Release, or build from source |
 | Windows desktop | **Released** | `v1.0.0` GitHub Release — `setup.exe` + `.msi` | GitHub Release, or `npm run tauri dev` |
-| iPhone / Apple Watch | **Available** — App Store | The iPhone app, with its Apple Watch app, distributed through the App Store | App Store (search for **BrewPing**) |
+| iPhone / Apple Watch | **Available** — App Store | The iPhone app, with its Apple Watch app, distributed through the App Store | [App Store](https://apps.apple.com/us/app/brewping/id6812269598) |
 | Android phone | **Built and ready — not submitted** to Google Play | `./gradlew assembleDebug` and the release bundle build cleanly; already targets API 36 as Google Play requires | Build from source |
 | Wear OS watch | **Not released** | `Android/wear` module builds and is covered by CI | Build from source; on no store |
 
@@ -52,7 +52,7 @@ or tester counts are claimed anywhere in this repository.
 |---|---|---|
 | macOS desktop | macOS 13.0+ | Universal binary (Apple Silicon + Intel); signed, notarized, stapled |
 | Windows desktop | Windows 10/11 + WebView2 | Tauri 2 + axum; ships as `setup.exe` / `.msi` |
-| iPhone | iOS 17.0+ | `com.brewping.ios` · **available on the App Store** |
+| iPhone | iOS 17.0+ | `com.brewping.ios` · **[available on the App Store](https://apps.apple.com/us/app/brewping/id6812269598)** |
 | Apple Watch | watchOS 11.6+ | Paired with the iPhone app; voice dictation + reply reading · **available on the App Store** |
 | Android phone | Android 8.0+ (minSdk 26) | Jetpack Compose; `targetSdk`/`compileSdk` 36 · **built, not submitted to Google Play** |
 | Wear OS watch | Wear OS 3.0+ (minSdk 30) | **In repository, not released yet** — see limitations |

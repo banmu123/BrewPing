@@ -21,6 +21,7 @@ work stays on your machine: no account, no analytics, no server of ours in the p
 [![CI](https://github.com/banmu123/BrewPing/actions/workflows/ci.yml/badge.svg)](https://github.com/banmu123/BrewPing/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/banmu123/BrewPing?style=social)](https://github.com/banmu123/BrewPing/stargazers)
+[![App Store](https://img.shields.io/badge/App%20Store-Download-0D96F6?logo=appstore&logoColor=white)](https://apps.apple.com/us/app/brewping/id6812269598)
 ![macOS](https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=F0F0F0)
 ![iOS](https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=F0F0F0)
 ![watchOS](https://img.shields.io/badge/watchOS-11.6%2B-000000?logo=apple&logoColor=F0F0F0)
@@ -33,7 +34,7 @@ work stays on your machine: no account, no analytics, no server of ours in the p
 
 | Platform | Get it |
 |---|---|
-| **iPhone / Apple Watch** | **Available on the App Store** — search for **BrewPing** |
+| **iPhone / Apple Watch** | **[Download on the App Store](https://apps.apple.com/us/app/brewping/id6812269598)** |
 | **macOS** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) — signed & notarized DMG · or the [download page](https://www.commitbrew.com/#download) |
 | **Windows** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) — `setup.exe` / `.msi` (Windows 10/11 + WebView2) |
 | **Android** | Build from source — `cd Android && ./gradlew assembleDebug` |
@@ -143,7 +144,7 @@ not replace them), or you are looking for a hosted coding agent that runs in the
 
 | Platform | Status | Notes |
 |---|---|---|
-| **iOS** | **Available** — App Store | iPhone only (iOS 17.0+); search for **BrewPing** |
+| **iOS** | **Available** — [App Store](https://apps.apple.com/us/app/brewping/id6812269598) | iPhone only (iOS 17.0+) |
 | **watchOS** | **Available** — App Store | Ships with the iPhone app (watchOS 11.6+); voice-dictated instructions, swipe to switch agent/model |
 | **macOS** | **Available** — GitHub Release `v1.0.0` | macOS 13.0+; universal binary (Apple Silicon + Intel), Developer ID signed, notarized, stapled |
 | **Windows** | **Available** — GitHub Release `v1.0.0` | Windows 10/11 + WebView2; `setup.exe` / `.msi` |
@@ -203,7 +204,7 @@ Product names and trademarks belong to their respective owners — see [TRADEMAR
 
 ### 2. Install the phone app
 
-- **iPhone / Apple Watch** — install **BrewPing** from the App Store.
+- **iPhone / Apple Watch** — install **BrewPing** from the [App Store](https://apps.apple.com/us/app/brewping/id6812269598).
 - **Android** — build and install from source:
 
   ```bash
