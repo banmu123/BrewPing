@@ -16,6 +16,8 @@
 		AA000001000000000000000C /* Agent.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001C /* Agent.swift */; };
 		AA000001000000000000000E /* BonjourDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001000000000000000D /* BonjourDiscovery.swift */; };
 		AA0000010000000000000F8 /* PermissionCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000F7 /* PermissionCenter.swift */; };
+		AA0000010000000000000FA /* RemoteAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000F9 /* RemoteAccess.swift */; };
+		AA0000010000000000000FC /* RelayURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000FB /* RelayURLProtocol.swift */; };
 		AA0000010000000000000011 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001D /* Session.swift */; };
 		AA0000010000000000000012 /* Conversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001E /* Conversation.swift */; };
 		AA0000010000000000000013 /* Event.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000001000000000000001F /* Event.swift */; };
@@ -92,6 +94,8 @@
 		AA0000010000000000000009 /* CommandReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandReceiver.swift; sourceTree = "<group>"; };
 		AA000001000000000000000D /* BonjourDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonjourDiscovery.swift; sourceTree = "<group>"; };
 		AA0000010000000000000F7 /* PermissionCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionCenter.swift; sourceTree = "<group>"; };
+		AA0000010000000000000F9 /* RemoteAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteAccess.swift; sourceTree = "<group>"; };
+		AA0000010000000000000FB /* RelayURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayURLProtocol.swift; sourceTree = "<group>"; };
 		AA0000010000000000000010 /* BrewPing.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BrewPing.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000010000000000000017 /* ManagedDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedDevice.swift; sourceTree = "<group>"; };
 		AA0000010000000000000019 /* DeviceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceStore.swift; sourceTree = "<group>"; };
@@ -176,6 +180,8 @@
 				AA0000010000000000000007 /* WatchConnectivityManager.swift */,
 				AA000001000000000000000D /* BonjourDiscovery.swift */,
 				AA0000010000000000000F7 /* PermissionCenter.swift */,
+				AA0000010000000000000F9 /* RemoteAccess.swift */,
+				AA0000010000000000000FB /* RelayURLProtocol.swift */,
 				AA0000010000000000000009 /* CommandReceiver.swift */,
 				AA0000010000000000000017 /* ManagedDevice.swift */,
 				AA0000010000000000000019 /* DeviceStore.swift */,
@@ -362,6 +368,8 @@
 				AA0000010000000000000008 /* CommandReceiver.swift in Sources */,
 				AA000001000000000000000E /* BonjourDiscovery.swift in Sources */,
 				AA0000010000000000000F8 /* PermissionCenter.swift in Sources */,
+				AA0000010000000000000FA /* RemoteAccess.swift in Sources */,
+				AA0000010000000000000FC /* RelayURLProtocol.swift in Sources */,
 				AA0000010000000000000016 /* ManagedDevice.swift in Sources */,
 				AA0000010000000000000018 /* DeviceStore.swift in Sources */,
 				AA000001000000000000000A /* BrewPingProtocol.swift in Sources */,

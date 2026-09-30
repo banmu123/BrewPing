@@ -81,6 +81,10 @@ enum BrewPingAgent {
             http = nil
         }
 
+        // 远程访问（实验）：配置了中继（~/.brewping/relay.json 或 BREWPING_RELAY_URL）
+        // 才连接；未配置时什么都不做，局域网行为与以前完全一致。
+        RelayBridge.shared.startIfConfigured()
+
         let server: UnixSocketServer
         do {
             server = try UnixSocketServer(path: store.socketPath)

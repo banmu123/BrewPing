@@ -2,17 +2,22 @@ import Foundation
 
 /// BrewPing 的唯一网络出口。
 ///
-/// 所有出网请求都必须走这里，原因有二：
+/// 所有出网请求都必须走这里，原因有三：
 ///  1. Demo 模式需要在**不接触真实网络**的前提下返回模拟数据。
 ///     做法是把 `DemoURLProtocol` 挂进会话的 `protocolClasses`，
 ///     对调用方完全透明 —— 调用方照常写 URLSession 那套代码；
 ///  2. 鉴权头（Bearer + 时间戳 + nonce）只在这里拼一次，
-///     避免每个调用点各写一遍、漏掉某个接口。
+///     避免每个调用点各写一遍、漏掉某个接口；
+///  3. 远程访问（实验）的传输切换同样挂在这里（`RelayURLProtocol`）：
+///     开启远程且中继已连接时改走隧道，否则原样直连 —— 调用方无感。
 enum BrewPingHTTP {
     static let session: URLSession = {
         let config = URLSessionConfiguration.default
         var classes = config.protocolClasses ?? []
+        // 顺序有意义：Demo 先认领自己的主机（demo.brewping.local），
+        // 其余请求才轮到中继拦截器判定要不要走隧道。
         classes.insert(DemoURLProtocol.self, at: 0)
+        classes.insert(RelayURLProtocol.self, at: 1)
         config.protocolClasses = classes
         config.timeoutIntervalForRequest = 30
         config.waitsForConnectivity = false

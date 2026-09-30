@@ -18,6 +18,14 @@ struct BrewPingApp: App {
         // 提前把 Bundle.main 重定向到用户选中的语言。
         // 放到 onAppear 会先渲染一帧系统语言、再跳成所选语言，肉眼可见地闪一下。
         _ = LanguageManager.shared
+
+        // 远程访问（实验）：必须在这里**主动实例化**。
+        // 它是懒加载单例，只有被碰过才会读配置并连中继；而它的读点只有两处
+        // （设置页里的开关、`RelayURLProtocol.canInit` 的隧道判定），
+        // 于是「用户开了远程 → 杀进程 → 重开」时进程启动后没有任何代码碰它，
+        // 中继连接迟迟不建立，第一波请求还会走直连 —— 远程看起来像"没生效"。
+        // 放在 init 里与 `CommandSubmitter.bootstrap()` 同理：进程级副作用就该在进程启动时做完。
+        _ = RemoteAccess.shared
     }
 
     var body: some Scene {

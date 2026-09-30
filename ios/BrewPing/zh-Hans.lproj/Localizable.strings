@@ -287,3 +287,17 @@
 
 /* MARK: - 搜索中占位（与「搜过了没有」区分） */
 "Searching for nearby computers…" = "正在查找附近的电脑…";
+
+/* MARK: - 远程访问（实验）：开关、中继地址与状态 */
+"Remote Access (Experimental)" = "远程访问（实验）";
+"Remote Access" = "远程访问";
+"Relay server" = "中继服务器";
+"Relay token (optional)" = "中继令牌（可选）";
+"Status" = "状态";
+"Off" = "已关闭";
+"Connecting…" = "连接中…";
+"Connected" = "已连接";
+"Not connected — retrying" = "未连接，正在重试";
+"BrewPing normally talks to your computer over the local network. With Remote Access on, this iPhone sends its requests through the relay server you enter here, so you can reach a computer that is on another network. Pairing must still be done once on the same Wi-Fi, and requests fall back to the local network whenever the relay is unavailable. The relay only forwards messages — it does not keep their contents." = "BrewPing 平时通过局域网与你的电脑通信。开启远程访问后，这台 iPhone 会把请求发到你填写的中继服务器，从而访问不在同一网络的电脑。配对仍需先在同一 Wi-Fi 下完成一次；中继不可用时请求会自动回落为局域网直连。中继只转发消息，不保留消息内容。";
+"Experimental: this path is off by default, is not encrypted by BrewPing itself, and BrewPing does not operate any relay server. Run your own, or use a VPN instead." = "实验功能：默认关闭；BrewPing 自身不做加密，也不运营任何中继服务器。请自行部署，或改用 VPN。";
+"If you turn on Remote Access (experimental), requests travel through the relay server you configured instead of your local network. The relay forwards them without keeping their contents, and BrewPing does not operate any relay server itself." = "若开启远程访问（实验），请求会经你配置的中继服务器转发，而不是走局域网。中继只转发、不保留消息内容，BrewPing 本身不运营任何中继服务器。";

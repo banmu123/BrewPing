@@ -176,6 +176,8 @@ struct ContentView: View {
                     .tint(Color.bpPrimary)
                     .onAppear {
                         permissions.attach(bonjour)
+                        // 远程访问（实验）需要「已配对设备主机」快照来判定要不要走隧道。
+                        RemoteAccess.refreshPairedHosts()
                         // 🚨 5.1.1(iv)：本地网络的系统授权框**必须**由权限说明卡的
                         // 「Continue」触发（requestLocalNetwork → startSearching），
                         // 不能一进页面就自动弹。所以首装（从未授权过，
@@ -195,6 +197,11 @@ struct ContentView: View {
                     // 触发的探测会通过轮询更新 —— 于是自动扫描判定的「已授权 / 被拒」
                     // 若不回灌，权限说明卡会一直停在过去的状态。
                     .onReceive(bonjour.$localNetwork) { _ in permissions.refresh() }
+                    // 设备列表变化（新增 / 删除 / 改地址）→ 刷新远程访问的主机快照，
+                    // 否则中继隧道会漏掉刚配好的设备（或继续拦已删掉的地址）。
+                    .onChange(of: deviceStore.devices.map(\.id)) { _, _ in
+                        RemoteAccess.refreshPairedHosts()
+                    }
                     .onDisappear { bonjour.stopSearching() }
                 } else {
                     Form {

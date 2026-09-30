@@ -289,3 +289,17 @@
 
 /* MARK: - 搜索中占位（与「搜过了没有」区分） */
 "Searching for nearby computers…" = "Searching for nearby computers…";
+
+/* MARK: - 远程访问（实验）：开关、中继地址与状态 */
+"Remote Access (Experimental)" = "Remote Access (Experimental)";
+"Remote Access" = "Remote Access";
+"Relay server" = "Relay server";
+"Relay token (optional)" = "Relay token (optional)";
+"Status" = "Status";
+"Off" = "Off";
+"Connecting…" = "Connecting…";
+"Connected" = "Connected";
+"Not connected — retrying" = "Not connected — retrying";
+"BrewPing normally talks to your computer over the local network. With Remote Access on, this iPhone sends its requests through the relay server you enter here, so you can reach a computer that is on another network. Pairing must still be done once on the same Wi-Fi, and requests fall back to the local network whenever the relay is unavailable. The relay only forwards messages — it does not keep their contents." = "BrewPing normally talks to your computer over the local network. With Remote Access on, this iPhone sends its requests through the relay server you enter here, so you can reach a computer that is on another network. Pairing must still be done once on the same Wi-Fi, and requests fall back to the local network whenever the relay is unavailable. The relay only forwards messages — it does not keep their contents.";
+"Experimental: this path is off by default, is not encrypted by BrewPing itself, and BrewPing does not operate any relay server. Run your own, or use a VPN instead." = "Experimental: this path is off by default, is not encrypted by BrewPing itself, and BrewPing does not operate any relay server. Run your own, or use a VPN instead.";
+"If you turn on Remote Access (experimental), requests travel through the relay server you configured instead of your local network. The relay forwards them without keeping their contents, and BrewPing does not operate any relay server itself." = "If you turn on Remote Access (experimental), requests travel through the relay server you configured instead of your local network. The relay forwards them without keeping their contents, and BrewPing does not operate any relay server itself.";
