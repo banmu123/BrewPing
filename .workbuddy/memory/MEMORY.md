@@ -21,6 +21,16 @@
 - 🚨 Logger 插值 autoclosure 取 self.xxx；BrewPingLog 无 DEBUG 门控。
 - 🚨 **权限交互（5.1.1(iv) 合规，2026-09 审核后）**：权限卡只许「说明 + 单一 Continue」（Continue→`PermissionCenter.requestLocalNetwork`）；**绝无 Grant/Allow/Grant All 按钮**；相机=扫码页 JIT、语音=手表语音送达 JIT，卡内只显示真实状态徽章；首装 onAppear **不自动** startSearching（LN 系统框必须由 Continue 触发），scenePhase 仅 `.denied` 或曾授权才自动续扫；Open Settings 只在「已被拒」时出现。
 - 💡 本机 xcode-select 指向 CLT → xcodebuild/simctl 加 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`；模拟器不弹 LN 权限框；`simctl spawn booted defaults write com.brewping.ios <key>` 可伪造持久化标记做老用户验证。
+- 🚨 **模拟器没有 `security` CLI → 无法外部写 Keychain**（配对令牌只在 Keychain）→ 依赖配对的路径在模拟器里只能验到 401；真机/TestFlight 才能验完。
+
+## 远程访问（relay，实验，两端默认关）
+- 架构：iOS `RelayURLProtocol`（挂 `BrewPingHTTP.session.protocolClasses`，Demo 之后）在开关打开且中继已连接时把发往已配对设备的请求隧道化，**失败回落直连**；Mac `RelayBridge`（`Sources/App/`）把隧道帧还原成 `HTTPRequest` 直接喂 `HTTPAPI.handle`（进程内，与局域网同一入口）→ **鉴权不绕过**（Bearer+时间戳+nonce 仍由 PairingStore 校验）。启动点：`BrewPingAgent.run()` → `RelayBridge.shared.startIfConfigured()`（GUI/CLI 共用）。
+- 配置：Mac `~/.brewping/relay.json`（或 `BREWPING_RELAY_URL`/`_TOKEN`）；iOS 设置页「远程访问（实验）」（enabled/url 走 UserDefaults，token 走 Keychain）。
+- relay 服务端：`RELAY_TOKEN` → token 模式（WS 用升级头或 `?token=`）；**不记 payload** 只记元数据；anonymous 仅本地开发且启动告警。
+- 🚨 **心跳不能用 `Timer`+`RunLoop.main`**：Mac daemon 主线程是阻塞 accept 循环、主 RunLoop 不转 → 心跳永不触发 → 中继 60s 判空闲踢线（实测每 ~80s 断连）→ 必须 `DispatchSourceTimer` 挂自有串行队列。
+- 🚨 **懒加载单例要在 `App.init()` 主动实例化**：`RemoteAccess.shared` 的读点只有设置页与 `canInit`，否则冷启动不连中继（进程启动的副作用就该在启动时做完，同 `CommandSubmitter.bootstrap()`）。
+- 🚨 `URLProtocol.canInit` 是同步非隔离上下文，读不了 `@MainActor` 的 `DeviceStore` → 用加锁快照（`RemoteAccess.refreshPairedHosts()`）。
+- 端口：本机 3000 被 Next.js 站点占用；Mac daemon HTTP 会回落到 8788（8787 被占）。
 
 ## macOS 桌面端
 - 🚨 UI 唯一入口 DesktopCommands.swift；执行唯一路径 ConversationCommandService+CommandRouter.shared。
