@@ -169,6 +169,9 @@ What you can install today, and what is still in the pipeline:
 BrewPing ships **local-network only** — there is no hosted service and no official public relay, so
 none of the clients talk to anything but the computer you paired.
 
+What is planned beyond these shipped surfaces — and what a remote-access path would still need —
+is described in **[ROADMAP.md](ROADMAP.md).**
+
 ## 🚀 Quick Start
 
 ### 🍎 macOS desktop (build from source)

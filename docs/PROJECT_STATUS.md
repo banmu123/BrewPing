@@ -56,7 +56,7 @@ anywhere in this repository.
 | Apple Watch | watchOS 11.6+ | Paired with the iPhone app; voice dictation + reply reading · **in App Review** |
 | Android phone | Android 8.0+ (minSdk 26) | Jetpack Compose; `targetSdk`/`compileSdk` 36 · **built, not submitted to Google Play** |
 | Wear OS watch | Wear OS 3.0+ (minSdk 30) | **In repository, not released yet** — see limitations |
-| Network | Phone/watch and computer on the same local network | No public relay is shipped |
+| Network | Phone/watch and computer on the same local network | No public relay is shipped; an **opt-in, off-by-default** relay path exists behind Remote Access (experimental) |
 
 ## 3. Test & CI status
 
@@ -110,9 +110,13 @@ before it breaks someone's pull request.
   user's own instructions, **not a sandbox**.
 - No account system, no analytics, no telemetry, no third-party SDKs, and no server operated by the
   maintainer is in the request path.
-- `experimental/relay-server/` is an unauthenticated, payload-logging prototype that **no client
-  connects to**. It is deliberately outside the product's security boundary and must not be exposed
-  to a public network.
+- `experimental/relay-server/` is a relay prototype that is deliberately outside the product's
+  security boundary and must not be exposed to a public network as-is. It now supports a shared
+  token (`RELAY_TOKEN`) and no longer writes relayed payloads to its logs, and there is an
+  **opt-in, off-by-default** client path on macOS (configured via `~/.brewping/relay.json` or
+  `BREWPING_RELAY_URL`) and iPhone (Remote Access, experimental). Device-level identity is still
+  verified by the desktop's own pairing token: the relay only forwards, it does not authenticate
+  devices. Transport is unencrypted on the wire, and no relay is operated by the maintainer.
 
 ## 6. Known limitations
 
@@ -130,8 +134,11 @@ These are real, currently true, and worth knowing before judging the project:
    (TestFlight testers only, no App Store listing); Android builds cleanly but has **not been
    submitted to Google Play**; the `Android/wear` module has had no device testing and no store
    submission. See [Distribution status](#11-distribution-status).
-6. **The relay prototype is not on the product path.** It is parked under `experimental/` with no
-   client wired to it.
+6. **The relay is a prototype with an opt-in client path.** It lives under `experimental/`, is not
+   part of any build or release, and is off by default on both ends. When it is switched on, the
+   desktop tunnels its whole HTTP API through it, so treat a running relay as reachable by whoever
+   can connect to it — the shared token is the only gate on the relay itself, and the wire is not
+   encrypted. See [SECURITY.md](../SECURITY.md) for the boundary.
 7. **Windows packaging version metadata is not aligned with the release version** (internal
    `0.1.0` vs release asset `1.0.0`). Tracked; not yet corrected.
 8. **No automated UI tests.** Desktop, iOS/watchOS, Android, and Wear UI behaviour is verified
