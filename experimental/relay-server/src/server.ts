@@ -14,7 +14,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { ConnectionManager } from './websocket/manager'
 import { Connection } from './websocket/connection'
 import { HeartbeatMonitor } from './websocket/heartbeat'
-import { authMiddleware, parseWsAuth } from './utils/auth'
+import { authMiddleware, parseWsAuth, authorizeToken, presentedTokenFromHeaders } from './utils/auth'
 import { logger } from './utils/logger'
 import { config } from './utils/config'
 import type { ClientMessage, ServerMessage, DeviceRole } from './types/message'
@@ -53,6 +53,8 @@ export class RelayServer {
         uptime: Math.round((Date.now() - this.startedAt) / 1000),
         devices: this.manager.size,
         auth: config.authMode,
+        /** 是否已启用令牌校验。false 表示任何能连到本端口的人都能接入。 */
+        secure: config.authMode === 'token',
       })
     })
 
@@ -90,6 +92,16 @@ export class RelayServer {
       if (!auth) {
         logger.warn('CONNECT', 'rejected: missing role or deviceId', { url: req.url })
         ws.close(4002, 'missing role or deviceId')
+        return
+      }
+
+      // 令牌模式：升级请求头（Authorization / X-Relay-Token）或 `?token=` 二者其一即可。
+      const decision = authorizeToken(
+        auth.token ?? presentedTokenFromHeaders(req.headers as Record<string, unknown>)
+      )
+      if (!decision.ok) {
+        logger.warn('CONNECT', `rejected: ${decision.error}`)
+        ws.close(4003, 'unauthorized')
         return
       }
 
@@ -160,10 +172,12 @@ export class RelayServer {
         payload: msg.payload,
       }
 
+      // 只记元数据，**绝不记录 payload** —— 中继不留消息内容（隐私承诺）。
+      // 需要排查转发量时看 bytes 即可。
       logger.info('MESSAGE', `${role} → ${targetRole}`, {
         from: deviceId,
         targetRole,
-        payload: msg.payload,
+        bytes: JSON.stringify(msg.payload ?? {}).length,
       })
 
       // If a specific deviceId is targeted, send to that device only
@@ -199,6 +213,12 @@ export class RelayServer {
         logger.info('SYSTEM', `BrewPing Relay Server listening on port ${config.port}`)
         logger.info('SYSTEM', `WebSocket endpoint: ws://localhost:${config.port}/ws`)
         logger.info('SYSTEM', `Auth mode: ${config.authMode}`)
+        if (config.authMode !== 'token') {
+          logger.warn(
+            'SECURITY',
+            'anonymous mode: any client that can reach this port may connect. Set RELAY_TOKEN (or AUTH_MODE=token) before exposing this server to any untrusted network.'
+          )
+        }
         this.heartbeat.start()
         resolve()
       })

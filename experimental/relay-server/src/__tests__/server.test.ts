@@ -37,6 +37,10 @@ describe('RelayServer', () => {
   let server: RelayServer
 
   beforeAll(async () => {
+    // 这组用例跑在 anonymous 模式：显式清掉令牌相关环境变量，
+    // 避免与下面「令牌模式」那组互相污染。
+    delete process.env.RELAY_TOKEN
+    delete process.env.AUTH_MODE
     process.env.PORT = String(PORT)
     server = new RelayServer()
     await server.start()
@@ -96,6 +100,89 @@ describe('RelayServer', () => {
     send(ws, { type: 'ping' })
     const pong = await waitForMessage(ws)
     expect(pong.type).toBe('pong')
+    ws.close()
+  })
+})
+
+// ─── 令牌模式：设置 RELAY_TOKEN 后必须校验 ──────────────
+
+const TOKEN_PORT = 13001
+const RELAY_TOKEN = 'test-relay-token'
+
+/** 连一次 WS，返回关闭码（不等待 welcome）。 */
+function closeCodeOf(url: string, headers?: Record<string, string>): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url, { headers })
+    ws.on('close', (code) => resolve(code))
+    ws.on('error', reject)
+  })
+}
+
+describe('RelayServer (token mode)', () => {
+  let server: RelayServer
+
+  beforeAll(async () => {
+    process.env.RELAY_TOKEN = RELAY_TOKEN
+    delete process.env.AUTH_MODE
+    process.env.PORT = String(TOKEN_PORT)
+    server = new RelayServer()
+    await server.start()
+  })
+
+  afterAll(async () => {
+    await server.stop()
+    delete process.env.RELAY_TOKEN
+  })
+
+  it('health check requires the token', async () => {
+    const unauthorized = await fetch(`http://localhost:${TOKEN_PORT}/`)
+    expect(unauthorized.status).toBe(401)
+
+    const authorized = await fetch(`http://localhost:${TOKEN_PORT}/`, {
+      headers: { authorization: `Bearer ${RELAY_TOKEN}` },
+    })
+    const json = await authorized.json()
+    expect(json.status).toBe('ok')
+    expect(json.auth).toBe('token')
+    expect(json.secure).toBe(true)
+  })
+
+  it('rejects a WebSocket handshake without a token', async () => {
+    const code = await closeCodeOf(`ws://localhost:${TOKEN_PORT}/ws?role=desktop&deviceId=no-token`)
+    expect(code).toBe(4003)
+  })
+
+  it('rejects a WebSocket handshake with the wrong token', async () => {
+    const code = await closeCodeOf(
+      `ws://localhost:${TOKEN_PORT}/ws?role=desktop&deviceId=wrong-token&token=nope`
+    )
+    expect(code).toBe(4003)
+  })
+
+  it('accepts a WebSocket handshake with ?token=', async () => {
+    const ws = new WebSocket(
+      `ws://localhost:${TOKEN_PORT}/ws?role=desktop&deviceId=query-token&token=${RELAY_TOKEN}`
+    )
+    const welcome = await new Promise<any>((resolve, reject) => {
+      ws.once('message', (data) => resolve(JSON.parse(data.toString())))
+      ws.once('error', reject)
+    })
+    expect(welcome.type).toBe('system')
+    expect(welcome.payload.event).toBe('connected')
+    ws.close()
+  })
+
+  it('accepts a WebSocket handshake with an Authorization header', async () => {
+    const ws = new WebSocket(
+      `ws://localhost:${TOKEN_PORT}/ws?role=agent&deviceId=header-token`,
+      { headers: { authorization: `Bearer ${RELAY_TOKEN}` } }
+    )
+    const welcome = await new Promise<any>((resolve, reject) => {
+      ws.once('message', (data) => resolve(JSON.parse(data.toString())))
+      ws.once('error', reject)
+    })
+    expect(welcome.type).toBe('system')
+    expect(welcome.payload.role).toBe('agent')
     ws.close()
   })
 })

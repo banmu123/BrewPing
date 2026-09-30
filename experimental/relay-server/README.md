@@ -1,26 +1,34 @@
 # BrewPing Relay Prototype (experimental)
 
-> ## ⚠️ Experimental prototype only — not part of the shipped product
+> ## ⚠️ Experimental prototype — not part of the shipped product
 >
-> **Experimental prototype only. It is not part of the shipped BrewPing product, is not connected
-> to any client, and must not be deployed to a public or untrusted network.**
+> **Experimental prototype only. It is not part of the shipped BrewPing product and must not be
+> deployed to a public or untrusted network without you having reviewed it yourself.**
 >
 > 它只作参考保留：不在产品链路上、不在架构图里、不在 CI / release 的构建范围内，
 > 也不在「即将发布」的路线中。
 >
-> 本服务**尚未接入任何 BrewPing 客户端**（桌面端与移动端都没有连接它的代码），
-> 当前仅作为早期原型随源码提供。它存在两个已知问题，在你自行修复前**不要部署到
-> 公网或任何不可信网络**：
+> 本服务**默认不对任何客户端开放能力**：只有显式配置了中继地址的桌面端
+> （`~/.brewping/relay.json`）与在 App 内开启「远程访问（实验）」的 iPhone 才会连接它。
+> 桌面端默认关闭远程，行为与之前完全一致。
 >
-> 1. **没有鉴权**：`AUTH_MODE=anonymous` 时 REST 接口全部放行，WebSocket 只读取
->    `role` / `deviceId` 而不校验身份（见 `src/utils/auth.ts`）。
-> 2. **记录消息内容**：中转的消息 payload 会完整写入日志（见 `src/server.ts` 的
->    `logger.info('MESSAGE', ...)`），与 BrewPing 主项目的隐私承诺不一致。
+> 已知边界（自行评估后再决定是否部署）：
 >
-> BrewPing 本体是纯本地网络工具：无账号、无 analytics、无自建服务器。
+> 1. **共享令牌，而非设备级鉴权**：设置 `RELAY_TOKEN` 后中继会校验**同一**共享令牌
+>    （REST 用 `Authorization: Bearer …` / `X-Relay-Token`，WebSocket 用升级头或 `?token=`）；
+>    未设置时退回 `anonymous`（全放行，启动会告警）。设备级身份仍然由 BrewPing 自己的
+>    配对令牌在桌面端校验 —— 中继只是透传，不构成设备鉴权。
+> 2. **传输未加密（裸 `ws://` / `http://`）**：跨公网部署请自行在前置反向代理上终止
+>    TLS（`wss://`），并自行加限流与可观测性。
+> 3. **不做 rate limit / 防滥用**，也没有生产级的可观测性。
+>
+> ✅ **消息内容不落盘**：中继只记录路由元数据（`from` / `targetRole` / `bytes`），
+> 不写 payload 内容，与 BrewPing 主项目的隐私承诺保持一致（见 `src/server.ts`）。
+>
+> BrewPing 本体仍是纯本地网络工具：无账号、无 analytics、无自建服务器。
 
-（**停放中的原型**）实时消息中继服务，连接 Desktop Client 和 Agent，实现远程消息转发。
-BrewPing 本体不提供公网中继，也没有任何客户端会连接本服务。
+（**停放中的原型**）实时消息中继服务，用于把桌面端与 iPhone 之间的 HTTP 调用隧道化，
+从而支持跨网络访问。BrewPing 本体的默认工作方式是局域网直连，远程访问是可选扩展。
 
 ## Architecture
 
@@ -158,7 +166,18 @@ curl -X POST http://localhost:3000/send \
 | `LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
 | `HEARTBEAT_INTERVAL` | `30000` | Client ping interval (ms) |
 | `HEARTBEAT_TIMEOUT` | `60000` | Disconnect timeout (ms) |
-| `AUTH_MODE` | `anonymous` | Auth mode: anonymous (future: apikey, token, jwt) |
+| `RELAY_TOKEN` | *(empty)* | Shared token. Setting it switches the server to `token` mode; every REST call and WebSocket handshake must present it |
+| `AUTH_MODE` | derived | `token` when `RELAY_TOKEN` is set, otherwise `anonymous`. Set explicitly only to force one |
+
+## Running with a token
+
+```bash
+RELAY_TOKEN="$(openssl rand -hex 24)" pnpm start
+
+# Clients then present the same value:
+#   WebSocket: Authorization: Bearer <token>   (or ?token=<token>)
+#   REST:      Authorization: Bearer <token>   (or X-Relay-Token: <token>)
+```
 
 ## Project Structure
 
@@ -180,11 +199,19 @@ src/
 
 ## Status
 
-Parked. No client is wired to it, and it is excluded from CI, the release workflows, and the
-product's security boundary ([SECURITY.md](../../SECURITY.md)). Treat it as a design sketch.
+Parked prototype, but now reachable from the product on an **opt-in, off-by-default** basis:
 
-If you want cross-network access today, solve it on your own side — for example with a VPN overlay
-such as Tailscale or WireGuard. BrewPing does not operate or endorse that.
+- the macOS desktop connects to it only when `~/.brewping/relay.json` (or `BREWPING_RELAY_URL`)
+  is configured, and that connection carries the whole local HTTP API over the tunnel;
+- the iPhone app connects only when the user switches on **Remote Access (experimental)** and
+  enters a relay address; requests are then tunneled and fall back to the local network when the
+  relay is unreachable.
+
+It is still excluded from CI, the release workflows, and the product's security boundary
+([SECURITY.md](../../SECURITY.md)). Treat it as a prototype with a real client path.
+
+If you want cross-network access without running this, solve it on your own side — for example with
+a VPN overlay such as Tailscale or WireGuard. BrewPing does not operate or endorse that.
 
 ## License
 
