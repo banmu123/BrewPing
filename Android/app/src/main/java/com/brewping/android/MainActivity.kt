@@ -35,7 +35,6 @@ class MainActivity : ComponentActivity() {
                     factory = HomeViewModel.Factory(
                         app.repository,
                         app.deviceStore,
-                        CommandReceiver(),
                         app.conversationStore,
                         app.modelStore,
                         app.applicationContext,

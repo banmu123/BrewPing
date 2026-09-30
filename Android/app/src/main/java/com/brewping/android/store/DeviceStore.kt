@@ -2,6 +2,7 @@ package com.brewping.android.store
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.brewping.core.demo.DemoBackend
 import com.brewping.core.model.DeviceOSType
 import com.brewping.core.model.ManagedDevice
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -82,6 +83,32 @@ class DeviceStore(private val context: Context) {
         if (_devices.value.none { it.id == id }) return
         _activeDeviceID.value = id
         prefs.edit().putString(KEY_ACTIVE, id).apply()
+    }
+
+    /**
+     * 添加（或复用）内置 Demo 设备（对齐 iOS `DeviceStore.addDemoDevice`）。
+     *
+     * 用途很窄但关键：让**没有任何电脑、也没有任何硬件**的用户 / 商店审核员
+     * 零门槛走通完整链路（设备 → Agent 列表 → 起会话 → 发命令 → 审批）。
+     * Demo 设备的主机名固定，[ManagedDevice.isDemo] 据此判定，请求会被
+     * `DemoInterceptor` 短路成模拟响应，不接触真实网络。
+     *
+     * 幂等：已有 Demo 设备时只切换为当前设备，不重复添加。
+     */
+    fun addDemoDevice(name: String): ManagedDevice {
+        val existing = _devices.value.firstOrNull { it.isDemo }
+        if (existing != null) {
+            setActive(existing.id)
+            return existing
+        }
+        val device = ManagedDevice.new(
+            name = name,
+            host = DemoBackend.HOST,
+            port = DemoBackend.PORT,
+            osType = DeviceOSType.Mac,
+        )
+        addDevice(device)
+        return device
     }
 
     // ─── Persistence ─────────────────────────────────────────────────────────

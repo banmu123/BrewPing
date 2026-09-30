@@ -87,7 +87,8 @@
 | `BrewPingConfig.kt` | 隐私政策 URL、支持邮箱（两端共用） |
 | `LocalePrefs.kt` | 语言偏好 |
 
-**留在 `:app` 不动**：`MainActivity.kt`、`BrewPingApp.kt`、`ui/**`（手机版界面与 `HomeViewModel`）、`CommandReceiver.kt`（已是死桩）。
+**留在 `:app` 不动**：`MainActivity.kt`、`BrewPingApp.kt`、`ui/**`（手机版界面与 `HomeViewModel`）。
+（原列表中的 `CommandReceiver.kt` 死桩已于 2026-09-24 删除，不再是 `:app` 的组成部分。）
 
 > ⚠️ 迁移时必须保持 `PairingStore` 的 4 个公开方法签名不变（`token` / `isPaired` / `saveToken` / `clearToken`），并保留「明文 SharedPreferences 透明迁移（无 `v1:` 前缀 → 重新加密）」逻辑，否则老用户会掉配对。
 

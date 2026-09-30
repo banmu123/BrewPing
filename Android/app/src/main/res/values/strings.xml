@@ -148,4 +148,30 @@
     <string name="help_legal_body">OpenCode, Claude, Claude Code, Codex, and pi are trademarks of their respective owners. BrewPing is not affiliated with, endorsed by, or sponsored by them.</string>
     <string name="help_about_title">About</string>
     <string name="help_version">Version</string>
+
+    <!-- ─── 设备表单标题（此前硬编码英文，中文界面会露出英文）───────────── -->
+    <string name="add_device">Add Device</string>
+    <string name="edit_device">Edit Device</string>
+
+    <!-- ─── Help：语言段（对齐 iOS HelpView 的 Language 段）────────────── -->
+    <string name="lang_zh">中文</string>
+    <string name="lang_en">English</string>
+    <string name="help_language_body">App-internal switch — no need to change the phone\'s system language.</string>
+
+    <!-- ─── Help：不用电脑也能试（Demo 入口，对齐 iOS Try it without a computer） -->
+    <string name="help_demo_title">Try it without a computer</string>
+    <string name="help_demo_body">Add a Demo device to walk through the whole flow — no computer and no hardware needed. The Demo device simulates status, agents, session control and approval locally on this phone.</string>
+    <string name="help_add_demo_device">Add Demo Device</string>
+    <string name="demo_device_name">Demo Mac</string>
+
+    <!-- ─── Demo 后端文案（由 BrewPingApp 注入 :core，随应用内语言切换）──── -->
+    <string name="demo_host_label">Demo Mac (Simulated)</string>
+    <string name="demo_command_response">%1$s\n\nThis reply is simulated by the Demo device so you can walk through the whole flow without a computer.</string>
+    <string name="demo_command_failed">Command failed (simulated).</string>
+    <string name="demo_conversation_title_bound">Which directory am I in?</string>
+    <string name="demo_conversation_title_unbound">Hello</string>
+    <string name="demo_system_prompt_bound">Working directory: D:\cakewalk</string>
+    <string name="demo_system_prompt_unbound">No working directory bound.</string>
+    <string name="demo_reply_bound">The current directory is D:\cakewalk.\n\nThis is a simulated reply from the **Demo device**, used to demonstrate the conversation list and transcript flow.</string>
+    <string name="demo_reply_unbound">Hello! What can I help you with?\n\nThis is a simulated reply from the **Demo device**, used to demonstrate the conversation list and transcript flow.</string>
 </resources>
