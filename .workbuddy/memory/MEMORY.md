@@ -67,6 +67,7 @@
 
 ## 工具与协作约定
 - 🚨 **同一文件多编辑不得并行**；改完必须回读/git diff 核对。
+- 🚨 **Bash 的 `grep` 在本机（macOS）同样会间歇性假报「无命中」**（实测同一模式先空后中，带 `\|` 的复合模式更易中招）→ 判定性查找一律用专用 Grep/Glob；**凡由 grep 空结果推出的结论必须换工具复核一次**再下判断（2026-09-30 因此两次误判「内容丢失」）。
 - 🚨 静态核对≠能编译；有编译器就跑（本机 JS/TS/Rust/Java 齐，Swift 视环境）。
 - 🚨 UI 禁止「未就绪即定论」：等数据源确认过才渲染空/错误态。
 - 📄 文档事实口径：测试数 Swift 66/**Android 109**/Rust 318 以 README+PROJECT_STATUS+CONTRIBUTING 为准；LICENSE 纯 MIT；experimental/ 不在产品链路。⚠️ **测试数变动必须四处同步**（README.md / README.zh-CN.md / docs/PROJECT_STATUS.md / CONTRIBUTING.md）——曾出现日志已记 114、文档仍写 83 的漏同步。
