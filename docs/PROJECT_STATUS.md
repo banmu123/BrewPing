@@ -56,7 +56,7 @@ or tester counts are claimed anywhere in this repository.
 | Apple Watch | watchOS 11.6+ | Paired with the iPhone app; voice dictation + reply reading · **available on the App Store** |
 | Android phone | Android 8.0+ (minSdk 26) | Jetpack Compose; `targetSdk`/`compileSdk` 36 · **built, not submitted to Google Play** |
 | Wear OS watch | Wear OS 3.0+ (minSdk 30) | **In repository, not released yet** — see limitations |
-| Network | Phone/watch and computer on the same local network | No public relay is shipped; an **opt-in, off-by-default** relay path exists behind Remote Access (experimental) |
+| Network | Phone/watch and computer on the same local network | No public relay is shipped; a relay path exists in the code but is off by default, and the iPhone entry point is **not exposed in the current build** |
 
 ## 3. Test & CI status
 
@@ -112,11 +112,13 @@ before it breaks someone's pull request.
   maintainer is in the request path.
 - `experimental/relay-server/` is a relay prototype that is deliberately outside the product's
   security boundary and must not be exposed to a public network as-is. It now supports a shared
-  token (`RELAY_TOKEN`) and no longer writes relayed payloads to its logs, and there is an
-  **opt-in, off-by-default** client path on macOS (configured via `~/.brewping/relay.json` or
-  `BREWPING_RELAY_URL`) and iPhone (Remote Access, experimental). Device-level identity is still
-  verified by the desktop's own pairing token: the relay only forwards, it does not authenticate
-  devices. Transport is unencrypted on the wire, and no relay is operated by the maintainer.
+  token (`RELAY_TOKEN`) and no longer writes relayed payloads to its logs. A client path exists in
+  the code on both sides and is off by default: the macOS desktop connects only when
+  `~/.brewping/relay.json` (or `BREWPING_RELAY_URL`) is present, and the iPhone's Remote Access
+  entry point is **commented out in the current build** pending a decision on relay deployment, so a
+  default install stays local-network only. Device-level identity is still verified by the desktop's
+  own pairing token: the relay only forwards, it does not authenticate devices. Transport is
+  unencrypted on the wire, and no relay is operated by the maintainer.
 
 ## 6. Known limitations
 
@@ -135,10 +137,11 @@ These are real, currently true, and worth knowing before judging the project:
    submission. iOS, watchOS, macOS, and Windows are released. See
    [Distribution status](#11-distribution-status).
 6. **The relay is a prototype with an opt-in client path.** It lives under `experimental/`, is not
-   part of any build or release, and is off by default on both ends. When it is switched on, the
-   desktop tunnels its whole HTTP API through it, so treat a running relay as reachable by whoever
-   can connect to it — the shared token is the only gate on the relay itself, and the wire is not
-   encrypted. See [SECURITY.md](../SECURITY.md) for the boundary.
+   part of any build or release, and is off by default on both ends — the macOS side needs an
+   explicit config file, and the iPhone entry point is commented out in the current build. When it
+   is switched on, the desktop tunnels its whole HTTP API through it, so treat a running relay as
+   reachable by whoever can connect to it — the shared token is the only gate on the relay itself,
+   and the wire is not encrypted. See [SECURITY.md](../SECURITY.md) for the boundary.
 7. **Windows packaging version metadata is not aligned with the release version** (internal
    `0.1.0` vs release asset `1.0.0`). Tracked; not yet corrected.
 8. **No automated UI tests.** Desktop, iOS/watchOS, Android, and Wear UI behaviour is verified

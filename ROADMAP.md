@@ -65,8 +65,9 @@ computer share a network. Reaching a machine from outside that network is, today
 network setup. This phase is about providing a supported path for exactly that need.
 
 **Technical direction validated by a prototype.** `experimental/relay-server/` is a runnable
-WebSocket relay prototype, and there is now an opt-in client path on macOS and iPhone
-(Remote Access, off by default — see `docs/PROJECT_STATUS.md`). What it demonstrates today:
+WebSocket relay prototype, and a client path now exists in the code on macOS and iPhone — off by
+default on both ends, and with the iPhone entry point **not exposed in the current build** (see
+`docs/PROJECT_STATUS.md`). What it demonstrates today:
 
 - A WebSocket server with two roles — desktop and agent.
 - Device identity through `deviceId`, connection management, and routing to a specific device.
