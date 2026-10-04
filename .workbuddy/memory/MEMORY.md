@@ -24,13 +24,18 @@
 - 💡 本机 xcode-select 指向 CLT → xcodebuild/simctl 加 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`；模拟器不弹 LN 权限框；`simctl spawn booted defaults write com.brewping.ios <key>` 可伪造持久化标记做老用户验证。
 - 🚨 **模拟器没有 `security` CLI → 无法外部写 Keychain**（配对令牌只在 Keychain）→ 依赖配对的路径在模拟器里只能验到 401；真机/TestFlight 才能验完。
 
-## 远程访问（relay，实验，两端默认关）
+## 远程访问（relay，实验，**iOS 入口当前已注释、暂不发布**）
+- 🚨 **iOS 入口已注释隐藏（2026-10-04）**：`HelpView` 的「远程访问（实验）」Section 与隐私段里的中继说明整段 `/* */` 保留（含重新启用步骤）；`BrewPingApp.init()` 的 `_ = RemoteAccess.shared` 一并注释 → 中继路径休眠；中英文字案原样留在 `Localizable.strings`（en=zh=249），解开即可用。**局域网（Bonjour 直连）是唯一生效路径**，行为与加该功能之前一致。Mac 端代码未动（仍需 `~/.brewping/relay.json` 才激活；本机已改名 `.disabled`）。
+- 🚨 **隧道帧必须带 `deviceId` 走精确路由**：中继 `sendToRole` 是广播 → 不带 deviceId 时任何持共享令牌者注册成 desktop 即可收走隧道帧（**含设备令牌头**）。deviceId 来源 = `ManagedDevice.hostDeviceId`（**Optional**，扫码深链 + 配对响应写入；⚠️ ≠ `id`，手动/发现路径的 `id` 是本地随机串），经 `RemoteAccess` 加锁快照（主机集合 + 主机→deviceId）传给 `RelayURLProtocol`；缺失则退回广播。
+- 🚨 中继返回 `error` 帧（如目标设备不在线）**不代表连接坏了** → 只让在途请求立刻失败（快速回落直连），不要改连接状态、也不要干等 30s 超时。
 - 架构：iOS `RelayURLProtocol`（挂 `BrewPingHTTP.session.protocolClasses`，Demo 之后）在开关打开且中继已连接时把发往已配对设备的请求隧道化，**失败回落直连**；Mac `RelayBridge`（`Sources/App/`）把隧道帧还原成 `HTTPRequest` 直接喂 `HTTPAPI.handle`（进程内，与局域网同一入口）→ **鉴权不绕过**（Bearer+时间戳+nonce 仍由 PairingStore 校验）。启动点：`BrewPingAgent.run()` → `RelayBridge.shared.startIfConfigured()`（GUI/CLI 共用）。
 - 配置：Mac `~/.brewping/relay.json`（或 `BREWPING_RELAY_URL`/`_TOKEN`）；iOS 设置页「远程访问（实验）」（enabled/url 走 UserDefaults，token 走 Keychain）。
 - relay 服务端：`RELAY_TOKEN` → token 模式（WS 用升级头或 `?token=`）；**不记 payload** 只记元数据；anonymous 仅本地开发且启动告警。
 - 🚨 **心跳不能用 `Timer`+`RunLoop.main`**：Mac daemon 主线程是阻塞 accept 循环、主 RunLoop 不转 → 心跳永不触发 → 中继 60s 判空闲踢线（实测每 ~80s 断连）→ 必须 `DispatchSourceTimer` 挂自有串行队列。
 - 🚨 **懒加载单例要在 `App.init()` 主动实例化**：`RemoteAccess.shared` 的读点只有设置页与 `canInit`，否则冷启动不连中继（进程启动的副作用就该在启动时做完，同 `CommandSubmitter.bootstrap()`）。
 - 🚨 `URLProtocol.canInit` 是同步非隔离上下文，读不了 `@MainActor` 的 `DeviceStore` → 用加锁快照（`RemoteAccess.refreshPairedHosts()`）。
+- 🚨 **公开部署前必改（安全）**：中继 `manager.sendToRole` 是**广播**，而 iOS 隧道帧只带 `target:"desktop"`、**未带 deviceId** → 任何持共享令牌者注册成 desktop 角色即可收走全部隧道帧（**含 `Authorization: Bearer <设备令牌>` 头**）。修法任选：①iOS 帧带目标 `deviceId`（App 已知配对返回的 deviceId）走 `sendToDevice` 精确路由；②中继拒绝同角色/同 deviceId 重复连接；③升级为设备级令牌而非单一共享令牌。
+- 🚨 **公网必须 `wss://`**：App 只开了 `NSAllowsLocalNetworking`，URLSessionWebSocketTask 受 ATS 约束，公网明文 `ws://` 大概率被拦 → 需反代终止 TLS（**未实测**，局域网/回环已验）。
 - 端口：本机 3000 被 Next.js 站点占用；Mac daemon HTTP 会回落到 8788（8787 被占）。
 
 ## macOS 桌面端
