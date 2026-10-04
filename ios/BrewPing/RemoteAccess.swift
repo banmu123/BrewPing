@@ -136,12 +136,16 @@ final class RemoteAccess: ObservableObject {
     // MARK: - 已配对主机快照（供 URLProtocol 同步判定）
 
     /// `URLProtocol.canInit` 是**同步且非隔离**的，而 `DeviceStore` 的属性是主线程隔离的，
-    /// 不能在 `canInit` 里直接读设备列表。因此缓存一份「已配对设备主机」快照：
-    /// 主线程写、任意线程读（加锁）。
+    /// 不能在 `canInit` 里直接读设备列表。因此缓存两份快照：主线程写、任意线程读（加锁）。
+    ///
+    /// - `cachedPairedHosts`：所有已配对（非 Demo）设备的主机 → 决定"要不要走隧道"；
+    /// - `cachedHostDeviceIds`：主机 → 主机端 `deviceId` → 决定"隧道帧投给谁"。
+    ///   缺失时隧道帧不带 deviceId，退回中继的角色路由（能用，但没有精确投递）。
     ///
     /// 快照为空时 `RelayURLProtocol` 一律不拦截 —— 退化为原来的局域网直连，不会更糟。
     private static let hostLock = NSLock()
     nonisolated(unsafe) private static var cachedPairedHosts: Set<String> = []
+    nonisolated(unsafe) private static var cachedHostDeviceIds: [String: String] = [:]
 
     static var pairedHostSnapshot: Set<String> {
         hostLock.lock()
@@ -149,16 +153,28 @@ final class RemoteAccess: ObservableObject {
         return cachedPairedHosts
     }
 
-    /// 刷新快照。App 启动、开关变更、设备列表变化时调用。
+    /// 主机对应的主机端 deviceId（精确路由用）。未记录时返回 nil。
+    static func hostDeviceId(forHost host: String) -> String? {
+        hostLock.lock()
+        defer { hostLock.unlock() }
+        return cachedHostDeviceIds[host.lowercased()]
+    }
+
+    /// 刷新快照。App 启动、开关变更、设备列表变化、配对成功后调用。
     static func refreshPairedHosts() {
         Task { @MainActor in
-            let hosts = Set(
-                DeviceStore.shared.devices
-                    .filter { !$0.isDemo }
-                    .compactMap { $0.baseURL?.host?.lowercased() }
-            )
+            var hosts: Set<String> = []
+            var deviceIds: [String: String] = [:]
+            for device in DeviceStore.shared.devices where !device.isDemo {
+                guard let host = device.baseURL?.host?.lowercased() else { continue }
+                hosts.insert(host)
+                if let hostDeviceId = device.hostDeviceId, !hostDeviceId.isEmpty {
+                    deviceIds[host] = hostDeviceId
+                }
+            }
             hostLock.lock()
             cachedPairedHosts = hosts
+            cachedHostDeviceIds = deviceIds
             hostLock.unlock()
         }
     }
@@ -241,7 +257,16 @@ final class RemoteAccess: ObservableObject {
         }
         if type == "error" {
             let message = (object["payload"] as? [String: Any])?["error"] as? String ?? "relay error"
-            publish(.failed(message))
+            BrewPingLog.discovery.error("remote: relay error \(message, privacy: .public)")
+            // 🚨 中继的路由类错误（如「目标设备不在线」）**不代表连接坏了** —— 因此
+            // 不改连接状态，只把在途请求立刻判失败，让调用方马上走局域网直连回落，
+            // 而不是干等 30s 超时（否则一次脱靶会让每个请求都卡半分钟）。
+            let continuations = pending
+            pending.removeAll()
+            for (_, continuation) in continuations {
+                continuation.resume(throwing: TunnelError.targetUnavailable)
+            }
+            return
         }
     }
 
@@ -314,6 +339,9 @@ final class RemoteAccess: ObservableObject {
         let query: String?
         let headers: [String: String]
         let body: Data
+        /// 目标电脑的 `deviceId`（主机端 DeviceIdentity）。非 nil 时中继**精确投递**给
+        /// 那一台桌面端；nil 时退回角色广播（兼容尚未记录 deviceId 的老记录）。
+        let targetDeviceId: String?
     }
 
     struct TunnelResponse {
@@ -329,22 +357,32 @@ final class RemoteAccess: ObservableObject {
         case notConnected
         case timedOut
         case malformedResponse
+        /// 中继找不到目标设备（主机端中继桥没连上 / deviceId 不匹配）。
+        case targetUnavailable
     }
 
     /// 经中继发一次请求。超时 30s（与直连一致）。
     func send(_ request: TunnelRequest) async throws -> TunnelResponse {
         let id = UUID().uuidString
+        var payload: [String: Any] = [
+            "id": id,
+            "method": request.method,
+            "path": request.path,
+            "headers": request.headers,
+            "body": request.body.base64EncodedString(),
+        ]
+        if let query = request.query { payload["query"] = query }
+        // 🚨 精确路由：带上目标 deviceId 让中继走 `sendToDevice`。
+        // 不带就变成按角色广播 —— 任何持有中继令牌并注册成 `desktop` 的连接
+        // 都能收到这一帧（帧里带着设备令牌头），所以能带就必须带。
+        if let targetDeviceId = request.targetDeviceId, !targetDeviceId.isEmpty {
+            payload["deviceId"] = targetDeviceId
+        }
+
         let frame: [String: Any] = [
             "type": "message",
             "target": "desktop",
-            "payload": [
-                "id": id,
-                "method": request.method,
-                "path": request.path,
-                "query": request.query as Any,
-                "headers": request.headers,
-                "body": request.body.base64EncodedString(),
-            ] as [String: Any],
+            "payload": payload,
         ]
 
         return try await withCheckedThrowingContinuation { continuation in

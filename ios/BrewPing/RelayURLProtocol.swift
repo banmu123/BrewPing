@@ -55,7 +55,10 @@ final class RelayURLProtocol: URLProtocol {
             headers: (request.allHTTPHeaderFields ?? [:]).reduce(into: [String: String]()) { result, entry in
                 result[entry.key.lowercased()] = entry.value
             },
-            body: Self.bodyData(of: request)
+            body: Self.bodyData(of: request),
+            // 🚨 带上目标电脑的 deviceId → 中继精确投递（`sendToDevice`）。
+            // 取不到（老记录没记过 deviceId）就传 nil，中继退回角色广播 —— 功能不受影响。
+            targetDeviceId: url.host.flatMap { RemoteAccess.hostDeviceId(forHost: $0) }
         )
 
         Task { [weak self] in

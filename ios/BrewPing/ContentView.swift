@@ -765,24 +765,35 @@ struct ContentView: View {
             && $0.port == normalizedPort
         })
         let device: ManagedDevice
+        /// 主机端 deviceId（深链携带）。记进设备记录后，远程访问的隧道帧才能精确投递；
+        /// 拿不到就是 nil → 隧道帧不带 deviceId → 中继退回角色路由（功能不受影响）。
+        let hostDeviceId = action.deviceId.isEmpty ? nil : action.deviceId
         if var existing {
             // 已存在的设备顺手自愈：主机类型以深链为准。
             // 历史版本不带 osType，Windows 主机被存成了 Mac，这里正好纠正过来。
+            var changed = false
             if existing.osType != action.osType {
                 existing.osType = action.osType
-                deviceStore.updateDevice(existing)
+                changed = true
             }
+            if existing.hostDeviceId != hostDeviceId {
+                existing.hostDeviceId = hostDeviceId
+                changed = true
+            }
+            if changed { deviceStore.updateDevice(existing) }
             device = existing
             deviceStore.setActive(device.id)
         } else {
-            device = ManagedDevice.new(
+            var created = ManagedDevice.new(
                 name: action.suggestedName,
                 host: action.host,
                 port: normalizedPort,
                 osType: action.osType
             )
-            deviceStore.addDevice(device)
-            deviceStore.setActive(device.id)
+            created.hostDeviceId = hostDeviceId
+            device = created
+            deviceStore.addDevice(created)
+            deviceStore.setActive(created.id)
         }
         // 2) 消费动作 —— 必须在发起网络请求前清掉，
         //    否则 pair 过程中如果再来一个 URL 会并发改状态。
@@ -1165,6 +1176,15 @@ struct ContentView: View {
                 guard DeviceAuth.store(token: token, for: device) else {
                     BrewPingLog.net.error("Keychain store failed for host \(device.host, privacy: .private)")
                     return (false, L("Couldn't save the pairing token to the Keychain."))
+                }
+                // 配对响应里带着主机 deviceId：记进设备记录，远程访问才能精确路由到
+                // 这一台电脑（不带就退回中继的角色广播）。
+                if let hostDeviceId = decoded?.deviceId, !hostDeviceId.isEmpty,
+                   device.hostDeviceId != hostDeviceId {
+                    var updated = device
+                    updated.hostDeviceId = hostDeviceId
+                    deviceStore.updateDevice(updated)
+                    RemoteAccess.refreshPairedHosts()
                 }
                 BrewPingLog.net.info("Paired with host \(device.host, privacy: .private)")
                 return (true, L("Paired successfully."))

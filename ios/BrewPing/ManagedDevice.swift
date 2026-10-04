@@ -68,6 +68,20 @@ struct ManagedDevice: Identifiable, Codable, Equatable {
     var port: String          // 端口号
     var osType: DeviceOSType
 
+    /// 主机端 `DeviceIdentity.deviceId`（`bp_mac_…` / `bp_win_…`）。
+    ///
+    /// 用途：远程访问（实验）经中继转发时作为**精确路由目标** —— 中继按 deviceId
+    /// 只投给那一台电脑，而不是广播给所有 `desktop` 角色。广播的问题是：任何持有
+    /// 中继共享令牌的连接都能注册成 desktop 收走隧道帧，而帧里带着设备令牌头。
+    ///
+    /// 🚨 必须 `Optional`：老版本写进 `UserDefaults` 的记录没有这个键，加非可选字段
+    /// 会让 decode 失败、把用户整个设备列表清空。取不到时为 nil → 隧道帧不带
+    /// deviceId → 退回中继的角色路由（功能不受影响，只是没有精确路由）。
+    ///
+    /// 来源：扫码深链（`brewping://pair`）与配对响应的 `deviceId`。
+    /// ⚠️ 它**不是** `id` —— `id` 对「手动输入 IP / 局域网发现」添加的设备是本地随机串。
+    var hostDeviceId: String? = nil
+
     var displayName: String {
         "\(osType.label) \(name)"
     }
