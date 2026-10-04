@@ -48,6 +48,22 @@ struct HelpView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                // ─────────────────────────────────────────────────────────────
+                // 🚫 远程访问（实验）入口 —— 暂不对外发布，整段注释保留（2026-10-04）。
+                //
+                // 为什么保留而不是删除：链路本身已实现并端到端验证过（Mac 中继桥
+                // `RelayBridge` + iOS 中继客户端 `RemoteAccess` + 传输拦截器
+                // `RelayURLProtocol`），只是暂不在 App 里暴露入口。注释掉之后：
+                //   - 局域网（Bonjour 直连）是唯一生效路径，行为与加这个功能之前**完全一致**
+                //     （开关默认关闭，且没有任何 UI 能把它打开）；
+                //   - 远程代码原样保留，随时可重新启用。
+                //
+                // 重新启用步骤：把下面 `/* … */` 整块解开即可；若希望冷启动就建立中继连接，
+                // 再把 `BrewPingApp.init()` 里的 `_ = RemoteAccess.shared` 一并解开。
+                // 顶部 `@ObservedObject private var remote` 与 `remoteStatusText` 一直保留着，
+                // 中英文案也原样留在 Localizable.strings 里，解开即可用、不必重新翻译。
+                // ─────────────────────────────────────────────────────────────
+                /*
                 Section("Remote Access (Experimental)") {
                     Toggle("Remote Access", isOn: $remote.isEnabled)
                         .onChange(of: remote.isEnabled) { _, _ in remote.applyChanges() }
@@ -72,6 +88,7 @@ struct HelpView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+                */
 
                 Section("Try it without a computer") {
                     Text("Add a Demo device to walk through the whole flow — no computer and no hardware needed. The Demo device simulates status, agents, session control and command results locally.")
@@ -92,9 +109,13 @@ struct HelpView: View {
                     Text("BrewPing has no account, no analytics, and no third-party SDKs. Commands and agent output travel only between your iPhone and the Mac or Windows PC you configured, on your local network. Voice recorded on Apple Watch is transferred to your iPhone and transcribed with Apple's Speech framework — BrewPing does not require on-device-only recognition, so transcription may be performed by Apple's servers. The audio file is deleted afterwards.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                    // 🚫 随远程入口一并注释：功能未对外暴露时，不该在隐私说明里
+                    //    提一个用户无法开启的选项。重新启用远程时把这段一并解开。
+                    /*
                     Text("If you turn on Remote Access (experimental), requests travel through the relay server you configured instead of your local network. The relay forwards them without keeping their contents, and BrewPing does not operate any relay server itself.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                    */
                 }
 
                 Section("Support") {
