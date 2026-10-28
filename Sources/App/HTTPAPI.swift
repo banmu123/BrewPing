@@ -85,7 +85,19 @@ enum HTTPAPI {
     ///
     /// 请求：`{"code": "123456", "deviceName": "iPhone"}`
     /// 响应：`{"success": true, "token": "<64 位 hex>", "deviceId": "...", "deviceName": "..."}`
-    private static func pairResponse(_ request: HTTPRequest) -> HTTPResponse {
+    ///
+    /// `store` / `deviceInfo` 有默认值，生产路径不变；测试注入独立实例，
+    /// 避免读写开发机上真实的 `~/.brewping/pairing.json`。
+    static func pairResponse(
+        _ request: HTTPRequest,
+        store: PairingStore = .shared,
+        deviceInfo: () -> (id: String, name: String) = {
+            (
+                DeviceIdentity.loadOrCreate().deviceId,
+                Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+            )
+        }
+    ) -> HTTPResponse {
         guard let object = try? JSONSerialization.jsonObject(with: request.body, options: []),
               let body = object as? [String: Any],
               let code = body["code"] as? String, !code.isEmpty else {
@@ -97,24 +109,34 @@ enum HTTPAPI {
 
         // 配对码一次性且 10 分钟过期：换不到就说明码错了或已失效，
         // 不区分这两种情况，避免给暴力枚举提供反馈。
-        guard let token = PairingStore.shared.exchange(code: code) else {
+        // 失败到阈值后按来源冷却，并有一层全局冷却兜底（防换源绕过）。
+        switch store.exchange(code: code, source: request.remoteAddress) {
+        case .token(let token):
+            // 配对码此刻已被消费（一次性）。UI 层靠这条通知得知「有设备配对成功」，
+            // 否则向导终步只会看到 QR 消失（url=nil）而没有任何成功反馈。
+            NotificationCenter.default.post(name: PairingStore.devicePairedNotification, object: nil)
+            let identity = deviceInfo()
+            return .json(200, "OK", [
+                "success": true,
+                "token": token,
+                "deviceId": identity.id,
+                "deviceName": identity.name
+            ] as [String: Any])
+
+        case .invalidCode:
             return .json(401, "Unauthorized", [
                 "success": false,
                 "error": "invalid or expired pairing code"
             ])
-        }
 
-        // 配对码此刻已被消费（一次性）。UI 层靠这条通知得知「有设备配对成功」，
-        // 否则向导终步只会看到 QR 消失（url=nil）而没有任何成功反馈。
-        NotificationCenter.default.post(name: PairingStore.devicePairedNotification, object: nil)
-        let identity = DeviceIdentity.loadOrCreate()
-        let deviceName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
-        return .json(200, "OK", [
-            "success": true,
-            "token": token,
-            "deviceId": identity.deviceId,
-            "deviceName": deviceName
-        ] as [String: Any])
+        case .rateLimited(let retryAfter):
+            // 只回「稍后再试」，不透露码对不对、也不透露限速是按来源还是全局。
+            let seconds = max(1, Int(retryAfter.rounded(.up)))
+            return .json(429, "Too Many Requests", [
+                "success": false,
+                "error": "too many pairing attempts, retry later"
+            ], headers: ["Retry-After": "\(seconds)"])
+        }
     }
 
     private static func discoveryRefreshResponse() -> HTTPResponse {

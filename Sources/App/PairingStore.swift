@@ -29,8 +29,41 @@ public final class PairingStore {
         case denied(status: Int, error: String)
     }
 
+    /// 配对码兑换结论。必须把「码错」和「被限速」分开，HTTP 层才能分别回 401 / 429。
+    enum ExchangeResult: Equatable {
+        case token(String)
+        case invalidCode
+        case rateLimited(retryAfter: TimeInterval)
+    }
+
+    /// 配对码防暴力尝试策略。
+    ///
+    /// 两个维度：
+    ///  - **按来源**：窗口内失败到阈值 → 该来源冷却一段时间；
+    ///  - **全局**：所有来源的失败累计到阈值 → 全体冷却，防「换源绕过」。
+    ///
+    /// 数量级校验：6 位码 = 100 万种，码有效期 10 分钟。单来源 5 次/5 分钟、
+    /// 全局 30 次/5 分钟，命中概率可以忽略；代价是攻击者能让合法用户在冷却期内
+    /// 暂时配对不上（见 SECURITY.md 的边界说明）。
+    struct RateLimitPolicy {
+        /// 失败计数窗口
+        var window: TimeInterval = 300
+        /// 单来源窗口内允许的失败次数，达到即冷却
+        var maxFailuresPerSource = 5
+        /// 单来源冷却时长
+        var sourceCooldown: TimeInterval = 60
+        /// 全局窗口内允许的失败次数（所有来源求和）
+        var maxFailuresGlobal = 30
+        /// 全局冷却时长
+        var globalCooldown: TimeInterval = 60
+        /// 同时在册的来源上限，超出按「最久未活动」淘汰
+        var maxTrackedSources = 256
+    }
+
     private let lock = NSLock()
     private let token: String
+    private let clock: () -> Date
+    private let policy: RateLimitPolicy
     private var pairingCode: String?
     private var pairingCodeIssuedAt: Date?
 
@@ -43,8 +76,31 @@ public final class PairingStore {
 
     private var seenNonces: [String: Date] = [:]
 
-    private init() {
-        token = PairingStore.loadOrCreateToken()
+    /// 某个来源的失败记录。
+    private struct FailureRecord {
+        var failures: [Date] = []
+        var blockedUntil: Date?
+        var lastSeen: Date
+    }
+
+    private var failuresBySource: [String: FailureRecord] = [:]
+    private var globalFailures: [Date] = []
+    private var globalBlockedUntil: Date?
+
+    private convenience init() {
+        self.init(token: PairingStore.loadOrCreateToken())
+    }
+
+    /// 测试专用初始化：直接注入 token / 时钟 / 策略，**不读也不写** `~/.brewping`。
+    /// 内部可见即可（`@testable import` 能用），不对外暴露。
+    init(
+        token: String,
+        clock: @escaping () -> Date = { Date() },
+        policy: RateLimitPolicy = RateLimitPolicy()
+    ) {
+        self.token = token
+        self.clock = clock
+        self.policy = policy
     }
 
     // MARK: - Pairing code
@@ -52,14 +108,12 @@ public final class PairingStore {
     /// 生成（或复用未过期的）配对码，供菜单栏 UI 展示。
     public func issuePairingCode() -> String {
         lock.lock(); defer { lock.unlock() }
+        let now = clock()
         if let pairingCode, let issued = pairingCodeIssuedAt,
-           Date().timeIntervalSince(issued) < codeValidity {
+           now.timeIntervalSince(issued) < codeValidity {
             return pairingCode
         }
-        let code = String(format: "%06d", Int.random(in: 0...999_999))
-        pairingCode = code
-        pairingCodeIssuedAt = Date()
-        return code
+        return issueCodeLocked(now: now)
     }
 
     /// 强制作废当前配对码并立刻生成一个新的。
@@ -70,10 +124,7 @@ public final class PairingStore {
     @discardableResult
     public func regeneratePairingCode() -> String {
         lock.lock(); defer { lock.unlock() }
-        let code = String(format: "%06d", Int.random(in: 0...999_999))
-        pairingCode = code
-        pairingCodeIssuedAt = Date()
-        return code
+        return issueCodeLocked(now: clock())
     }
 
     public var pairingCodeExpiry: Date? {
@@ -82,18 +133,125 @@ public final class PairingStore {
         return issued.addingTimeInterval(codeValidity)
     }
 
+    private func issueCodeLocked(now: Date) -> String {
+        let code = String(format: "%06d", Int.random(in: 0...999_999))
+        pairingCode = code
+        pairingCodeIssuedAt = now
+        return code
+    }
+
     /// 用配对码换 token。配对码一次性：换过立刻作废，避免被重复使用。
-    func exchange(code input: String) -> String? {
+    ///
+    /// - Parameter source: 对端地址（内核提供的连接信息，非请求头）。用于失败限速分桶；
+    ///   传 nil 时所有无来源的请求（如中继隧道）共用同一个桶。
+    func exchange(code input: String, source: String? = nil) -> ExchangeResult {
         lock.lock(); defer { lock.unlock() }
-        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let pairingCode, let issued = pairingCodeIssuedAt,
-              Date().timeIntervalSince(issued) < codeValidity,
-              PairingStore.constantTimeEquals(trimmed, pairingCode) else {
-            return nil
+        let now = clock()
+
+        // 限速判定必须在比对之前：被冷却的来源连"试"的机会都没有，
+        // 也就不会推进任何计数。
+        if let retryAfter = cooldownRemainingLocked(source: source, now: now) {
+            return .rateLimited(retryAfter: retryAfter)
         }
+
+        // 没有可兑换的码（未生成 / 已过期 / 已被消费）时直接失败，且**不计数**：
+        // 猜一个不存在的目标不可能成功，计次只会让攻击者更容易把合法用户锁在门外。
+        guard let pairingCode, let issued = pairingCodeIssuedAt,
+              now.timeIntervalSince(issued) < codeValidity else {
+            return .invalidCode
+        }
+
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard PairingStore.constantTimeEquals(trimmed, pairingCode) else {
+            recordFailureLocked(source: source, now: now)
+            return .invalidCode
+        }
+
         self.pairingCode = nil
         self.pairingCodeIssuedAt = nil
-        return token
+        // 配对成功即清掉该来源的失败记录：正常用户偶尔手滑不该带着惩罚。
+        failuresBySource.removeValue(forKey: Self.sourceKey(source))
+        return .token(token)
+    }
+
+    // MARK: - Rate limiting
+
+    /// 所有来源键归一：nil 走同一个 "unknown" 桶，避免「没地址就不限速」的缺口。
+    private static func sourceKey(_ source: String?) -> String {
+        guard let source, !source.isEmpty else { return "unknown" }
+        return source
+    }
+
+    /// 返回剩余冷却秒数；无冷却返回 nil。顺带清理已过期的冷却标记。
+    private func cooldownRemainingLocked(source: String?, now: Date) -> TimeInterval? {
+        if let until = globalBlockedUntil {
+            if until > now { return until.timeIntervalSince(now) }
+            globalBlockedUntil = nil
+        }
+        let key = Self.sourceKey(source)
+        guard var record = failuresBySource[key], let until = record.blockedUntil else {
+            return nil
+        }
+        if until > now { return until.timeIntervalSince(now) }
+        record.blockedUntil = nil
+        failuresBySource[key] = record
+        return nil
+    }
+
+    private func recordFailureLocked(source: String?, now: Date) {
+        let cutoff = now.addingTimeInterval(-policy.window)
+        let key = Self.sourceKey(source)
+
+        var record = failuresBySource[key] ?? FailureRecord(lastSeen: now)
+        record.failures = record.failures.filter { $0 > cutoff }
+        record.failures.append(now)
+        record.lastSeen = now
+        if record.failures.count >= policy.maxFailuresPerSource {
+            record.blockedUntil = now.addingTimeInterval(policy.sourceCooldown)
+            // 触发后清空窗口：冷却结束就是一轮新的配额，不会「一解封立刻再封」。
+            record.failures.removeAll()
+        }
+        failuresBySource[key] = record
+
+        globalFailures = globalFailures.filter { $0 > cutoff }
+        globalFailures.append(now)
+        if globalFailures.count >= policy.maxFailuresGlobal {
+            globalBlockedUntil = now.addingTimeInterval(policy.globalCooldown)
+            globalFailures.removeAll()
+        }
+
+        pruneLocked(now: now)
+    }
+
+    /// 限速状态的有界性：清掉「窗口已过且无冷却」的条目，再按上限淘汰最久未活动的。
+    private func pruneLocked(now: Date) {
+        let cutoff = now.addingTimeInterval(-policy.window)
+        for key in Array(failuresBySource.keys) {
+            guard let record = failuresBySource[key] else { continue }
+            let blockExpired = (record.blockedUntil ?? .distantPast) <= now
+            if blockExpired, record.failures.allSatisfy({ $0 <= cutoff }) {
+                failuresBySource.removeValue(forKey: key)
+            }
+        }
+
+        guard failuresBySource.count > policy.maxTrackedSources else { return }
+        let overflow = failuresBySource.count - policy.maxTrackedSources
+        let ordered = failuresBySource.sorted { lhs, rhs in
+            let lhsBlocked = (lhs.value.blockedUntil ?? .distantPast) > now
+            let rhsBlocked = (rhs.value.blockedUntil ?? .distantPast) > now
+            // 先淘汰没在冷却里的（冷却中的条目是正在生效的防护，留到最后）
+            if lhsBlocked != rhsBlocked { return !lhsBlocked }
+            return lhs.value.lastSeen < rhs.value.lastSeen
+        }
+        for entry in ordered.prefix(overflow) {
+            failuresBySource.removeValue(forKey: entry.key)
+        }
+    }
+
+    /// 仅用于测试断言「限速状态不会无限增长」；不参与任何运行时逻辑。
+    var trackedSourceCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return failuresBySource.count
     }
 
     // MARK: - Authorization
