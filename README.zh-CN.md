@@ -24,7 +24,6 @@ BrewPing 让你在自己的 Mac 或 Windows 上监控、操作并审批正在运
 ![iOS](https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=F0F0F0)
 ![watchOS](https://img.shields.io/badge/watchOS-11.6%2B-000000?logo=apple&logoColor=F0F0F0)
 ![Android](https://img.shields.io/badge/Android-8%2B-3DDC84?logo=android&logoColor=white)
-![Swift tests](https://img.shields.io/badge/swift%20tests-66%20passing-brightgreen)
 
 </div>
 
@@ -34,11 +33,12 @@ BrewPing 让你在自己的 Mac 或 Windows 上监控、操作并审批正在运
 |---|---|
 | **iPhone / Apple Watch** | **[前往 App Store 下载](https://apps.apple.com/us/app/brewping/id6812269598)** |
 | **macOS** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) —— 已签名并公证的 DMG · 或走[官网下载页](https://www.commitbrew.com/#download) |
-| **Windows** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) —— `setup.exe` / `.msi`（Windows 10/11 + WebView2） |
+| **Windows** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) —— `setup.exe` / `.msi` |
 | **Android** | 源码构建 —— `cd Android && ./gradlew assembleDebug` |
 | **源码** | `git clone https://github.com/banmu123/BrewPing.git` |
 
-Release 页上的 macOS / Windows 安装包与本仓库 `v1.0.0` tag 的代码一致。哪些端已发布、哪些只在仓库里、哪些还没开始，只写在[平台状态](#-平台状态)一处。
+Release 页上的 macOS / Windows 安装包与本仓库 `v1.0.0` tag 的代码一致。哪些端已发布、哪些只在仓库里、哪些还没开始，见下方[平台状态](#-平台状态)；包含系统要求、测试数量与已知限制的权威表格在
+[docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)。
 
 ## 📸 截图
 
@@ -126,13 +126,15 @@ BrewPing 不带 Agent、不带模型。它发现你装好的 CLI Agent，读取�
 
 | 平台 | 状态 | 说明 |
 |---|---|---|
-| **iOS** | **已上架** —— [App Store](https://apps.apple.com/us/app/brewping/id6812269598) | 仅 iPhone（iOS 17.0+） |
-| **watchOS** | **已上架** —— App Store | 随 iPhone App 一起发布（watchOS 11.6+）；支持语音口述指令、滑动切换 Agent 与模型 |
-| **macOS** | **已发布** —— GitHub Release `v1.0.0` | macOS 13.0+；universal 二进制（Apple Silicon + Intel），Developer ID 签名、公证、staple |
-| **Windows** | **已发布** —— GitHub Release `v1.0.0` | Windows 10/11 + WebView2；`setup.exe` / `.msi` |
-| **Android** | **已构建，未发布** | Android 8.0+（`minSdk` 26）；可从本仓库构建，尚未提交 Google Play |
+| **iOS** | **已上架** —— [App Store](https://apps.apple.com/us/app/brewping/id6812269598) | 仅 iPhone |
+| **watchOS** | **已上架** —— App Store | 随 iPhone App 一起发布；支持语音口述指令、滑动切换 Agent 与模型 |
+| **macOS** | **已发布** —— GitHub Release `v1.0.0` | universal 二进制（Apple Silicon + Intel），Developer ID 签名、公证、staple |
+| **Windows** | **已发布** —— GitHub Release `v1.0.0` | Tauri 2 桌面端；`setup.exe` / `.msi`；需要 WebView2 |
+| **Android** | **已构建，未发布** | 可从本仓库构建；尚未提交 Google Play |
 | **Wear OS** | **已在仓库内，未发布** | `Android/wear` 可构建并已进 CI；未过真机测试、未提交商店 |
 | **跨网络访问** | **不支持** | 仅局域网 —— 没有托管服务，也没有官方公网中继 |
+
+各端最低系统版本、测试数量与 CI 任务见 **[PROJECT_STATUS.md §2–§3](docs/PROJECT_STATUS.md)**。
 
 「已构建」只表示这个产物能从本仓库产出，**不表示**公众可以获取。上表未标为「已发布 / 已上架」的端，都没有对外发布。
 
@@ -247,17 +249,23 @@ Sources/
 ios/                      # iPhone App + Apple Watch App
 Android/                  # Android 手机端 + Wear OS 模块
 Scripts/                  # 打包脚本（build-mac-app.sh）+ DMG 用 entitlements/Info.plist
-docs/                     # 设计文档 + 隐私政策
+docs/                     # 权威状态、设计文档、审计记录、隐私政策
 ```
 
 ## 📚 文档
 
+客观事实 —— 平台要求、发布状态、测试数量、已知限制 —— 只写在 **[项目状态](docs/PROJECT_STATUS.md)** 一处。
+
 - **[隐私政策](docs/privacy.html)** —— BrewPing 碰什么、不碰什么
-- **[项目状态](docs/PROJECT_STATUS.md)** —— 平台、测试数量、维护流程与已知限制
-- **[iOS 端结构与模块划分](docs/BrewPing-iOS端结构与模块划分.md)** —— iPhone 端布局与状态流
-- **[Windows 端多对话管理实现方案](docs/BrewPing-Windows端多对话管理实现方案.md)** —— 桌面端对话模型
-- **[Provider 管理](docs/BrewPing-Provider管理-Lody新建Provider迁移方案.md)** —— 配置内部实现
-- **[获取文件夹落地方案](docs/BrewPing-获取文件夹-Windows落地方案.md)** —— 工作目录绑定
+- **设计文档**（在 [`docs/design/`](docs/design/)）
+  - [iOS 端结构与模块划分](docs/design/BrewPing-iOS端结构与模块划分.md) —— iPhone 端布局与状态流
+  - [Windows 端多对话管理实现方案](docs/design/BrewPing-Windows端多对话管理实现方案.md) —— 桌面端对话模型
+  - [Provider 管理](docs/design/BrewPing-Provider管理-Lody新建Provider迁移方案.md) —— 配置内部实现
+  - [获取文件夹落地方案](docs/design/BrewPing-获取文件夹-Windows落地方案.md) —— 工作目录绑定
+  - [安全传输方案](docs/design/BrewPing-安全传输方案.md) —— 局域网传输设计（提案）
+  - [设备授权与撤销方案](docs/design/BrewPing-设备授权与撤销方案.md) —— 设备凭据设计（提案）
+- **审计记录**（在 [`docs/audits/`](docs/audits/)）—— [安全审计](docs/audits/BrewPing-安全审计-第二批.md)、
+  [代码审查](docs/audits/BrewPing-代码审查-Phase1-审计.md)、发布验证报告
 - **[商标](TRADEMARKS.md)** —— 仅用于说明兼容性的第三方名称
 
 ## 🤝 参与贡献与开发
@@ -267,10 +275,12 @@ docs/                     # 设计文档 + 隐私政策
 提 PR 前的自检 —— 所有测试都不需要设备或模拟器：
 
 ```bash
-swift test --disable-sandbox                       # Swift 119 个用例（macOS）
-cargo test --locked                                # Rust 318 个用例（Sources/BrewPingwinDesktop/src-tauri）
-cd Android && ./gradlew test                       # Android 109 个用例（:core + :app）
+swift test --disable-sandbox                       # Swift 核心（macOS）
+cargo test --locked                                # Rust（Sources/BrewPingwinDesktop/src-tauri）
+cd Android && ./gradlew test                       # Android（:core + :app）
 ```
+
+各套件当前用例数见 [PROJECT_STATUS.md §3](docs/PROJECT_STATUS.md#3-test--ci-status)。
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 在每次 push / PR 上运行上述全部内容，另加 iOS + watchOS 编译与仓库卫生检查；还有每日定时运行以捕捉 runner 工具链漂移。
 

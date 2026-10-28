@@ -10,10 +10,14 @@ kind matters:
    **outside** this repository and cannot be re-derived from it; the entries below are the maintainer's
    own record, and the linked stores/releases can be checked independently.
 
+**This document is the single source of truth for the numbers below** — platform requirements, test
+counts, and distribution status. `README.md`, `README.zh-CN.md`, `ROADMAP.md`, and `CONTRIBUTING.md`
+link here instead of repeating them. If two files disagree, fix the other one.
+
 **No adoption metrics are claimed.** The project does not publish user counts, download numbers, or
 third-party usage data, because none of that is verifiable from inside the repository.
 
-Last reviewed: 2026-09-24.
+Last reviewed: 2026-10-28.
 
 ---
 
@@ -24,7 +28,7 @@ Last reviewed: 2026-09-24.
 | Status | **Actively developed.** Both desktop builds and the iPhone / Apple Watch apps have published releases; Android is built but not published — see [Distribution status](#11-distribution-status) |
 | Main branch | `main` — all work lands here; there are no maintenance branches |
 | Latest release | `v1.0.0` (git tag), published as a GitHub Release |
-| Release assets | macOS: three signed + notarized DMG variants (universal / Apple Silicon / Intel) · Windows: `setup.exe` and `.msi` |
+| Release assets | macOS: three signed + notarized DMG variants (universal / Apple Silicon / Intel) · Windows: `setup.exe` and `.msi` · plus the App Review demo video |
 | Maintainers | 1 (a single active maintainer — see [Maintenance](#4-maintenance)) |
 | Language | English + Simplified Chinese across all user-facing surfaces |
 

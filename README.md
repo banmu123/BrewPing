@@ -26,7 +26,6 @@ work stays on your machine: no account, no analytics, no server of ours in the p
 ![iOS](https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=F0F0F0)
 ![watchOS](https://img.shields.io/badge/watchOS-11.6%2B-000000?logo=apple&logoColor=F0F0F0)
 ![Android](https://img.shields.io/badge/Android-8%2B-3DDC84?logo=android&logoColor=white)
-![Swift tests](https://img.shields.io/badge/swift%20tests-66%20passing-brightgreen)
 
 </div>
 
@@ -36,13 +35,14 @@ work stays on your machine: no account, no analytics, no server of ours in the p
 |---|---|
 | **iPhone / Apple Watch** | **[Download on the App Store](https://apps.apple.com/us/app/brewping/id6812269598)** |
 | **macOS** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) — signed & notarized DMG · or the [download page](https://www.commitbrew.com/#download) |
-| **Windows** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) — `setup.exe` / `.msi` (Windows 10/11 + WebView2) |
+| **Windows** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) — `setup.exe` / `.msi` |
 | **Android** | Build from source — `cd Android && ./gradlew assembleDebug` |
 | **Source** | `git clone https://github.com/banmu123/BrewPing.git` |
 
 The macOS and Windows builds on the release page are the same code as this repository at tag `v1.0.0`.
-Which surfaces are shipped, in-repo-but-unreleased, or not started is spelled out in
-[Platform status](#-platform-status) — and nowhere else.
+Which surfaces are shipped, in-repo-but-unreleased, or not started is summarised in
+[Platform status](#-platform-status); the canonical table — with requirements, test counts, and known
+limitations — is [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
 
 ## 📸 Screenshots
 
@@ -144,13 +144,15 @@ not replace them), or you are looking for a hosted coding agent that runs in the
 
 | Platform | Status | Notes |
 |---|---|---|
-| **iOS** | **Available** — [App Store](https://apps.apple.com/us/app/brewping/id6812269598) | iPhone only (iOS 17.0+) |
-| **watchOS** | **Available** — App Store | Ships with the iPhone app (watchOS 11.6+); voice-dictated instructions, swipe to switch agent/model |
-| **macOS** | **Available** — GitHub Release `v1.0.0` | macOS 13.0+; universal binary (Apple Silicon + Intel), Developer ID signed, notarized, stapled |
-| **Windows** | **Available** — GitHub Release `v1.0.0` | Windows 10/11 + WebView2; `setup.exe` / `.msi` |
-| **Android** | **Built, not published** | Android 8.0+ (`minSdk` 26); builds from this repository, not yet submitted to Google Play |
+| **iOS** | **Available** — [App Store](https://apps.apple.com/us/app/brewping/id6812269598) | iPhone only |
+| **watchOS** | **Available** — App Store | Ships with the iPhone app; voice-dictated instructions, swipe to switch agent/model |
+| **macOS** | **Available** — GitHub Release `v1.0.0` | Universal binary (Apple Silicon + Intel), Developer ID signed, notarized, stapled |
+| **Windows** | **Available** — GitHub Release `v1.0.0` | Tauri 2 desktop; `setup.exe` / `.msi`; needs WebView2 |
+| **Android** | **Built, not published** | Builds from this repository; not submitted to Google Play |
 | **Wear OS** | **In the repository, not released** | `Android/wear` builds and is covered by CI; no device testing, no store submission |
 | **Cross-network** | **Not supported** | Local network only — no hosted service and no official public relay |
+
+Minimum OS versions, test counts, and CI jobs: **[PROJECT_STATUS.md §2–§3](docs/PROJECT_STATUS.md)**.
 
 "Built" means the artifact can be produced from this repository. It does **not** mean it is available
 to the public. Anything not listed as *Available* above is not shipped.
@@ -294,17 +296,24 @@ Sources/
 ios/                      # iPhone app + Apple Watch app
 Android/                  # Android phone app + Wear OS module
 Scripts/                  # packaging (build-mac-app.sh) + entitlement/Info.plist for the DMG
-docs/                     # design notes + privacy policy
+docs/                     # canonical status, design notes, audit records, privacy policy
 ```
 
 ## 📚 Documentation
 
+Objective state — platform requirements, distribution status, test counts, known limitations — lives
+in **[Project status](docs/PROJECT_STATUS.md)** and nowhere else.
+
 - **[Privacy policy](docs/privacy.html)** — what BrewPing does and does not touch
-- **[Project status](docs/PROJECT_STATUS.md)** — platforms, test counts, maintenance process, known limitations
-- **[iOS structure & modules](docs/BrewPing-iOS端结构与模块划分.md)** — iPhone app layout and state flow
-- **[Windows multi-conversation design](docs/BrewPing-Windows端多对话管理实现方案.md)** — desktop conversation model
-- **[Provider management](docs/BrewPing-Provider管理-Lody新建Provider迁移方案.md)** — provider config internals
-- **[Folder browsing](docs/BrewPing-获取文件夹-Windows落地方案.md)** — working-folder binding
+- **Design notes** (in [`docs/design/`](docs/design/))
+  - [iOS structure & modules](docs/design/BrewPing-iOS端结构与模块划分.md) — iPhone app layout and state flow
+  - [Windows multi-conversation design](docs/design/BrewPing-Windows端多对话管理实现方案.md) — desktop conversation model
+  - [Provider management](docs/design/BrewPing-Provider管理-Lody新建Provider迁移方案.md) — provider config internals
+  - [Folder browsing](docs/design/BrewPing-获取文件夹-Windows落地方案.md) — working-folder binding
+  - [Secure transport plan](docs/design/BrewPing-安全传输方案.md) — LAN transport design (proposal)
+  - [Per-device authorization plan](docs/design/BrewPing-设备授权与撤销方案.md) — device credentials (proposal)
+- **Audit records** (in [`docs/audits/`](docs/audits/)) — [security audit](docs/audits/BrewPing-安全审计-第二批.md),
+  [code review](docs/audits/BrewPing-代码审查-Phase1-审计.md), release validation reports
 - **[Trademarks](TRADEMARKS.md)** — third-party names used to describe compatibility
 
 ## 🤝 Contributing & development
@@ -315,10 +324,12 @@ in **[CONTRIBUTING.md](CONTRIBUTING.md)**; security reports go through **[SECURI
 Sanity check before opening a PR — every suite runs without a device or emulator:
 
 ```bash
-swift test --disable-sandbox                       # 119 Swift tests (macOS)
-cargo test --locked                                # 318 Rust tests (Sources/BrewPingwinDesktop/src-tauri)
-cd Android && ./gradlew test                       # 109 Android tests (:core + :app)
+swift test --disable-sandbox                       # Swift core (macOS)
+cargo test --locked                                # Rust (Sources/BrewPingwinDesktop/src-tauri)
+cd Android && ./gradlew test                       # Android (:core + :app)
 ```
+
+Current counts per suite: [PROJECT_STATUS.md §3](docs/PROJECT_STATUS.md#3-test--ci-status).
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs all of the above plus an iOS + watchOS
 compile and repository-hygiene checks on every push and pull request, with a nightly schedule to catch

@@ -42,17 +42,18 @@ The core product is built, and both desktop editions have published releases.
 
 ## 🟡 Cross-platform and wearable experience — in progress
 
-The mobile surfaces exist and are being finished, then aligned across platforms.
+The Apple surfaces are shipped; the Android surfaces exist and are being finished.
 
 | Surface | Where it is today |
 |---|---|
-| iPhone / Apple Watch | In App Review — TestFlight only, no App Store listing yet |
+| iPhone / Apple Watch | **Shipped** — available on the App Store |
 | Android phone | Builds cleanly and targets API 36; not submitted to Google Play |
 | Wear OS watch | Module lives in the repository and is covered by CI; not released, on no store |
 
 Work in this phase:
 
-- Carrying each mobile client through store submission and its first public release.
+- Carrying the Android phone and Wear OS clients through store submission and their first public
+  release — the iPhone and Apple Watch apps already are.
 - Keeping feature parity across iPhone, Apple Watch, Android, and Wear OS — including a shared
   client core on Android so the phone and the watch behave the same way.
 - Watch-first quick actions: voice dictation, reading replies, approving or rejecting.

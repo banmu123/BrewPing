@@ -400,8 +400,9 @@ let is_public = (method == "POST" && path == "/api/pair")
 
 1. `SECURITY.md` 说"配对码是单次、10 分钟有效"，正确；但没有说**多设备共享同一个令牌、
    无法单独撤销**。建议在"Explicitly out of scope"之前补一条"当前为单令牌模型"。
-2. `ROADMAP.md` 写 iPhone「In App Review — TestFlight only」，而 `docs/PROJECT_STATUS.md:40,55`
-   写「Available — App Store」。这是文档漂移，与安全无关，但同一份仓库自相矛盾会被审核方读到。
+2. ~~`ROADMAP.md` 写 iPhone「In App Review — TestFlight only」，而 `docs/PROJECT_STATUS.md`
+   写「Available — App Store」。~~ **已修复（2026-10-28）**：ROADMAP 改为「Shipped — available on
+   the App Store」，并同步了「跨平台与可穿戴」阶段的措辞。
 3. `ROADMAP.md` 的「Approval gate … not a sandbox」与本次结论一致，无需改；
    但建议补一句"审批档位可由已配对设备远程关闭"。
 
