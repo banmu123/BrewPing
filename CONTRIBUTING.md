@@ -24,7 +24,7 @@ machine. Two consequences worth knowing before you open a PR:
 | `Sources/BrewPing` | CLI entry point |
 | `ios/BrewPing`, `ios/Watch` | iPhone and Apple Watch apps |
 | `Android` | Android app (Jetpack Compose) |
-| `docs/` | Product docs — [map](docs/README.md): `PROJECT_STATUS.md` (canonical), `design/`, `audits/`, `privacy.html` |
+| `docs/` | Product docs — [map](docs/OVERVIEW.md): `PROJECT_STATUS.md` (canonical), `design/`, `audits/`, `privacy.html` |
 | `.workbuddy/` | Maintainer's development log and verification screenshots — working context, not product material |
 | `experimental/relay-server` | Parked TypeScript prototype — **not part of the shipped product, no client connects to it** |
 
