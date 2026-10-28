@@ -30,6 +30,53 @@ product, so the security boundary is:
    traversal, unintended overwrites, or writing outside the intended file are in scope — a silently
    corrupted agent config is a security-relevant bug in this project.
 
+## Request handling and pairing limits — what is actually enforced
+
+These are **hardening measures, not a sandbox**. They are documented here so reports can be
+judged against real behaviour rather than assumptions.
+
+### HTTP request framing (`Sources/App/HTTPServer.swift`)
+
+The desktop listener speaks a deliberately small subset of HTTP/1.1 and **rejects** anything it
+cannot frame unambiguously, instead of guessing:
+
+| Condition | Response |
+|---|---|
+| `Content-Length` negative, non-numeric (`+5`, `1.5`, `0x10`), or empty | `400` |
+| `Content-Length` appears more than once — **even with identical values** | `400` |
+| `Content-Length` larger than 8 MiB (also covers integer overflow) | `413` |
+| Any `Transfer-Encoding` (chunked is **not** supported) | `400` |
+| Request line malformed, header without `:`, obsolete line folding, control characters | `400` |
+| Request head larger than 1 MiB (terminator seen or not) | `431` |
+
+The same checks run whether the head and body arrive in one TCP segment or across many, because
+they are applied while parsing the head — before any body is read or allocated. "Invalid length
+means zero" is never used as a fallback: that silently turns a request with a body into an empty
+one. A malformed request closes only that connection; it cannot take the desktop process down.
+
+### Pairing code attempts (`Sources/App/PairingStore.swift`)
+
+The code stays **6 digits, valid for 10 minutes, single-use**. On top of that:
+
+- **Per source**: 5 failed attempts within 5 minutes → that source is refused for 60 seconds.
+- **Global**: 30 failed attempts within 5 minutes across all sources → everybody is refused for
+  60 seconds. This is the backstop against simply rotating source addresses.
+- "Source" is the peer address reported by Network.framework for that TCP connection. Values from
+  `X-Forwarded-For` and friends are **never** consulted. Relayed (tunnelled) requests have no peer
+  address and share one bucket.
+- A rate-limited request is rejected **before** the code is compared, so a correct guess during a
+  cooldown does not succeed. A successful pairing clears that source's failure history.
+- State is in memory, bounded to 256 sources (least-recently-seen evicted first), and pruned by
+  the failure window.
+- Guesses made while **no code is being displayed** are not counted — they cannot succeed, and
+  counting them would let anyone pre-fill the global limit before the user opens the pairing sheet.
+
+**Not covered by the above:** the counters are per-process and reset on restart; there is one
+long-lived token per desktop with no per-device revocation; per-source limits are per IP address,
+so an attacker with many addresses only meets the global cap; and the global cap means a
+determined attacker can make the legitimate user wait out a 60-second cooldown. The traffic itself
+is still plain HTTP on the LAN.
+
 ## Explicitly out of scope
 
 - Anyone who already has the pairing token or physical/administrative access to the paired computer.

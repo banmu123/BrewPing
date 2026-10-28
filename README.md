@@ -315,7 +315,7 @@ in **[CONTRIBUTING.md](CONTRIBUTING.md)**; security reports go through **[SECURI
 Sanity check before opening a PR — every suite runs without a device or emulator:
 
 ```bash
-swift test --disable-sandbox                       # 66 Swift tests (macOS)
+swift test --disable-sandbox                       # 119 Swift tests (macOS)
 cargo test --locked                                # 318 Rust tests (Sources/BrewPingwinDesktop/src-tauri)
 cd Android && ./gradlew test                       # 109 Android tests (:core + :app)
 ```

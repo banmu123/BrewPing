@@ -267,7 +267,7 @@ docs/                     # 设计文档 + 隐私政策
 提 PR 前的自检 —— 所有测试都不需要设备或模拟器：
 
 ```bash
-swift test --disable-sandbox                       # Swift 66 个用例（macOS）
+swift test --disable-sandbox                       # Swift 119 个用例（macOS）
 cargo test --locked                                # Rust 318 个用例（Sources/BrewPingwinDesktop/src-tauri）
 cd Android && ./gradlew test                       # Android 109 个用例（:core + :app）
 ```
