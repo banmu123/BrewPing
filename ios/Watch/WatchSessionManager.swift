@@ -85,6 +85,24 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     @Published var agentMode: String = "session"
     @Published var commandState: CommandSendState = .idle
 
+    /// 清掉**已结束**的命令提示（失败红字 / 完成 ✓），回到麦克风。
+    ///
+    /// 为什么需要它：`commandState` 一旦变成 `.failed`，那行红字就会一直钉在输入栏上，
+    /// 只有「点一下它」或「再发一条」才消失。于是出现这个真实场景 ——
+    /// Mac 端模型 API key 过期 → 手表收到 `API key failed` → 用户在 Mac 上重新配置好
+    /// → 回到手表点刷新 → 红字还在。它描述的是**上一条**命令，早已过时
+    ///（正文也已写进对话转录，见 Mac `CommandRunner` 的 `role: "error"` 落库）。
+    ///
+    /// 只清终态：`.sending` / `.sent` 是在途命令，刷新不能把它们抹掉。
+    func clearTerminalCommandState() {
+        switch commandState {
+        case .failed, .completed:
+            commandState = .idle
+        case .idle, .sending, .sent:
+            break
+        }
+    }
+
     /// 命令回执看门狗：iPhone 进程被杀 / 命令丢失时，终态永远不会来，
     /// Watch 不能无限停在 Sent（输入被禁用）。90s 无终态 → 明确失败。
     private var commandWatchdog: DispatchWorkItem?

@@ -223,6 +223,9 @@ struct WatchConversationDetailView: View {
             VStack(alignment: .leading, spacing: 10) {
                 // ScrollView 上 `.refreshable` 不可靠，刷新就做成一个明确的小按钮
                 Button {
+                    // 「刷新」= 我要看现在的真相：上一条命令的失败红字 / ✓ 已经过时，
+                    // 顺手收掉（正文仍在转录里，不会丢信息）。
+                    sessionManager.clearTerminalCommandState()
                     sessionManager.requestConversation(id: conversation.id)
                 } label: {
                     HStack(spacing: 4) {

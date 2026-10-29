@@ -21,38 +21,25 @@ struct WatchComposer: View {
     @FocusState private var inputFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // 失败提示：只有失败时出现（点一下收回）
-            if case .failed(let message) = sessionManager.commandState {
-                // message 是动态内容（设备返回的错误），不做本地化
-                Text(message)
-                    .font(.system(size: 9))
-                    .foregroundStyle(Color.bpDestructive)
-                    .lineLimit(3)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .onTapGesture { sessionManager.commandState = .idle }
-            }
-
-            composerCard
-        }
-        .onChange(of: sessionManager.commandState) { _, newState in
-            if case .completed = newState {
-                // 结果带对话 id：只刷新所属对话（旧版 iPhone 不带 id → 保持原行为）
-                let owner = sessionManager.lastResultConversationId
-                if owner == nil || owner == conversationId {
-                    finishAndRefresh()
+        // 失败提示只在 `composerCard` 里渲染一次（提亮红、贴在卡片内）。
+        // 这里原本还有一份同样的文案，导致同一条错误在输入栏上下各显示一遍。
+        composerCard
+            .onChange(of: sessionManager.commandState) { _, newState in
+                if case .completed = newState {
+                    // 结果带对话 id：只刷新所属对话（旧版 iPhone 不带 id → 保持原行为）
+                    let owner = sessionManager.lastResultConversationId
+                    if owner == nil || owner == conversationId {
+                        finishAndRefresh()
+                    }
                 }
             }
-        }
-        .onChange(of: inputFocused) { _, focused in
-            // 键盘收起（说完话 / 点了别处）且还有内容 → 自动发送。
-            // 这是"说完就发"的触发点：手表键盘没有回车键，失焦即提交。
-            if !focused, hasDraft, !inFlight {
-                sendDraft()
+            .onChange(of: inputFocused) { _, focused in
+                // 键盘收起（说完话 / 点了别处）且还有内容 → 自动发送。
+                // 这是"说完就发"的触发点：手表键盘没有回车键，失焦即提交。
+                if !focused, hasDraft, !inFlight {
+                    sendDraft()
+                }
             }
-        }
     }
 
     // MARK: - 麦克风 = 透明输入框的"皮肤"
