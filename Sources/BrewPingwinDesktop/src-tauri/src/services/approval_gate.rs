@@ -110,14 +110,68 @@ pub struct Resolution {
     pub conversation_id: Option<String>,
 }
 
+/// 一条审批的**终态**记录：审批从 pending 队列消失之后，客户端还能问「它到底怎么了」。
+///
+/// 与 macOS `ApprovalGate.ApprovalOutcome` 一一对应。挂起的命令在批准之前
+/// **没有 commandId**（真正执行时才生成），所以只凭「审批不见了」分不清
+/// 批准执行 / 拒绝 / 超时；客户端早期只能拿对话转录里最新出现的 commandId 去猜，
+/// 同一对话里别的设备发一条命令就会认错。这里把
+/// `approvalID → 终态 + 实际 commandId` 固定下来，关联变成确定的。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalOutcome {
+    pub approval_id: String,
+    pub status: ApprovalOutcomeStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// 记录写入时刻，只用于本地淘汰，不对外暴露（与 macOS 的 `resolvedAt` 同义）。
+    #[serde(skip)]
+    pub resolved_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApprovalOutcomeStatus {
+    /// 已批准并已派发执行。`command_id` 此刻可能已有值，也可能还没挂上（毫秒级窗口）。
+    Approved,
+    Denied,
+    /// 超过 TTL 没人处理，自动作废（缺席不表态 ≠ 默认放行）。
+    Expired,
+    /// 已批准但执行没起来（对话不存在 / 提交失败等）。`error` 说明原因。
+    Failed,
+}
+
+impl ApprovalOutcomeStatus {
+    /// 与 `GET /api/approvals/{id}` 响应里的 `status` 字符串一致。
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ApprovalOutcomeStatus::Approved => "approved",
+            ApprovalOutcomeStatus::Denied => "denied",
+            ApprovalOutcomeStatus::Expired => "expired",
+            ApprovalOutcomeStatus::Failed => "failed",
+        }
+    }
+}
+
 /// pending 有效期：超过后自动作废，避免"挂起没人管"的命令永久占坑。
 const PENDING_TTL_SECS: i64 = 300;
+/// 终态记录保留时长：客户端关掉弹窗后最多跟踪 330s，这里留足余量。
+const OUTCOME_TTL_SECS: i64 = 900;
+/// 终态记录上限，防止长时间运行后无限增长。
+const MAX_OUTCOMES: usize = 256;
 
 #[derive(Default)]
 struct Inner {
     mode: ApprovalMode,
     always_allow_codes: HashSet<String>,
     pending: HashMap<String, PendingApproval>,
+    /// 已出队的审批终态，按 approvalID 索引。只放内存：pending 队列本身也是内存态，
+    /// 进程重启后两者一起消失，客户端拿到 404 后按「结果不可用」收敛。
+    outcomes: HashMap<String, ApprovalOutcome>,
 }
 
 /// 授权网关。进程内单例（`Arc<ApprovalGate>`），HTTP 层与桌面前端共用同一份状态。
@@ -226,28 +280,79 @@ impl ApprovalGate {
             .cloned()
     }
 
+    // ─── Outcome（审批终态）────────────────────────────────────────────────
+
+    /// 这条审批现在的处境。`None` = 服务端不认识它（从未见过 / 记录已过期 / 进程重启过）。
+    ///
+    /// 会顺带清理过期 pending —— 一条挂起到 TTL 之外的审批在这里被记为 `expired`，
+    /// 客户端因此能收到「超时」这个明确终态，而不是干等她自己的看门狗。
+    pub fn outcome(&self, id: &str) -> Option<ApprovalOutcome> {
+        let mut inner = self.inner.lock().expect("approval gate poisoned");
+        prune_expired(&mut inner);
+        inner.outcomes.get(id).cloned()
+    }
+
+    /// 批准后命令真正派发成功：把**实际** commandId 补进终态记录。
+    ///
+    /// 这是「审批 → 命令」关联的唯一权威来源。客户端拿到它就直接轮询该 commandId，
+    /// 不再靠「对话里最新出现的 commandId」猜（同一对话多设备并发时会认错）。
+    pub fn attach_command(&self, id: &str, command_id: &str, conversation_id: Option<&str>) {
+        let mut inner = self.inner.lock().expect("approval gate poisoned");
+        let Some(record) = inner.outcomes.get_mut(id) else {
+            return;
+        };
+        record.command_id = Some(command_id.to_string());
+        record.resolved_at = Utc::now();
+        if let Some(conv) = conversation_id {
+            if !conv.is_empty() {
+                record.conversation_id = Some(conv.to_string());
+            }
+        }
+    }
+
+    /// 批准了但执行没起来：明确记成 `failed`，别让客户端一直等到看门狗超时。
+    pub fn mark_failed(&self, id: &str, error: &str) {
+        let mut inner = self.inner.lock().expect("approval gate poisoned");
+        if let Some(record) = inner.outcomes.get_mut(id) {
+            record.status = ApprovalOutcomeStatus::Failed;
+            record.error = Some(error.to_string());
+            record.resolved_at = Utc::now();
+        }
+    }
+
     // ─── Decide ──────────────────────────────────────────────────────────────
 
     /// 用户对某条 pending 做出决定。返回 `Resolution`，由调用方决定是否执行正文。
     /// 未知 id / 已过期 / 已处理 返回 `None`。
+    ///
+    /// 无论走到哪个分支，都会留下一条终态记录 —— 这样「弹窗被关掉」的客户端
+    /// 仍能靠 `approvalID` 查到确定的结论，而不是靠猜。
     pub fn decide(&self, id: &str, action: &str) -> Option<Resolution> {
         let mut inner = self.inner.lock().expect("approval gate poisoned");
+        // 先清理过期项：TTL 之外本来就不该再被执行（早期实现的 TTL 只在列表查询时生效）。
+        prune_expired(&mut inner);
         let approval = inner.pending.remove(id)?;
         let reason_codes: Vec<String> = approval.reasons.iter().map(|r| r.code.clone()).collect();
 
         match action {
-            "deny" => Some(Resolution {
-                action: "deny".to_string(),
-                text: None,
-                reason_codes,
-                conversation_id: approval.conversation_id.clone(),
-            }),
-            "approve" => Some(Resolution {
-                action: "approve".to_string(),
-                text: Some(approval.text),
-                reason_codes,
-                conversation_id: approval.conversation_id.clone(),
-            }),
+            "deny" => {
+                record_outcome(&mut inner, &approval, ApprovalOutcomeStatus::Denied, None);
+                Some(Resolution {
+                    action: "deny".to_string(),
+                    text: None,
+                    reason_codes,
+                    conversation_id: approval.conversation_id.clone(),
+                })
+            }
+            "approve" => {
+                record_outcome(&mut inner, &approval, ApprovalOutcomeStatus::Approved, None);
+                Some(Resolution {
+                    action: "approve".to_string(),
+                    text: Some(approval.text),
+                    reason_codes,
+                    conversation_id: approval.conversation_id.clone(),
+                })
+            }
             "always_approve" => {
                 // 只白名单化"已知的" danger code，拒绝未知 code 注入持久化。
                 let known = danger_pattern::known_codes();
@@ -257,6 +362,7 @@ impl ApprovalGate {
                     }
                 }
                 persist(&self.path, &inner);
+                record_outcome(&mut inner, &approval, ApprovalOutcomeStatus::Approved, None);
                 Some(Resolution {
                     action: "always_approve".to_string(),
                     text: Some(approval.text),
@@ -265,7 +371,16 @@ impl ApprovalGate {
                 })
             }
             // 与 macOS 一致：未知 action 也会消费掉这条 pending，并返回 None。
-            _ => None,
+            // 但它没有产生任何执行 —— 记成 failed，客户端才不会误以为"批准了"。
+            _ => {
+                record_outcome(
+                    &mut inner,
+                    &approval,
+                    ApprovalOutcomeStatus::Failed,
+                    Some(format!("unknown action: {action}")),
+                );
+                None
+            }
         }
     }
 }
@@ -296,8 +411,64 @@ fn make_pending(
 }
 
 fn prune_expired(inner: &mut Inner) {
-    let cutoff = Utc::now() - Duration::seconds(PENDING_TTL_SECS);
-    inner.pending.retain(|_, a| a.created_at > cutoff);
+    let now = Utc::now();
+    // 1) 过期 pending → 记为 expired（这一步让超时对客户端可见）
+    let cutoff = now - Duration::seconds(PENDING_TTL_SECS);
+    let expired: Vec<String> = inner
+        .pending
+        .iter()
+        .filter(|(_, a)| a.created_at <= cutoff)
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in expired {
+        if let Some(approval) = inner.pending.remove(&id) {
+            inner.outcomes.insert(
+                id.clone(),
+                ApprovalOutcome {
+                    approval_id: id,
+                    status: ApprovalOutcomeStatus::Expired,
+                    command_id: None,
+                    conversation_id: approval.conversation_id,
+                    error: None,
+                    resolved_at: now,
+                },
+            );
+        }
+    }
+    // 2) 终态记录按时间淘汰，并按条数封顶，避免长时间运行后无限增长
+    let outcome_cutoff = now - Duration::seconds(OUTCOME_TTL_SECS);
+    inner.outcomes.retain(|_, r| r.resolved_at > outcome_cutoff);
+    if inner.outcomes.len() > MAX_OUTCOMES {
+        let mut by_age: Vec<(DateTime<Utc>, String)> = inner
+            .outcomes
+            .iter()
+            .map(|(id, r)| (r.resolved_at, id.clone()))
+            .collect();
+        by_age.sort_by(|a, b| a.0.cmp(&b.0));
+        let excess = inner.outcomes.len() - MAX_OUTCOMES;
+        for (_, id) in by_age.into_iter().take(excess) {
+            inner.outcomes.remove(&id);
+        }
+    }
+}
+
+fn record_outcome(
+    inner: &mut Inner,
+    approval: &PendingApproval,
+    status: ApprovalOutcomeStatus,
+    error: Option<String>,
+) {
+    inner.outcomes.insert(
+        approval.id.clone(),
+        ApprovalOutcome {
+            approval_id: approval.id.clone(),
+            status,
+            command_id: None,
+            conversation_id: approval.conversation_id.clone(),
+            error,
+            resolved_at: Utc::now(),
+        },
+    );
 }
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
@@ -648,6 +819,153 @@ mod tests {
         };
         let resolution3 = g.decide(&id3, "approve").expect("approve 应有决议");
         assert!(resolution3.conversation_id.is_none());
+        let _ = std::fs::remove_file(path);
+    }
+
+    // ─── 审批终态记录（approvalID → 实际 commandId）──────────────────────────
+
+    // TC-AG-17  批准后立刻有终态（approved），attach 之后才带 commandId
+    #[test]
+    fn approve_records_outcome_and_attach_binds_command_id() {
+        let (g, path) = gate("outcome-approve");
+        let id = match g.check_with("rm -rf /tmp/x", ApprovalMode::Safe, Some("conv_7")) {
+            Decision::Pending(a) => a.id,
+            Decision::Allow => panic!("应挂起"),
+        };
+        assert!(g.outcome(&id).is_none(), "还挂着的时候没有终态");
+
+        g.decide(&id, "approve").expect("approve 应有决议");
+        let outcome = g.outcome(&id).expect("批准后必须有终态");
+        assert_eq!(outcome.status, ApprovalOutcomeStatus::Approved);
+        assert!(
+            outcome.command_id.is_none(),
+            "commandId 要等执行真正起来才挂上"
+        );
+        assert_eq!(outcome.conversation_id.as_deref(), Some("conv_7"));
+
+        g.attach_command(&id, "cmd_42", Some("conv_7"));
+        let outcome = g.outcome(&id).expect("attach 后终态仍在");
+        assert_eq!(outcome.command_id.as_deref(), Some("cmd_42"));
+        assert_eq!(outcome.conversation_id.as_deref(), Some("conv_7"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    // TC-AG-18  拒绝 → denied，且绝不带 commandId
+    #[test]
+    fn deny_records_denied_outcome() {
+        let (g, path) = gate("outcome-deny");
+        let id = match g.check("git reset --hard HEAD~2") {
+            Decision::Pending(a) => a.id,
+            Decision::Allow => panic!("应挂起"),
+        };
+        g.decide(&id, "deny").expect("deny 应有决议");
+        let outcome = g.outcome(&id).expect("拒绝也必须有终态");
+        assert_eq!(outcome.status, ApprovalOutcomeStatus::Denied);
+        assert!(outcome.command_id.is_none());
+        assert!(g.pending_approval(&id).is_none());
+        let _ = std::fs::remove_file(path);
+    }
+
+    // TC-AG-19  超时 → expired，且过期后不能再被批准（TTL 真正生效）
+    #[test]
+    fn expired_approval_records_expired_and_cannot_be_approved() {
+        let (g, path) = gate("outcome-expired");
+        let id = match g.check("chmod 777 /etc/passwd") {
+            Decision::Pending(a) => a.id,
+            Decision::Allow => panic!("应挂起"),
+        };
+        {
+            let mut inner = g.inner.lock().unwrap();
+            if let Some(a) = inner.pending.get_mut(&id) {
+                a.created_at = Utc::now() - Duration::seconds(PENDING_TTL_SECS + 60);
+            }
+        }
+        // 查询（或 decide）都会先清理过期项，并留下 expired 终态
+        assert!(g.decide(&id, "approve").is_none(), "过期审批不得被执行");
+        let outcome = g.outcome(&id).expect("超时也要有终态");
+        assert_eq!(outcome.status, ApprovalOutcomeStatus::Expired);
+        let _ = std::fs::remove_file(path);
+    }
+
+    // TC-AG-20  未知 action 消费 pending，但记为 failed（不能显示成"批准了"）
+    #[test]
+    fn unknown_action_records_failed_outcome() {
+        let (g, path) = gate("outcome-unknown-action");
+        let id = match g.check("sudo reboot") {
+            Decision::Pending(a) => a.id,
+            Decision::Allow => panic!("应挂起"),
+        };
+        assert!(g.decide(&id, "banana").is_none());
+        let outcome = g.outcome(&id).expect("未知 action 也要有终态");
+        assert_eq!(outcome.status, ApprovalOutcomeStatus::Failed);
+        assert!(outcome
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("banana"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    // TC-AG-21  批准了但执行失败 → failed（客户端不必干等到看门狗超时）
+    #[test]
+    fn mark_failed_overrides_approved_outcome() {
+        let (g, path) = gate("outcome-failed");
+        let id = match g.check("rm -rf /tmp/x") {
+            Decision::Pending(a) => a.id,
+            Decision::Allow => panic!("应挂起"),
+        };
+        g.decide(&id, "approve").expect("approve 应有决议");
+        g.mark_failed(&id, "conversation not found");
+        let outcome = g.outcome(&id).unwrap();
+        assert_eq!(outcome.status, ApprovalOutcomeStatus::Failed);
+        assert_eq!(outcome.error.as_deref(), Some("conversation not found"));
+        assert!(outcome.command_id.is_none());
+        let _ = std::fs::remove_file(path);
+    }
+
+    // TC-AG-22  多条审批各自独立：同一对话里别的命令不得把结果串过来
+    #[test]
+    fn concurrent_approvals_keep_independent_outcomes() {
+        let (g, path) = gate("outcome-concurrent");
+        let mine = match g.check_with("rm -rf /tmp/a", ApprovalMode::Safe, Some("conv_shared")) {
+            Decision::Pending(a) => a.id,
+            Decision::Allow => panic!("应挂起"),
+        };
+        let theirs = match g.check_with("rm -rf /tmp/b", ApprovalMode::Safe, Some("conv_shared")) {
+            Decision::Pending(a) => a.id,
+            Decision::Allow => panic!("应挂起"),
+        };
+        let third = match g.check_with("sudo reboot", ApprovalMode::Safe, None) {
+            Decision::Pending(a) => a.id,
+            Decision::Allow => panic!("应挂起"),
+        };
+        assert_ne!(mine, theirs);
+
+        g.decide(&theirs, "approve").expect("approve 应有决议");
+        g.attach_command(&theirs, "cmd_theirs", Some("conv_shared"));
+        g.decide(&mine, "deny").expect("deny 应有决议");
+        g.decide(&third, "approve").expect("approve 应有决议");
+        g.attach_command(&third, "cmd_third", None);
+
+        assert_eq!(
+            g.outcome(&theirs).unwrap().command_id.as_deref(),
+            Some("cmd_theirs")
+        );
+        assert_eq!(g.outcome(&mine).unwrap().status, ApprovalOutcomeStatus::Denied);
+        assert!(g.outcome(&mine).unwrap().command_id.is_none());
+        assert_eq!(
+            g.outcome(&third).unwrap().command_id.as_deref(),
+            Some("cmd_third")
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    // TC-AG-23  为不存在的审批 attach 不得凭空造记录
+    #[test]
+    fn attach_unknown_approval_is_noop() {
+        let (g, path) = gate("outcome-unknown-id");
+        g.attach_command("apv_does_not_exist", "cmd_x", None);
+        assert!(g.outcome("apv_does_not_exist").is_none());
         let _ = std::fs::remove_file(path);
     }
 }

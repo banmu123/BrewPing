@@ -350,7 +350,10 @@ pub fn build_router(state: AppState) -> Router {
             get(handle_get_approval_mode).post(handle_set_approval_mode),
         )
         .route("/api/approvals", get(handle_list_approvals))
-        .route("/api/approvals/{id}", post(handle_decide_approval))
+        .route(
+            "/api/approvals/{id}",
+            get(handle_get_approval).post(handle_decide_approval),
+        )
         .route("/api/session/start", post(handle_start_session))
         .route("/api/session/stop", post(handle_stop_session))
         .route(
@@ -1081,6 +1084,66 @@ async fn handle_list_approvals(State(state): State<AppState>) -> Json<serde_json
     Json(serde_json::json!({ "success": true, "approvals": approvals }))
 }
 
+/// GET /api/approvals/{id} —— 一条审批现在的处境。
+///
+/// 与 macOS `HTTPAPI.approvalStatusResponse` 逐字段一致：
+/// - `{"status": "pending", "approval": {...}}` —— 还挂着，没结论
+/// - `{"status": "approved", "commandId": "cmd_…"}` —— 已批准且已派发
+/// - `{"status": "approved"}` —— 已批准、commandId 还没挂上（毫秒级窗口，继续等）
+/// - `{"status": "denied" | "expired" | "failed"}`
+/// - 404 `unknown or expired approval` —— 服务端不认识（重启过 / 记录已淘汰）
+///
+/// 为什么要有它：挂起的命令在批准之前**没有 commandId**（真正执行时才生成），
+/// 客户端只靠「审批还在不在列表里」分不清批准 / 拒绝 / 超时，旧实现只能拿对话
+/// 转录里最新出现的 commandId 去猜 —— 同一对话里别的设备发命令就会认错。
+async fn handle_get_approval(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+) -> Response {
+    if id.is_empty() || id.starts_with("mode") {
+        return json_response(
+            404,
+            serde_json::json!({ "success": false, "error": "unknown approval" }),
+        );
+    }
+    // 先查终态：`outcome` 会顺带把过期 pending 记为 expired，
+    // 所以「挂起到超时」也能得到明确结论，而不是一直 pending。
+    if let Some(outcome) = state.approval.outcome(&id) {
+        let mut payload = serde_json::json!({
+            "success": true,
+            "status": outcome.status.as_str(),
+        });
+        if let Some(command_id) = outcome.command_id.as_deref() {
+            if !command_id.is_empty() {
+                payload["commandId"] = serde_json::json!(command_id);
+            }
+        }
+        if let Some(conv) = outcome.conversation_id.as_deref() {
+            if !conv.is_empty() {
+                payload["conversationId"] = serde_json::json!(conv);
+            }
+        }
+        if let Some(error) = outcome.error.as_deref() {
+            if !error.is_empty() {
+                payload["error"] = serde_json::json!(error);
+            }
+        }
+        return Json(payload).into_response();
+    }
+    if let Some(approval) = state.approval.pending_approval(&id) {
+        return Json(serde_json::json!({
+            "success": true,
+            "status": "pending",
+            "approval": approval,
+        }))
+        .into_response();
+    }
+    json_response(
+        404,
+        serde_json::json!({ "success": false, "error": "unknown or expired approval" }),
+    )
+}
+
 /// POST /api/approvals/{id} —— 用户对某条挂起命令做出决定。
 ///
 /// 请求：`{"action": "approve" | "deny" | "always_approve"}`
@@ -1126,6 +1189,10 @@ async fn handle_decide_approval(
         }
         "approve" | "always_approve" => {
             let Some(text) = resolution.text else {
+                // 记录「批准了但没正文」，否则关掉弹窗的客户端只会看到 404。
+                state
+                    .approval
+                    .mark_failed(&id, "approval has no command text");
                 return json_response(
                     409,
                     serde_json::json!({
@@ -1141,14 +1208,31 @@ async fn handle_decide_approval(
             match submit_command(&state, &text, resolution.conversation_id.as_deref(), None, None, None)
                 .await
             {
-                Ok(response) => Json(response).into_response(),
-                Err(status) => json_response(
-                    status.as_u16(),
-                    serde_json::json!({
-                        "success": false,
-                        "error": format!("submit failed (HTTP {})", status.as_u16())
-                    }),
-                ),
+                Ok(response) => {
+                    // 🚨 关联的唯一权威来源：审批 id → 实际执行的 commandId。
+                    // 手机端关掉确认弹窗后靠它继续轮询，不再猜"对话里最新的 commandId"。
+                    if let Some(command_id) = response.command_id.as_deref() {
+                        state.approval.attach_command(
+                            &id,
+                            command_id,
+                            resolution.conversation_id.as_deref(),
+                        );
+                    }
+                    Json(response).into_response()
+                }
+                Err(status) => {
+                    state.approval.mark_failed(
+                        &id,
+                        &format!("submit failed (HTTP {})", status.as_u16()),
+                    );
+                    json_response(
+                        status.as_u16(),
+                        serde_json::json!({
+                            "success": false,
+                            "error": format!("submit failed (HTTP {})", status.as_u16())
+                        }),
+                    )
+                }
             }
         }
         _ => json_response(
@@ -1991,6 +2075,129 @@ mod tests {
 
         let (_, list) = get(srv.port, "/api/approvals");
         assert_eq!(list["approvals"].as_array().unwrap().len(), 0);
+    }
+
+    // ─── GET /api/approvals/{id}：审批 → 命令的确定性关联（TC-HT-40..41） ─────
+
+    /// 执行体换成不存在的命令：断言只关心 HTTP 响应，别真的去跑 CLI。
+    async fn use_fake_agent(srv: &TestServer) {
+        let mut agents = srv.state.agents.write().await;
+        if let Some(agent) = agents.iter_mut().find(|a| a.id == "opencode") {
+            agent.executable = Some("brewping-fake-cli-not-exist".to_string());
+        }
+    }
+
+    // TC-HT-40  挂起 → pending；批准 → approved + 与 POST 返回一致的 commandId；
+    //           拒绝 → denied；未知 → 404；`/api/approvals/mode` 不被 {id} 抢走。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn approval_status_endpoint_tracks_outcome() {
+        let srv = spawn_server().await;
+        use_fake_agent(&srv).await;
+
+        let (_, v) = post(srv.port, "/api/message", r#"{"text":"rm -rf /"}"#);
+        assert_eq!(v["status"], "pending_approval");
+        let id = v["approval"]["id"].as_str().unwrap().to_string();
+
+        // 1) 还挂着：明确回 pending（而不是 404）
+        let (code, v) = get(srv.port, &format!("/api/approvals/{id}"));
+        assert_eq!(code, 200);
+        assert_eq!(v["status"], "pending");
+        assert_eq!(v["approval"]["id"], id.as_str());
+
+        // 2) 批准后：同一 approvalID 给出实际执行产生的 commandId
+        let (_, decided) = post(
+            srv.port,
+            &format!("/api/approvals/{id}"),
+            r#"{"action":"approve"}"#,
+        );
+        let executed = decided["commandId"].as_str().unwrap().to_string();
+        let (code, v) = get(srv.port, &format!("/api/approvals/{id}"));
+        assert_eq!(code, 200);
+        assert_eq!(v["status"], "approved");
+        assert_eq!(
+            v["commandId"].as_str(),
+            Some(executed.as_str()),
+            "终态里的 commandId 必须就是这条审批真实执行的那条"
+        );
+
+        // 3) 幂等：重复查询答案不变、不复活 pending
+        let (_, again) = get(srv.port, &format!("/api/approvals/{id}"));
+        assert_eq!(again["status"], "approved");
+        assert_eq!(again["commandId"].as_str(), Some(executed.as_str()));
+        let (_, list) = get(srv.port, "/api/approvals");
+        assert_eq!(list["approvals"].as_array().unwrap().len(), 0);
+
+        // 4) 拒绝：明确的 denied，且不带 commandId
+        let (_, v) = post(srv.port, "/api/message", r#"{"text":"git push --force"}"#);
+        let denied_id = v["approval"]["id"].as_str().unwrap().to_string();
+        let (_, _) = post(
+            srv.port,
+            &format!("/api/approvals/{denied_id}"),
+            r#"{"action":"deny"}"#,
+        );
+        let (code, v) = get(srv.port, &format!("/api/approvals/{denied_id}"));
+        assert_eq!(code, 200);
+        assert_eq!(v["status"], "denied");
+        assert!(v["commandId"].is_null(), "拒绝的审批不得带上 commandId");
+
+        // 5) 未知 id → 404（客户端据此判定「结果不可用」）
+        let (code, v) = get(srv.port, "/api/approvals/apv_ghost");
+        assert_eq!(code, 404);
+        assert_eq!(v["success"], false);
+
+        // 6) 路由优先级：静态段 /mode 不能被 /{id} 抢走
+        let (code, v) = get(srv.port, "/api/approvals/mode");
+        assert_eq!(code, 200, "GET /api/approvals/mode 必须仍然可用");
+        assert!(v["mode"].is_string());
+    }
+
+    // TC-HT-41  同一对话里另一台设备的命令先执行，不得污染本审批的 commandId
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn another_devices_command_does_not_leak_into_approval_result() {
+        let srv = spawn_server().await;
+        use_fake_agent(&srv).await;
+        let conv = srv.state.conversations.create_with_options("opencode", None, None);
+
+        // 同一对话里两条挂起命令（模拟两台设备各自提交）
+        let (_, a) = post(
+            srv.port,
+            "/api/message",
+            &format!(r#"{{"text":"rm -rf /tmp/a","conversationId":"{}"}}"#, conv.id),
+        );
+        let (_, b) = post(
+            srv.port,
+            "/api/message",
+            &format!(r#"{{"text":"rm -rf /tmp/b","conversationId":"{}"}}"#, conv.id),
+        );
+        let approval_a = a["approval"]["id"].as_str().unwrap().to_string();
+        let approval_b = b["approval"]["id"].as_str().unwrap().to_string();
+        assert_ne!(approval_a, approval_b);
+
+        // 对方先获批执行
+        let (_, other) = post(
+            srv.port,
+            &format!("/api/approvals/{approval_b}"),
+            r#"{"action":"approve"}"#,
+        );
+        let other_cmd = other["commandId"].as_str().unwrap().to_string();
+
+        // 我这条还没结论：不能被"同一对话里新出现的 commandId"认领
+        let (_, mine) = get(srv.port, &format!("/api/approvals/{approval_a}"));
+        assert_eq!(mine["status"], "pending", "自己的审批还在挂起");
+        assert!(mine["commandId"].is_null());
+
+        let (_, decided) = post(
+            srv.port,
+            &format!("/api/approvals/{approval_a}"),
+            r#"{"action":"approve"}"#,
+        );
+        let my_cmd = decided["commandId"].as_str().unwrap().to_string();
+        assert_ne!(my_cmd, other_cmd, "两条命令必须各有各的 id");
+
+        let (_, mine) = get(srv.port, &format!("/api/approvals/{approval_a}"));
+        assert_eq!(mine["commandId"].as_str(), Some(my_cmd.as_str()));
+        let (_, theirs) = get(srv.port, &format!("/api/approvals/{approval_b}"));
+        assert_eq!(theirs["commandId"].as_str(), Some(other_cmd.as_str()));
     }
 
     // TC-HT-21  授权档位按对话生效：固化 auto 的对话放行危险命令；

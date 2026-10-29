@@ -33,6 +33,9 @@ enum HTTPAPI {
             return setApprovalModeResponse(request)
         case ("GET", "/api/approvals"):
             return approvalsListResponse()
+        case let ("GET", path) where path.hasPrefix("/api/approvals/"):
+            let id = String(path.dropFirst("/api/approvals/".count))
+            return approvalStatusResponse(id)
         case let ("POST", path) where path.hasPrefix("/api/approvals/"):
             let id = String(path.dropFirst("/api/approvals/".count))
             return approvalDecideResponse(id, request: request, router: router)
@@ -513,6 +516,54 @@ enum HTTPAPI {
     private static func approvalsListResponse() -> HTTPResponse {
         let approvals = ApprovalGate.shared.pendingApprovals().map { approvalDict($0) }
         return .json(200, "OK", ["success": true, "approvals": approvals])
+    }
+
+    /// `GET /api/approvals/{id}` —— 一条审批现在的处境。
+    ///
+    /// 为什么必须有它：挂起的命令**在批准之前没有 commandId**（commandId 是真正执行时
+    /// 才生成的）。客户端关掉确认弹窗后，旧版只能轮询 `GET /api/approvals` 看「它还在不在」，
+    /// 一旦消失就靠「对话转录里最新出现的 commandId」猜是不是自己那条 —— 同一对话里
+    /// 别的设备发一条命令就会认错。这里由桌面端**自己**记住 `approvalID → 终态 + commandId`，
+    /// 关联因此是确定的。
+    ///
+    /// 响应（全部 200，除未知 id）：
+    /// - `{"status": "pending", "approval": {...}}` —— 还挂着，没结论
+    /// - `{"status": "approved", "commandId": "cmd_…"}` —— 已批准且已派发
+    /// - `{"status": "approved"}` —— 已批准、commandId 还没挂上（毫秒级窗口，继续等）
+    /// - `{"status": "denied"}` / `{"status": "expired"}` / `{"status": "failed", "error": "…"}`
+    /// - 404 `unknown or expired approval` —— 服务端不认识（重启过 / 记录已淘汰）
+    ///
+    /// 纯增量端点：老客户端不会调它；老桌面端没有它（新客户端有回落路径）。
+    static func approvalStatusResponse(_ id: String, gate: ApprovalGate = .shared) -> HTTPResponse {
+        guard !id.isEmpty, !id.hasPrefix("mode") else {
+            return .json(404, "Not Found", ["success": false, "error": "unknown approval"])
+        }
+        // 先查终态：`outcome(id:)` 会顺带把过期 pending 记成 expired，
+        // 所以「挂起到超时」也能得到明确结论，而不是一直 pending。
+        if let outcome = gate.outcome(id: id) {
+            var object: [String: Any] = [
+                "success": true,
+                "status": outcome.status.rawValue
+            ]
+            if let commandID = outcome.commandID, !commandID.isEmpty {
+                object["commandId"] = commandID
+            }
+            if let conversationID = outcome.conversationID, !conversationID.isEmpty {
+                object["conversationId"] = conversationID
+            }
+            if let error = outcome.error, !error.isEmpty {
+                object["error"] = error
+            }
+            return .json(200, "OK", object)
+        }
+        if let pendingApproval = gate.pendingApproval(id: id) {
+            return .json(200, "OK", [
+                "success": true,
+                "status": "pending",
+                "approval": approvalDict(pendingApproval)
+            ])
+        }
+        return .json(404, "Not Found", ["success": false, "error": "unknown or expired approval"])
     }
 
     private static func approvalDecideResponse(_ id: String, request: HTTPRequest, router: CommandRouter) -> HTTPResponse {

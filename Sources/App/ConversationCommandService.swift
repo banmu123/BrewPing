@@ -171,14 +171,33 @@ enum ConversationCommandService {
             }
             return DecisionOutcome(status: "denied", commandID: nil)
         case "approve", "always_approve":
-            guard let text = resolution.text else { throw SubmitError.conversationHasNoText }
-            let success = try execute(
-                text: text,
-                conversationID: resolution.conversationID,
-                router: router,
-                source: source
-            )
-            return DecisionOutcome(status: "executed", commandID: success.commandID)
+            guard let text = resolution.text else {
+                // 记录「批准了但没正文」，否则关掉弹窗的客户端只会看到 404。
+                ApprovalGate.shared.markFailed(id: id, error: "approval has no command text")
+                throw SubmitError.conversationHasNoText
+            }
+            do {
+                let success = try execute(
+                    text: text,
+                    conversationID: resolution.conversationID,
+                    router: router,
+                    source: source
+                )
+                // 🚨 关联的唯一权威来源：审批 id → 实际执行的 commandId。
+                // 手机端关掉确认弹窗后靠它继续轮询，不再猜"对话里最新的 commandId"。
+                ApprovalGate.shared.attachCommand(
+                    id: id,
+                    commandID: success.commandID,
+                    conversationID: success.conversationID
+                )
+                return DecisionOutcome(status: "executed", commandID: success.commandID)
+            } catch {
+                ApprovalGate.shared.markFailed(
+                    id: id,
+                    error: (error as? SubmitError)?.errorDescription ?? error.localizedDescription
+                )
+                throw error
+            }
         default:
             return nil
         }

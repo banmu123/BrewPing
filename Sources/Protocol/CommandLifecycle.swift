@@ -209,3 +209,63 @@ public enum CommandPollRules {
         return now.timeIntervalSince(deliveredSince) > pickupStallTimeout
     }
 }
+
+// MARK: - 审批终态的纯判定
+
+/// 一次 `GET /api/approvals/{id}` 的解读结果。
+///
+/// 关掉确认弹窗后，客户端唯一需要回答的问题是「那条命令到底执行了没有、
+/// 对应的 commandId 是哪个」。服务端把 `approvalID → 终态 + commandId` 记下来，
+/// 这里负责把响应翻译成可执行的下一步。
+public enum ApprovalProbe: Equatable {
+    /// 还没有结论（仍挂起，或已批准但 commandId 尚未挂上）。继续等。
+    case pending
+    /// 已批准，且拿到了**实际执行**产生的 commandId。转入普通命令轮询。
+    case approved(commandID: String, conversationID: String?)
+    /// 用户明确拒绝了。
+    case denied
+    /// 超过 TTL 没人处理，服务端自动作废。
+    case expired
+    /// 批准了但执行没起来（原因见 message）。
+    case failed(String)
+    /// 服务端不认识这条审批：可能重启过、记录已淘汰，也可能它根本没有这个端点
+    ///（旧版桌面端）。调用方需要用「审批是否还挂在列表里」再区分一次。
+    case unavailable
+    /// 网络错误 / 5xx：瞬时问题，继续等。
+    case transient
+}
+
+public enum ApprovalOutcomeRules {
+    /// 依据 HTTP 状态码与响应体判定下一步。
+    ///
+    /// 关键取舍：`approved` 但没带 commandId 时**不判失败**，而是当作 `pending`
+    /// 继续等 —— 服务端是先记「已批准」再补 commandId 的，中间有毫秒级窗口；
+    /// 这时报错会让一次成功的审批被显示成失败。
+    public static func decode(
+        httpStatus: Int,
+        status: String?,
+        commandID: String?,
+        conversationID: String?,
+        error: String?
+    ) -> ApprovalProbe {
+        if httpStatus == 404 { return .unavailable }
+        guard httpStatus == 200 else { return .transient }
+        switch status {
+        case "pending":
+            return .pending
+        case "approved":
+            guard let commandID, !commandID.isEmpty else { return .pending }
+            let conversation = (conversationID?.isEmpty == false) ? conversationID : nil
+            return .approved(commandID: commandID, conversationID: conversation)
+        case "denied":
+            return .denied
+        case "expired":
+            return .expired
+        case "failed":
+            return .failed(error ?? "")
+        default:
+            // 未知状态（老/新桌面端字段漂移）→ 继续等，绝不擅自判失败。
+            return .pending
+        }
+    }
+}
