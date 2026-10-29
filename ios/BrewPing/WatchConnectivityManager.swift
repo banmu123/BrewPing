@@ -123,7 +123,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
             BrewPingLog.watch.info("Watch not reachable, queued command result: \(status, privacy: .public)")
             return
         }
-        session.sendMessage(message, replyHandler: nil) { [weak self] error in
+        session.sendMessage(message, replyHandler: nil) { error in
             BrewPingLog.watch.error("Command result push failed (\(error.localizedDescription, privacy: .private)), queuing instead")
             session.transferUserInfo(message)
         }
@@ -353,7 +353,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
     private func fetchConversationsForWatch(replyHandler: @escaping ([String: Any]) -> Void) {
         onMainWithActiveDevice { device in
             guard let device,
-                  var request = BrewPingHTTP.request(device: device, path: "/api/conversations", timeout: 10) else {
+                  let request = BrewPingHTTP.request(device: device, path: "/api/conversations", timeout: 10) else {
                 BrewPingLog.watch.info("Watch requested conversations but no active device")
                 replyHandler(["ok": false, "error": "no device"])
                 return
@@ -402,7 +402,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject, WCSessionDeleg
     private func fetchConversationDetailForWatch(conversationId: String, replyHandler: @escaping ([String: Any]) -> Void) {
         onMainWithActiveDevice { device in
             guard let device,
-                  var request = BrewPingHTTP.request(
+                  let request = BrewPingHTTP.request(
                     device: device,
                     path: "/api/conversations/\(conversationId)",
                     timeout: 10

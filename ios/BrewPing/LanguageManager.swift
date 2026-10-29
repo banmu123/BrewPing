@@ -84,9 +84,15 @@ final class LanguageManager: ObservableObject {
     static let shared = LanguageManager()
 
     /// 存 `AppLanguage.rawValue`。
-    static let storageKey = "BrewPing.AppLanguage"
+    ///
+    /// `nonisolated`：这两个键是**纯常量**，但 `LanguageManager` 整个类型是
+    /// `@MainActor`，静态存储会跟着带上主线程隔离。`WatchConnectivityManager`
+    /// 的 WCSession 回调是非隔离上下文（且可能发生在后台唤醒时），
+    /// 在那里读键会触发「Main actor-isolated static property … from a nonisolated
+    /// context」（Swift 6 是错误）。键本身没有可变状态，解除隔离是安全且必要的。
+    nonisolated static let storageKey = "BrewPing.AppLanguage"
     /// 经 WCSession 同步给 Watch 的 key。
-    static let syncKey = "language"
+    nonisolated static let syncKey = "language"
 
     @Published private(set) var current: AppLanguage
 

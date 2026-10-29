@@ -19,7 +19,21 @@ import Foundation
 ///
 /// 配对仍需在同一局域网完成一次（配对码换取长期 token），远程只是让**之后的**
 /// 请求不必同网。
-final class RemoteAccess: ObservableObject {
+///
+/// 并发约定（`@unchecked Sendable` 的依据）：
+///  - `socket` / `heartbeat` / `pending` / `generation` / `connectedOnQueue`
+///    只在 `queue`（串行）上读写；隧道投递不再读 `@Published`；
+///  - `@Published` 的 `state` / `isEnabled` / `relayURL` / `token` 只在主线程写；
+///  - 静态快照 `cachedPairedHosts` / `cachedHostDeviceIds` 由 `hostLock` 保护。
+///
+/// 已知遗留（本轮不动，属中继功能自身的边界）：`RelayURLProtocol.canInit` 是
+/// **同步非隔离**上下文，会读 `isEnabled` / `state` / `relayURL` 这三个值类型来
+/// 决定要不要拦截。它们的写入都在主线程，读取容忍最终一致 —— 这是既有实现，
+/// 也是中继入口当前不在 App 内暴露的原因之一。
+///
+/// 之所以必须声明 Sendable：`send(_:)` 里 `withCheckedThrowingContinuation` 的闭包
+/// 是 `@Sendable`，捕获 `self` 时若类型不是 Sendable，Swift 6 会直接报错。
+final class RemoteAccess: ObservableObject, @unchecked Sendable {
     static let shared = RemoteAccess()
 
     enum State: Equatable {
@@ -62,6 +76,12 @@ final class RemoteAccess: ObservableObject {
     private var reconnectAttempt = 0
     private var pending: [String: CheckedContinuation<TunnelResponse, Error>] = [:]
     private var generation = 0
+    /// 队列内的连通副本。
+    ///
+    /// `send(_:)` 在 `queue` 上判断要不要发帧，不能去读 `@Published state`
+    /// （那是主线程状态，且读它会触发 Swift 6 的跨隔离告警）。这份副本只由
+    /// `publish(_:)` 在 `queue` 上维护，语义与 `state.isConnected` 一致。
+    private var connectedOnQueue = false
 
     /// 独立的 URLSession：**绝不能**用 `BrewPingHTTP.session` ——
     /// 那条会话挂了 `RelayURLProtocol`，用它建 WebSocket 会自我递归。
@@ -172,11 +192,18 @@ final class RemoteAccess: ObservableObject {
                     deviceIds[host] = hostDeviceId
                 }
             }
-            hostLock.lock()
-            cachedPairedHosts = hosts
-            cachedHostDeviceIds = deviceIds
-            hostLock.unlock()
+            storePairedHosts(hosts, deviceIds)
         }
+    }
+
+    /// 临界区必须收进**同步**函数：`NSLock.lock()` / `unlock()` 带 `noasync`，
+    /// 在 `Task {}` 的异步上下文里直接调用，Swift 6 会报「unavailable from
+    /// asynchronous contexts」。同步函数调用则不受限制，也不会跨 await 持锁。
+    private static func storePairedHosts(_ hosts: Set<String>, _ deviceIds: [String: String]) {
+        hostLock.lock()
+        defer { hostLock.unlock() }
+        cachedPairedHosts = hosts
+        cachedHostDeviceIds = deviceIds
     }
 
     // MARK: - 连接
@@ -325,6 +352,8 @@ final class RemoteAccess: ObservableObject {
     }
 
     private func publish(_ newState: State) {
+        // 调用点都在 `queue` 上；顺带维护队列内的连通副本（见 `connectedOnQueue`）。
+        connectedOnQueue = (newState == .connected)
         DispatchQueue.main.async { [weak self] in
             guard let self, self.state != newState else { return }
             self.state = newState
@@ -387,7 +416,7 @@ final class RemoteAccess: ObservableObject {
 
         return try await withCheckedThrowingContinuation { continuation in
             queue.async { [weak self] in
-                guard let self, self.socket != nil, self.state.isConnected else {
+                guard let self, self.socket != nil, self.connectedOnQueue else {
                     continuation.resume(throwing: TunnelError.notConnected)
                     return
                 }
