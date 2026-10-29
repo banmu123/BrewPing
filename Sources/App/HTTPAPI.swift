@@ -534,13 +534,16 @@ enum HTTPAPI {
     /// - 404 `unknown or expired approval` —— 服务端不认识（重启过 / 记录已淘汰）
     ///
     /// 纯增量端点：老客户端不会调它；老桌面端没有它（新客户端有回落路径）。
+    ///
+    /// 🚨 状态只能来自**一次** `gate.snapshot(id:)`：早期实现先查终态、再查 pending，
+    /// 两次独立加锁之间存在「已从 pending 移出、终态也已写入」的切换点，若另一台设备
+    /// 正好在此刻批准/拒绝，两次查询会分别落到写入前后而都得不到结果 → 错误 404。
     static func approvalStatusResponse(_ id: String, gate: ApprovalGate = .shared) -> HTTPResponse {
         guard !id.isEmpty, !id.hasPrefix("mode") else {
             return .json(404, "Not Found", ["success": false, "error": "unknown approval"])
         }
-        // 先查终态：`outcome(id:)` 会顺带把过期 pending 记成 expired，
-        // 所以「挂起到超时」也能得到明确结论，而不是一直 pending。
-        if let outcome = gate.outcome(id: id) {
+        switch gate.snapshot(id: id) {
+        case .resolved(let outcome):
             var object: [String: Any] = [
                 "success": true,
                 "status": outcome.status.rawValue
@@ -555,15 +558,15 @@ enum HTTPAPI {
                 object["error"] = error
             }
             return .json(200, "OK", object)
-        }
-        if let pendingApproval = gate.pendingApproval(id: id) {
+        case .pending(let approval):
             return .json(200, "OK", [
                 "success": true,
                 "status": "pending",
-                "approval": approvalDict(pendingApproval)
+                "approval": approvalDict(approval)
             ])
+        case .unknown:
+            return .json(404, "Not Found", ["success": false, "error": "unknown or expired approval"])
         }
-        return .json(404, "Not Found", ["success": false, "error": "unknown or expired approval"])
     }
 
     private static func approvalDecideResponse(_ id: String, request: HTTPRequest, router: CommandRouter) -> HTTPResponse {
@@ -582,13 +585,24 @@ enum HTTPAPI {
                 return .json(404, "Not Found", ["success": false, "error": "unknown or expired approval"])
             }
             if outcome.status == "denied" {
-                return .json(200, "OK", ["success": true, "status": "denied"])
+                var object: [String: Any] = ["success": true, "status": "denied"]
+                // 拒绝也回传归属：手机端（尤其 Watch 来源）用它把回执对到正确的对话页。
+                if let conversationID = outcome.conversationID, !conversationID.isEmpty {
+                    object["conversationId"] = conversationID
+                }
+                return .json(200, "OK", object)
             }
-            return .json(200, "OK", [
+            var object: [String: Any] = [
                 "success": true,
                 "status": "executed",
                 "commandId": outcome.commandID ?? ""
-            ])
+            ]
+            // 🚨 手机端可能没传 conversationId（Watch 语音路径），批准成功后由桌面端
+            // 告诉它真实归属；缺了它，Watch 的完成回执会对不上对话页。
+            if let conversationID = outcome.conversationID, !conversationID.isEmpty {
+                object["conversationId"] = conversationID
+            }
+            return .json(200, "OK", object)
         } catch let error as ConversationCommandService.SubmitError {
             let status = submitErrorStatus(error)
             return .json(status, "Error", [

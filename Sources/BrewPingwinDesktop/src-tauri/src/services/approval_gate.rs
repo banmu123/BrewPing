@@ -157,6 +157,21 @@ impl ApprovalOutcomeStatus {
     }
 }
 
+/// 一条审批此刻的**原子**快照：挂起中 / 已有终态 / 根本不存在，三者互斥。
+///
+/// 为什么必须是一次查询：`GET /api/approvals/{id}` 早期先查终态、再查 pending ——
+/// 两次独立加锁。若另一台设备正好在这一瞬间批准/拒绝，approval 已从 pending 移出、
+/// 终态也已写入，但两次读取分别发生在写入前后，就可能两边都查不到而错误返回 404。
+/// 在同一个锁区间里判定三种情形，路径上不存在「既不在 pending、又没有终态」的中间态。
+///
+/// 与 macOS `ApprovalGate.Snapshot` 一一对应。
+pub enum ApprovalSnapshot {
+    Pending(PendingApproval),
+    Resolved(ApprovalOutcome),
+    /// 服务端不认识它（从未见过 / 记录已过期 / 进程重启过）。
+    Unknown,
+}
+
 /// pending 有效期：超过后自动作废，避免"挂起没人管"的命令永久占坑。
 const PENDING_TTL_SECS: i64 = 300;
 /// 终态记录保留时长：客户端关掉弹窗后最多跟踪 330s，这里留足余量。
@@ -282,14 +297,28 @@ impl ApprovalGate {
 
     // ─── Outcome（审批终态）────────────────────────────────────────────────
 
-    /// 这条审批现在的处境。`None` = 服务端不认识它（从未见过 / 记录已过期 / 进程重启过）。
+    /// 这条审批现在的处境。**只加一次锁**，调用方不该再把 pending / outcome 分开查。
     ///
     /// 会顺带清理过期 pending —— 一条挂起到 TTL 之外的审批在这里被记为 `expired`，
     /// 客户端因此能收到「超时」这个明确终态，而不是干等她自己的看门狗。
-    pub fn outcome(&self, id: &str) -> Option<ApprovalOutcome> {
+    pub fn snapshot(&self, id: &str) -> ApprovalSnapshot {
         let mut inner = self.inner.lock().expect("approval gate poisoned");
         prune_expired(&mut inner);
-        inner.outcomes.get(id).cloned()
+        if let Some(outcome) = inner.outcomes.get(id) {
+            return ApprovalSnapshot::Resolved(outcome.clone());
+        }
+        if let Some(approval) = inner.pending.get(id) {
+            return ApprovalSnapshot::Pending(approval.clone());
+        }
+        ApprovalSnapshot::Unknown
+    }
+
+    /// 仅取终态（不关心是否还挂着）。内部复用 `snapshot`，保证只有一条判定路径。
+    pub fn outcome(&self, id: &str) -> Option<ApprovalOutcome> {
+        match self.snapshot(id) {
+            ApprovalSnapshot::Resolved(outcome) => Some(outcome),
+            _ => None,
+        }
     }
 
     /// 批准后命令真正派发成功：把**实际** commandId 补进终态记录。
@@ -967,5 +996,105 @@ mod tests {
         g.attach_command("apv_does_not_exist", "cmd_x", None);
         assert!(g.outcome("apv_does_not_exist").is_none());
         let _ = std::fs::remove_file(path);
+    }
+
+    // ─── 原子快照（GET /api/approvals/{id} 的唯一数据来源）──────────────────
+
+    // TC-AG-24  一次查询即可区分 pending / resolved / unknown
+    #[test]
+    fn snapshot_reports_pending_resolved_and_unknown() {
+        let (g, path) = gate("snapshot-states");
+        let id = match g.check("rm -rf /tmp/x") {
+            Decision::Pending(a) => a.id,
+            Decision::Allow => panic!("应挂起"),
+        };
+        match g.snapshot(&id) {
+            ApprovalSnapshot::Pending(a) => assert_eq!(a.id, id),
+            _ => panic!("挂在队列里应报 Pending"),
+        }
+        match g.snapshot("apv_ghost") {
+            ApprovalSnapshot::Unknown => {}
+            _ => panic!("不存在的审批必须是 Unknown"),
+        }
+
+        g.decide(&id, "approve").expect("approve 应有决议");
+        g.attach_command(&id, "cmd_1", Some("conv_1"));
+        match g.snapshot(&id) {
+            ApprovalSnapshot::Resolved(o) => {
+                assert_eq!(o.status, ApprovalOutcomeStatus::Approved);
+                assert_eq!(o.command_id.as_deref(), Some("cmd_1"));
+                assert_eq!(o.conversation_id.as_deref(), Some("conv_1"));
+            }
+            _ => panic!("批准后应报 Resolved"),
+        }
+        let _ = std::fs::remove_file(path);
+    }
+
+    // TC-AG-25  竞态：另一台设备在不停查询的同时批准 —— 快照绝不出现 Unknown
+    //
+    // 断言的是**不变量**而非概率：只要审批创建过，任何时刻的快照都只能是
+    // Pending 或 Resolved。Unknown 意味着外部观察到了「已从 pending 移出、
+    // 终态又还没被看见」的中间态 —— 旧实现（两次独立加锁）正是这样返回 404 的。
+    #[test]
+    fn concurrent_decision_never_exposes_unknown_state() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        for round in 0..20usize {
+            let (g, path) = gate("snapshot-race");
+            let gate = Arc::new(g);
+            let id = match gate.check("rm -rf /tmp/x") {
+                Decision::Pending(a) => a.id,
+                Decision::Allow => panic!("应挂起"),
+            };
+            let saw_unknown = Arc::new(AtomicBool::new(false));
+            let mut handles = Vec::new();
+
+            for _ in 0..4 {
+                let gate = Arc::clone(&gate);
+                let flag = Arc::clone(&saw_unknown);
+                let id = id.clone();
+                handles.push(std::thread::spawn(move || {
+                    for _ in 0..100 {
+                        if let ApprovalSnapshot::Unknown = gate.snapshot(&id) {
+                            flag.store(true, Ordering::SeqCst);
+                        }
+                    }
+                }));
+            }
+            {
+                let gate = Arc::clone(&gate);
+                let id = id.clone();
+                handles.push(std::thread::spawn(move || {
+                    let _ = gate.decide(&id, "approve");
+                    gate.attach_command(&id, &format!("cmd_race{round}"), Some("conv_race"));
+                }));
+            }
+            for handle in handles {
+                handle.join().expect("线程不应 panic");
+            }
+
+            assert!(
+                !saw_unknown.load(Ordering::SeqCst),
+                "审批状态切换期间不得出现 Unknown（端点会回 404）"
+            );
+            let expected = format!("cmd_race{round}");
+            match gate.snapshot(&id) {
+                ApprovalSnapshot::Resolved(o) => {
+                    assert_eq!(o.command_id.as_deref(), Some(expected.as_str()));
+                }
+                _ => panic!("竞态结束后必须能读到终态"),
+            }
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    // TC-AG-26  状态词表必须与 macOS `ApprovalOutcome.Status.rawValue` 一致（两端客户端共用）
+    #[test]
+    fn outcome_status_strings_match_macos_contract() {
+        assert_eq!(ApprovalOutcomeStatus::Approved.as_str(), "approved");
+        assert_eq!(ApprovalOutcomeStatus::Denied.as_str(), "denied");
+        assert_eq!(ApprovalOutcomeStatus::Expired.as_str(), "expired");
+        assert_eq!(ApprovalOutcomeStatus::Failed.as_str(), "failed");
     }
 }

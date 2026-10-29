@@ -14,7 +14,9 @@ use tokio::sync::RwLock;
 
 use super::agent_config;
 use super::agent_discovery::{AgentEntry, AgentEntryApi};
-use super::approval_gate::{ApprovalGate, ApprovalMode, Decision, PendingApproval};
+use super::approval_gate::{
+    ApprovalGate, ApprovalMode, ApprovalSnapshot, Decision, PendingApproval,
+};
 use super::command_runner;
 use super::conversation_store::ConversationStore;
 use super::device_identity::DeviceIdentity;
@@ -1106,42 +1108,43 @@ async fn handle_get_approval(
             serde_json::json!({ "success": false, "error": "unknown approval" }),
         );
     }
-    // 先查终态：`outcome` 会顺带把过期 pending 记为 expired，
-    // 所以「挂起到超时」也能得到明确结论，而不是一直 pending。
-    if let Some(outcome) = state.approval.outcome(&id) {
-        let mut payload = serde_json::json!({
-            "success": true,
-            "status": outcome.status.as_str(),
-        });
-        if let Some(command_id) = outcome.command_id.as_deref() {
-            if !command_id.is_empty() {
-                payload["commandId"] = serde_json::json!(command_id);
+    // 🚨 状态只能来自**一次** `snapshot`：早期实现先查终态、再查 pending，
+    // 两次独立加锁之间存在「已从 pending 移出、终态也已写入」的切换点，
+    // 若另一台设备正好在此刻批准/拒绝，两次查询会分别落到写入前后而都得不到结果 → 错误 404。
+    match state.approval.snapshot(&id) {
+        ApprovalSnapshot::Resolved(outcome) => {
+            let mut payload = serde_json::json!({
+                "success": true,
+                "status": outcome.status.as_str(),
+            });
+            if let Some(command_id) = outcome.command_id.as_deref() {
+                if !command_id.is_empty() {
+                    payload["commandId"] = serde_json::json!(command_id);
+                }
             }
-        }
-        if let Some(conv) = outcome.conversation_id.as_deref() {
-            if !conv.is_empty() {
-                payload["conversationId"] = serde_json::json!(conv);
+            if let Some(conv) = outcome.conversation_id.as_deref() {
+                if !conv.is_empty() {
+                    payload["conversationId"] = serde_json::json!(conv);
+                }
             }
-        }
-        if let Some(error) = outcome.error.as_deref() {
-            if !error.is_empty() {
-                payload["error"] = serde_json::json!(error);
+            if let Some(error) = outcome.error.as_deref() {
+                if !error.is_empty() {
+                    payload["error"] = serde_json::json!(error);
+                }
             }
+            Json(payload).into_response()
         }
-        return Json(payload).into_response();
-    }
-    if let Some(approval) = state.approval.pending_approval(&id) {
-        return Json(serde_json::json!({
+        ApprovalSnapshot::Pending(approval) => Json(serde_json::json!({
             "success": true,
             "status": "pending",
             "approval": approval,
         }))
-        .into_response();
+        .into_response(),
+        ApprovalSnapshot::Unknown => json_response(
+            404,
+            serde_json::json!({ "success": false, "error": "unknown or expired approval" }),
+        ),
     }
-    json_response(
-        404,
-        serde_json::json!({ "success": false, "error": "unknown or expired approval" }),
-    )
 }
 
 /// POST /api/approvals/{id} —— 用户对某条挂起命令做出决定。
@@ -1182,10 +1185,14 @@ async fn handle_decide_approval(
                 )
                 .await;
             }
-            json_response(
-                200,
-                serde_json::json!({ "success": true, "status": "denied" }),
-            )
+            let mut payload = serde_json::json!({ "success": true, "status": "denied" });
+            // 拒绝也回传归属：手机端（尤其 Watch 来源）用它把回执对到正确的对话页。
+            if let Some(conv) = resolution.conversation_id.as_deref() {
+                if !conv.is_empty() {
+                    payload["conversationId"] = serde_json::json!(conv);
+                }
+            }
+            json_response(200, payload)
         }
         "approve" | "always_approve" => {
             let Some(text) = resolution.text else {
@@ -1209,16 +1216,27 @@ async fn handle_decide_approval(
                 .await
             {
                 Ok(response) => {
+                    // 这条命令实际落入的对话：pending 记住了归属；缺省时用执行层
+                    // 解析出来的 sessionId（Windows 上它就是对话 id）。
+                    let conversation = resolution
+                        .conversation_id
+                        .as_deref()
+                        .or(response.session_id.as_deref());
                     // 🚨 关联的唯一权威来源：审批 id → 实际执行的 commandId。
                     // 手机端关掉确认弹窗后靠它继续轮询，不再猜"对话里最新的 commandId"。
                     if let Some(command_id) = response.command_id.as_deref() {
-                        state.approval.attach_command(
-                            &id,
-                            command_id,
-                            resolution.conversation_id.as_deref(),
-                        );
+                        state.approval.attach_command(&id, command_id, conversation);
                     }
-                    Json(response).into_response()
+                    // 回传 conversationId：手机端（尤其 Watch 语音路径）可能根本没传，
+                    // 缺了它 Watch 的完成回执会对不上对话页。
+                    let mut payload = serde_json::to_value(&response)
+                        .unwrap_or_else(|_| serde_json::json!({ "success": true }));
+                    if let Some(conv) = conversation {
+                        if !conv.is_empty() {
+                            payload["conversationId"] = serde_json::json!(conv);
+                        }
+                    }
+                    Json(payload).into_response()
                 }
                 Err(status) => {
                     state.approval.mark_failed(
@@ -2198,6 +2216,81 @@ mod tests {
         assert_eq!(mine["commandId"].as_str(), Some(my_cmd.as_str()));
         let (_, theirs) = get(srv.port, &format!("/api/approvals/{approval_b}"));
         assert_eq!(theirs["commandId"].as_str(), Some(other_cmd.as_str()));
+    }
+
+    // TC-HT-42  批准/拒绝的响应都回传真实 conversationId；客户端没传也要回填
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn decision_response_carries_conversation_id() {
+        let srv = spawn_server().await;
+        use_fake_agent(&srv).await;
+
+        // ① 客户端显式指定对话：回传的就是这条
+        let conv = srv.state.conversations.create_with_options("opencode", None, None);
+        let (_, v) = post(
+            srv.port,
+            "/api/message",
+            &format!(r#"{{"text":"rm -rf /tmp/a","conversationId":"{}"}}"#, conv.id),
+        );
+        assert_eq!(v["status"], "pending_approval");
+        let id = v["approval"]["id"].as_str().unwrap().to_string();
+        let (code, v) = post(
+            srv.port,
+            &format!("/api/approvals/{id}"),
+            r#"{"action":"approve"}"#,
+        );
+        assert_eq!(code, 200);
+        assert_eq!(
+            v["conversationId"].as_str(),
+            Some(conv.id.as_str()),
+            "批准响应必须带审批所属的对话"
+        );
+        let cmd = v["commandId"].as_str().unwrap().to_string();
+
+        // 终态查询给出同一份归属与同一个 commandId（重复查询不重新执行）
+        for _ in 0..3 {
+            let (_, s) = get(srv.port, &format!("/api/approvals/{id}"));
+            assert_eq!(s["status"], "approved");
+            assert_eq!(s["commandId"].as_str(), Some(cmd.as_str()));
+            assert_eq!(s["conversationId"].as_str(), Some(conv.id.as_str()));
+        }
+
+        // ② 客户端**没有**传 conversationId（Watch 语音路径）→ 由桌面端解析并回传
+        let (_, v) = post(srv.port, "/api/message", r#"{"text":"rm -rf /tmp/b"}"#);
+        assert_eq!(v["status"], "pending_approval");
+        let id2 = v["approval"]["id"].as_str().unwrap().to_string();
+        let (_, v) = post(
+            srv.port,
+            &format!("/api/approvals/{id2}"),
+            r#"{"action":"approve"}"#,
+        );
+        let conv2 = v["conversationId"]
+            .as_str()
+            .expect("没传对话时也必须回传真实归属");
+        assert!(!conv2.is_empty());
+        let (_, s) = get(srv.port, &format!("/api/approvals/{id2}"));
+        assert_eq!(s["conversationId"].as_str(), Some(conv2));
+
+        // ③ 拒绝同样要带归属（否则 Watch 的失败回执对不上对话页）。
+        //    注意：只有 pending 本身记住了对话时才有归属 —— 拒绝不执行任何东西，
+        //    不会为此凭空创建一条对话（客户端没传就仍然没有，这是既有语义）。
+        let (_, v) = post(
+            srv.port,
+            "/api/message",
+            &format!(r#"{{"text":"git push --force","conversationId":"{}"}}"#, conv.id),
+        );
+        assert_eq!(v["status"], "pending_approval");
+        let id3 = v["approval"]["id"].as_str().unwrap().to_string();
+        let (_, v) = post(
+            srv.port,
+            &format!("/api/approvals/{id3}"),
+            r#"{"action":"deny"}"#,
+        );
+        assert_eq!(v["status"], "denied");
+        assert_eq!(
+            v["conversationId"].as_str(),
+            Some(conv.id.as_str()),
+            "拒绝回执也要带审批所属的对话"
+        );
     }
 
     // TC-HT-21  授权档位按对话生效：固化 auto 的对话放行危险命令；

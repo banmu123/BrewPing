@@ -149,14 +149,35 @@ public final class ApprovalGate {
 
     // MARK: - Outcome（审批终态）
 
-    /// 这条审批现在的处境。`nil` = 服务端不认识它（从未见过 / 记录已过期 / 进程重启过）。
+    /// 一条审批此刻的**原子**快照：挂起中 / 已有终态 / 根本不存在，三者互斥。
     ///
-    /// 会顺带清理过期 pending —— 一条挂起到 TTL 之外的审批在这里被记为 `expired`，
+    /// 为什么必须是一次查询：`GET /api/approvals/{id}` 早期先查终态、再查 pending ——
+    /// 两次独立加锁。若另一台设备正好在这一瞬间批准/拒绝，approval 已从 pending 移出、
+    /// 终态也已写入，但两次读取分别发生在写入前后，就可能两边都查不到而错误返回 404。
+    /// 在同一个锁区间里判定三种情形，路径上不存在「既不在 pending、又没有终态」的中间态。
+    enum Snapshot {
+        case pending(PendingApproval)
+        case resolved(ApprovalOutcome)
+        /// 服务端不认识它（从未见过 / 记录已过期 / 进程重启过）。
+        case unknown
+    }
+
+    /// 这条审批现在的处境。**只加一次锁**，调用方不该再把 pending / outcome 分开查。
+    ///
+    /// 顺带清理过期 pending —— 一条挂起到 TTL 之外的审批在这里被记为 `expired`，
     /// 客户端因此能收到「超时」这个明确终态，而不是干等她自己的看门狗。
-    func outcome(id: String) -> ApprovalOutcome? {
+    func snapshot(id: String) -> Snapshot {
         lock.lock(); defer { lock.unlock() }
         pruneExpiredLocked()
-        return outcomes[id]
+        if let outcome = outcomes[id] { return .resolved(outcome) }
+        if let approval = pending[id] { return .pending(approval) }
+        return .unknown
+    }
+
+    /// 仅取终态（不关心是否还挂着）。内部复用 `snapshot`，保证只有一条判定路径。
+    func outcome(id: String) -> ApprovalOutcome? {
+        if case .resolved(let outcome) = snapshot(id: id) { return outcome }
+        return nil
     }
 
     /// 批准后命令真正派发成功：把**实际** commandId 补进终态记录。

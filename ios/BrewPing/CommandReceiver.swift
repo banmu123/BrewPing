@@ -92,6 +92,10 @@ struct ApprovalDecisionResponse: Decodable {
     let success: Bool?
     let status: String?
     let commandId: String?
+    /// 这条审批实际落入的对话。桌面端在批准/拒绝时回传，手机端本来没有时用它补齐
+    /// （Watch 语音路径不传 conversationId，缺了它会令回执对不上对话页）。
+    /// 老桌面端没有该字段 → nil，行为与从前一致。
+    let conversationId: String?
     let error: String?
 }
 
@@ -374,34 +378,55 @@ final class CommandSubmitter: ObservableObject {
             let decoded = try? JSONDecoder().decode(ApprovalDecisionResponse.self, from: data)
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
 
-            if decoded?.status == "denied" {
+            // 判定规则集中在 `ApprovalDecisionRules`（纯逻辑，有单测覆盖）：
+            // 404 = 已被别处处理（去查终态），denied = 明确拒绝，200+commandId = 已派发。
+            switch ApprovalDecisionRules.decode(
+                httpStatus: statusCode,
+                status: decoded?.status,
+                commandID: decoded?.commandId,
+                conversationID: decoded?.conversationId,
+                error: decoded?.error
+            ) {
+            case .denied(let conversationID):
+                // 拒绝回执也要落到正确的对话页（Watch 来源尤其需要）。
+                activeConversationId = ApprovalDecisionRules.adoptConversation(
+                    current: activeConversationId, incoming: conversationID
+                )
                 pendingApproval = nil
                 // 拒绝是明确的终态：释放通道，允许下一条。
                 // 用 failed 而不是 completed —— 否则 UI 会把"被拒绝"渲染成绿色的完成态。
                 channel.fail(L("Command was denied."))
                 if fromWatch {
                     WatchConnectivityManager.shared.sendCommandResult(
-                        status: "failed", text: L("Command was denied."), duration: nil
+                        status: "failed",
+                        text: L("Command was denied."),
+                        duration: nil,
+                        conversationId: activeConversationId
                     )
                 }
-                return
-            }
-            guard statusCode == 200, let commandId = decoded?.commandId, !commandId.isEmpty else {
-                if statusCode == 404 {
-                    // 这条审批已经不在队列里：可能被电脑本身 / 另一台设备批准或拒绝，
-                    // 也可能已超时。查终态把结果认领回来 —— 别把 404 当成"命令失败"。
-                    await adoptResolvedApproval(
-                        approvalID: id, device: device, fromWatch: fromWatch, token: token
-                    )
-                    return
-                }
+            case .executed(let commandId, let conversationID):
+                // 🚨 直接批准成功这条路径以前只拿 commandId，不拿归属：客户端本来没有
+                // conversationId 时（Watch 语音路径），Watch 的完成回执就会缺 conversationId，
+                // 手表无法把结果对到对应对话页。这里用服务端记下的真实归属补齐；
+                // 客户端已有有效归属则保持不动（不覆盖用户正在看的对话）。
+                activeConversationId = ApprovalDecisionRules.adoptConversation(
+                    current: activeConversationId, incoming: conversationID
+                )
                 pendingApproval = nil
-                fail(with: decoded?.error ?? "HTTP \(statusCode)", fromWatch: fromWatch)
-                return
+                trackedApproval = nil
+                // 已有 commandId：继续走普通轮询，**绝不重新提交命令**。
+                channel.markDelivered(commandID: commandId)
+                await poll(commandId: commandId, device: device, fromWatch: fromWatch, token: token)
+            case .unresolved:
+                // 这条审批已经不在队列里：可能被电脑本身 / 另一台设备批准或拒绝，
+                // 也可能已超时。查终态把结果认领回来 —— 别把 404 当成"命令失败"。
+                await adoptResolvedApproval(
+                    approvalID: id, device: device, fromWatch: fromWatch, token: token
+                )
+            case .failed(let message):
+                pendingApproval = nil
+                fail(with: message, fromWatch: fromWatch)
             }
-            pendingApproval = nil
-            channel.markDelivered(commandID: commandId)
-            await poll(commandId: commandId, device: device, fromWatch: fromWatch, token: token)
         } catch {
             guard channel.isCurrent(token), !Task.isCancelled else { return }
             pendingApproval = nil
@@ -423,9 +448,9 @@ final class CommandSubmitter: ObservableObject {
         guard !Task.isCancelled, channel.isCurrent(token) else { return }
         switch await fetchApprovalOutcome(approvalID: approvalID, device: device) {
         case .approved(let commandID, let conversationID):
-            if activeConversationId == nil, let conversationID {
-                activeConversationId = conversationID
-            }
+            activeConversationId = ApprovalDecisionRules.adoptConversation(
+                current: activeConversationId, incoming: conversationID
+            )
             pendingApproval = nil
             trackedApproval = nil
             channel.markDelivered(commandID: commandID)
@@ -624,9 +649,9 @@ final class CommandSubmitter: ObservableObject {
                 // 服务端给出了确定的关联：直接轮询这条命令。
                 // 客户端没显式对话时（Watch 路径）采用服务端记下的归属，
                 // 结果回传手表才能对上正确的对话页。
-                if activeConversationId == nil, let conversationID {
-                    activeConversationId = conversationID
-                }
+                activeConversationId = ApprovalDecisionRules.adoptConversation(
+                    current: activeConversationId, incoming: conversationID
+                )
                 // 已有结论：提示条上的"重新打开确认窗"不该再提供。
                 pendingApproval = nil
                 trackedApproval = nil

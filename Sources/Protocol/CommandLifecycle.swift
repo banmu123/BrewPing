@@ -269,3 +269,57 @@ public enum ApprovalOutcomeRules {
         }
     }
 }
+
+// MARK: - 审批决定（POST /api/approvals/{id}）的纯判定
+
+/// 一次「我对这条审批做了决定」的结果。
+public enum ApprovalDecisionProbe: Equatable {
+    /// 已批准并已派发。`commandID` 用来继续普通命令轮询（**不重新提交**）。
+    case executed(commandID: String, conversationID: String?)
+    /// 明确拒绝。也可能带归属：拒绝回执同样要落到正确的对话页。
+    case denied(conversationID: String?)
+    /// 404：这条审批已经被电脑本身 / 另一台设备处理掉了 —— 去查终态，别当失败。
+    case unresolved
+    /// 其余失败（含 200 却没有 commandId）。
+    case failed(String)
+}
+
+public enum ApprovalDecisionRules {
+    public static func decode(
+        httpStatus: Int,
+        status: String?,
+        commandID: String?,
+        conversationID: String?,
+        error: String?
+    ) -> ApprovalDecisionProbe {
+        if httpStatus == 404 { return .unresolved }
+        // 拒绝是明确终态，优先于状态码判断（与既有客户端行为一致）。
+        if status == "denied" {
+            return .denied(conversationID: normalized(conversationID))
+        }
+        guard httpStatus == 200, let commandID, !commandID.isEmpty else {
+            return .failed(error ?? "HTTP \(httpStatus)")
+        }
+        // 缺 conversationId **不算失败**：命令已经受理，只是不知道归属而已。
+        // 已有 activeConversationId 的客户端本来就不需要它。
+        return .executed(commandID: commandID, conversationID: normalized(conversationID))
+    }
+
+    /// 服务端给出的归该如何落到客户端。
+    ///
+    /// 规则：客户端**已有**有效归属就保留（用户正在看的对话不能被远端改掉）；
+    /// 只有本来就没有时才采用服务端的值。两边都没有 → nil（沿用旧行为）。
+    public static func adoptConversation(current: String?, incoming: String?) -> String? {
+        if let current, !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return current
+        }
+        return normalized(incoming)
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return value
+    }
+}

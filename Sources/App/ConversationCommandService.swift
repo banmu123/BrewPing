@@ -65,6 +65,9 @@ enum ConversationCommandService {
         /// `"denied"` 或 `"executed"`。
         var status: String
         var commandID: String?
+        /// 这条命令实际落入的对话。手机端可能没传 conversationId（Watch 路径），
+        /// 由桌面端告诉它真实归属 —— 否则 Watch 的回执会对不上对话页。
+        var conversationID: String?
     }
 
     enum SubmitError: LocalizedError {
@@ -169,7 +172,7 @@ enum ConversationCommandService {
                 )
                 DesktopEventBus.shared.post(.conversationsChanged, payload: ["id": convID])
             }
-            return DecisionOutcome(status: "denied", commandID: nil)
+            return DecisionOutcome(status: "denied", commandID: nil, conversationID: resolution.conversationID)
         case "approve", "always_approve":
             guard let text = resolution.text else {
                 // 记录「批准了但没正文」，否则关掉弹窗的客户端只会看到 404。
@@ -190,7 +193,11 @@ enum ConversationCommandService {
                     commandID: success.commandID,
                     conversationID: success.conversationID
                 )
-                return DecisionOutcome(status: "executed", commandID: success.commandID)
+                return DecisionOutcome(
+                    status: "executed",
+                    commandID: success.commandID,
+                    conversationID: success.conversationID ?? resolution.conversationID
+                )
             } catch {
                 ApprovalGate.shared.markFailed(
                     id: id,
