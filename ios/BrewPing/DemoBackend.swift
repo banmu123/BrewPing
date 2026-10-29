@@ -57,6 +57,9 @@ final class DemoBackend {
     private var approvalMode = "safe"
     /// 挂起待确认的命令。
     private var pendingApprovals: [String: DemoApproval] = [:]
+    /// 已出队审批的终态（与桌面端 `ApprovalGate` 的 outcome 记录同构）。
+    /// 关掉确认弹窗的客户端靠 `GET /api/approvals/{id}` 查它，拿到确定的 commandId。
+    private var approvalOutcomes: [String: DemoApprovalOutcome] = [:]
     /// 记住用户在 Demo 里选过的模型（按 Agent 分别记），
     /// 这样"选择后立刻生效 + 下次进来还是它"能在 Demo 里被真实验证到。
     ///
@@ -83,6 +86,16 @@ final class DemoBackend {
         let reasons: [[String: String]]
         let createdAt: Date
     }
+
+    private struct DemoApprovalOutcome {
+        /// approved / denied / expired / failed —— 与真实桌面端 `GET /api/approvals/{id}` 同词表。
+        let status: String
+        let commandID: String?
+        let resolvedAt: Date
+    }
+
+    /// 挂起审批的 TTL，与桌面端 `ApprovalGate.pendingTTL` 一致。
+    private static let approvalTTL: TimeInterval = 300
 
     private init() {}
 
@@ -171,12 +184,68 @@ final class DemoBackend {
             }
             return (200, ["success": true, "mode": currentMode()])
         }
+        // 挂起列表（与 Mac 端 /api/approvals 同构；客户端在旧桌面端上靠它兜底）
+        if method == "GET", path == "/api/approvals" {
+            lock.lock()
+            expireApprovalsLocked()
+            let list = pendingApprovals.map { id, approval in
+                [
+                    "id": id,
+                    "text": approval.text,
+                    "reasons": approval.reasons,
+                    "createdAt": ISO8601DateFormatter().string(from: approval.createdAt)
+                ] as [String: Any]
+            }
+            lock.unlock()
+            return (200, ["success": true, "approvals": list])
+        }
+        // 单条审批的终态（与 Mac 端 GET /api/approvals/{id} 同构）：
+        // 关掉确认弹窗的客户端靠它拿到确定的 commandId，而不是靠转录猜。
+        if method == "GET", path.hasPrefix("/api/approvals/") {
+            let id = String(path.dropFirst("/api/approvals/".count))
+            guard !id.isEmpty else {
+                return (404, ["success": false, "error": "unknown approval"])
+            }
+            lock.lock()
+            expireApprovalsLocked()
+            let outcome = approvalOutcomes[id]
+            let pending = pendingApprovals[id]
+            lock.unlock()
+            if let outcome {
+                var payload: [String: Any] = ["success": true, "status": outcome.status]
+                if let commandID = outcome.commandID { payload["commandId"] = commandID }
+                return (200, payload)
+            }
+            if let pending {
+                return (200, [
+                    "success": true,
+                    "status": "pending",
+                    "approval": [
+                        "id": id,
+                        "text": pending.text,
+                        "reasons": pending.reasons,
+                        "createdAt": ISO8601DateFormatter().string(from: pending.createdAt)
+                    ]
+                ])
+            }
+            return (404, ["success": false, "error": "unknown or expired approval"])
+        }
         // 批准/拒绝挂起的命令（与 Mac 端 /api/approvals/:id 同构）
         if method == "POST", path.hasPrefix("/api/approvals/") {
             let id = String(path.dropFirst("/api/approvals/".count))
             let action = json["action"] as? String ?? ""
             if action == "deny" {
-                lock.lock(); pendingApprovals.removeValue(forKey: id); lock.unlock()
+                lock.lock()
+                let existed = pendingApprovals.removeValue(forKey: id) != nil
+                if existed {
+                    approvalOutcomes[id] = DemoApprovalOutcome(
+                        status: "denied", commandID: nil, resolvedAt: Date()
+                    )
+                }
+                lock.unlock()
+                guard existed else {
+                    return (404, ["success": false, "error": "unknown or expired approval"])
+                }
                 return (200, ["success": true, "status": "denied"])
             }
             lock.lock()
@@ -188,6 +257,9 @@ final class DemoBackend {
             let commandID = "demo-cmd-\(Int(Date().timeIntervalSince1970 * 1000))"
             lock.lock()
             commands[commandID] = DemoCommand(text: approval.text, createdAt: Date())
+            approvalOutcomes[id] = DemoApprovalOutcome(
+                status: "approved", commandID: commandID, resolvedAt: Date()
+            )
             lock.unlock()
             return (200, ["success": true, "commandId": commandID, "sessionId": "demo-session-0001", "status": "queued"])
         }
@@ -607,6 +679,21 @@ final class DemoBackend {
     private func currentMode() -> String {
         lock.lock(); defer { lock.unlock() }
         return approvalMode
+    }
+
+    /// 把超过 TTL 的挂起审批记为 expired（与桌面端 `ApprovalGate` 一致：
+    /// 缺席不表态 ≠ 默认放行，超时要给客户端一个明确终态）。
+    /// 调用方必须已持有 `lock`。
+    private func expireApprovalsLocked() {
+        let cutoff = Date().addingTimeInterval(-Self.approvalTTL)
+        let expired = pendingApprovals.filter { $0.value.createdAt <= cutoff }
+        guard !expired.isEmpty else { return }
+        for (id, _) in expired {
+            pendingApprovals.removeValue(forKey: id)
+            approvalOutcomes[id] = DemoApprovalOutcome(
+                status: "expired", commandID: nil, resolvedAt: Date()
+            )
+        }
     }
 
     /// Demo 用的简化危险检测（Mac 端有完整正则 `DangerPattern`，这里只覆盖常见的几类，

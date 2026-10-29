@@ -114,16 +114,15 @@ private struct PendingApprovalsResponse: Decodable {
     let approvals: [Item]?
 }
 
-/// `GET /api/conversations/{id}` 的最小解码：审批结束后用它找"是不是真的执行了"。
-private struct ConversationCommandProbe: Decodable {
-    struct Message: Decodable {
-        let commandId: String?
-        let createdAtMs: Double?
-    }
-    struct Conversation: Decodable {
-        let messages: [Message]?
-    }
-    let conversation: Conversation?
+/// `GET /api/approvals/{id}` 的解码：一条审批的终态，含实际执行产生的 commandId。
+///
+/// 这是「审批 → 命令」的**确定性**关联来源。旧实现靠对话转录里最新出现的
+/// commandId 推断归属，同一对话里别的设备发一条命令就会认错。
+private struct ApprovalOutcomeResponse: Decodable {
+    let status: String?
+    let commandId: String?
+    let conversationId: String?
+    let error: String?
 }
 
 // MARK: - CommandSubmitter
@@ -169,13 +168,12 @@ final class CommandSubmitter: ObservableObject {
     /// 进入 pending_approval 时桌面端返回的 commandId（当前服务端**不返回**，
     /// 保留是为了兼容将来可能返回值的老/新实现）。
     private var pendingCommandId: String?
-    /// 提交时刻：关窗后用它判断"对话里新出现的 commandId 是不是这条命令产生的"。
-    private var submittedAt = Date()
 
     /// 关窗后跟踪审批的上限。桌面端 `ApprovalGate` 的 TTL 是 300s，这里留 30s 余量。
     private static let approvalTrackTimeout: TimeInterval = 330
-    /// 关窗后轮询审批列表的间隔。
-    private static let approvalTrackInterval: UInt64 = 5_000_000_000
+    /// 关窗后查询审批终态的间隔。这个轮询只在「用户关掉了确认窗」时运行，
+    /// 用户可能正在电脑上点批准，所以取 3s 让结果尽快回流。
+    private static let approvalTrackInterval: UInt64 = 3_000_000_000
 
     private init() {}
 
@@ -264,7 +262,6 @@ final class CommandSubmitter: ObservableObject {
         pendingCommandId = nil
         pendingFromWatch = fromWatch
         activeConversationId = conversationId
-        submittedAt = Date()
 
         pollTask = Task { [weak self] in
             guard let self else { return }
@@ -317,8 +314,6 @@ final class CommandSubmitter: ObservableObject {
         channel.markTrackingApproval()
         let token = channel.runToken
         let fromWatch = pendingFromWatch
-        let conversationID = activeConversationId
-        let submittedAt = self.submittedAt
         let approvalID = channel.approvalID
 
         guard let device = DeviceStore.shared.activeDevice, device.baseURL != nil else {
@@ -335,10 +330,8 @@ final class CommandSubmitter: ObservableObject {
             pollTask = Task { [weak self] in
                 await self?.trackApprovalResolution(
                     approvalID: approvalID,
-                    conversationID: conversationID,
                     device: device,
                     fromWatch: fromWatch,
-                    submittedAt: submittedAt,
                     token: token
                 )
             }
@@ -394,6 +387,14 @@ final class CommandSubmitter: ObservableObject {
                 return
             }
             guard statusCode == 200, let commandId = decoded?.commandId, !commandId.isEmpty else {
+                if statusCode == 404 {
+                    // 这条审批已经不在队列里：可能被电脑本身 / 另一台设备批准或拒绝，
+                    // 也可能已超时。查终态把结果认领回来 —— 别把 404 当成"命令失败"。
+                    await adoptResolvedApproval(
+                        approvalID: id, device: device, fromWatch: fromWatch, token: token
+                    )
+                    return
+                }
                 pendingApproval = nil
                 fail(with: decoded?.error ?? "HTTP \(statusCode)", fromWatch: fromWatch)
                 return
@@ -405,6 +406,46 @@ final class CommandSubmitter: ObservableObject {
             guard channel.isCurrent(token), !Task.isCancelled else { return }
             pendingApproval = nil
             fail(with: error.localizedDescription, fromWatch: fromWatch)
+        }
+    }
+
+    /// 提交决定时发现审批已被处理（404）：查终态，按真实结果收敛。
+    ///
+    /// 场景：确认弹窗还开着，用户已经在电脑上（或另一台手机）批准 / 拒绝了。
+    /// 旧实现会把 404 直接显示成一条错误，用户以为命令没执行 —— 其实它跑得好好的。
+    /// 这里用同一个终态端点把 commandId 认领回来，继续轮询结果。
+    private func adoptResolvedApproval(
+        approvalID: String,
+        device: ManagedDevice,
+        fromWatch: Bool,
+        token: UUID
+    ) async {
+        guard !Task.isCancelled, channel.isCurrent(token) else { return }
+        switch await fetchApprovalOutcome(approvalID: approvalID, device: device) {
+        case .approved(let commandID, let conversationID):
+            if activeConversationId == nil, let conversationID {
+                activeConversationId = conversationID
+            }
+            pendingApproval = nil
+            trackedApproval = nil
+            channel.markDelivered(commandID: commandID)
+            await poll(commandId: commandID, device: device, fromWatch: fromWatch, token: token)
+        case .denied:
+            pendingApproval = nil
+            fail(with: L("Command was denied."), fromWatch: fromWatch)
+        case .expired:
+            pendingApproval = nil
+            fail(with: L("Approval timed out. Check the conversation on your Mac."), fromWatch: fromWatch)
+        case .failed(let message):
+            pendingApproval = nil
+            fail(with: message.isEmpty ? L("Unknown error.") : message, fromWatch: fromWatch)
+        case .pending, .transient, .unavailable:
+            // 确实查不到结论：明确收敛，别让通道一直占着转圈。
+            pendingApproval = nil
+            fail(
+                with: L("Approval ended without a result. Check the conversation on your Mac."),
+                fromWatch: fromWatch
+            )
         }
     }
 
@@ -546,18 +587,24 @@ final class CommandSubmitter: ObservableObject {
         }
     }
 
-    /// 关窗后继续跟踪：`GET /api/approvals` 里还有没有这条审批。
+    /// 关窗后继续跟踪：直接问桌面端「这条审批（approvalID）现在什么状态」。
     ///
-    /// 审批消失有两种可能：被批准执行了 / 被拒绝或超时。当前协议里挂起的命令**还没有
-    /// commandId**（要等批准后才创建），所以这里用对话转录做一次归属判定：
-    /// 提交之后新出现的 commandId 就是它执行产生的，继续按普通命令轮询；
-    /// 找不到就明确收敛为「已结束但没拿到结果」，绝不假装成功。
+    /// 为什么不能只轮询 `GET /api/approvals` 看「还在不在」：挂起的命令在批准之前
+    /// **没有 commandId**（commandId 是真正执行时才生成的），「消失了」只说明有结论，
+    /// 分不清是批准、拒绝还是超时。早期实现拿对话转录里「提交之后最新出现的
+    /// commandId」当答案 —— 同一对话里别的设备发一条命令就会把结果认错。
+    ///
+    /// 现在改由 `GET /api/approvals/{id}` 给出 `approvalID → 终态 + 实际 commandId`：
+    /// - 不需要客户端传 conversationID（服务端在挂起时就记住了归属）；
+    /// - 多条审批并存时各自独立，互不影响；
+    /// - 断线重连后只要还在有效期内，重查同一个 approvalID 就能续上，不需要重发命令。
+    ///
+    /// 旧版桌面端没有这个端点（404）：回落到「审批是否仍挂在列表里」——
+    /// 仍在挂起就继续等，真的消失了才收敛为「结果不可用」，仍然不猜。
     private func trackApprovalResolution(
         approvalID: String,
-        conversationID: String?,
         device: ManagedDevice,
         fromWatch: Bool,
-        submittedAt: Date,
         token: UUID
     ) async {
         let deadline = Date().addingTimeInterval(Self.approvalTrackTimeout)
@@ -568,24 +615,70 @@ final class CommandSubmitter: ObservableObject {
                 fail(with: L("Approval timed out. Check the conversation on your Mac."), fromWatch: fromWatch)
                 return
             }
-            guard let pending = await fetchPendingApprovalIDs(device: device) else { continue }
-            guard channel.isCurrent(token) else { return }
-            if pending.contains(approvalID) { continue }
 
-            if let conversationID,
-               let commandID = await latestCommandID(
-                   device: device, conversationID: conversationID, since: submittedAt
-               ) {
-                guard channel.isCurrent(token) else { return }
+            let probe = await fetchApprovalOutcome(approvalID: approvalID, device: device)
+            guard !Task.isCancelled, channel.isCurrent(token) else { return }
+
+            switch probe {
+            case .approved(let commandID, let conversationID):
+                // 服务端给出了确定的关联：直接轮询这条命令。
+                // 客户端没显式对话时（Watch 路径）采用服务端记下的归属，
+                // 结果回传手表才能对上正确的对话页。
+                if activeConversationId == nil, let conversationID {
+                    activeConversationId = conversationID
+                }
+                // 已有结论：提示条上的"重新打开确认窗"不该再提供。
+                pendingApproval = nil
+                trackedApproval = nil
                 channel.markDelivered(commandID: commandID)
                 await poll(commandId: commandID, device: device, fromWatch: fromWatch, token: token)
-            } else {
+                return
+            case .denied:
+                fail(with: L("Command was denied."), fromWatch: fromWatch)
+                return
+            case .expired:
+                fail(with: L("Approval timed out. Check the conversation on your Mac."), fromWatch: fromWatch)
+                return
+            case .failed(let message):
+                fail(with: message.isEmpty ? L("Unknown error.") : message, fromWatch: fromWatch)
+                return
+            case .pending, .transient:
+                continue
+            case .unavailable:
+                // ① 旧桌面端没有这个查询端点（审批可能还挂着）→ 继续等；
+                // ② 桌面端重启过 / 终态记录已淘汰 → 结果确实拿不到，明确收敛。
+                if await isApprovalStillPending(approvalID: approvalID, device: device) ?? true {
+                    continue
+                }
                 fail(
                     with: L("Approval ended without a result. Check the conversation on your Mac."),
                     fromWatch: fromWatch
                 )
+                return
             }
-            return
+        }
+    }
+
+    /// 一条审批的当前处境。判定规则集中在 `ApprovalOutcomeRules`（纯逻辑，有单测覆盖）。
+    private func fetchApprovalOutcome(approvalID: String, device: ManagedDevice) async -> ApprovalProbe {
+        guard let request = BrewPingHTTP.request(
+            device: device, path: "/api/approvals/\(approvalID)", timeout: 10
+        ) else {
+            return .transient
+        }
+        do {
+            let (data, response) = try await BrewPingHTTP.session.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let decoded = try? JSONDecoder().decode(ApprovalOutcomeResponse.self, from: data)
+            return ApprovalOutcomeRules.decode(
+                httpStatus: statusCode,
+                status: decoded?.status,
+                commandID: decoded?.commandId,
+                conversationID: decoded?.conversationId,
+                error: decoded?.error
+            )
+        } catch {
+            return .transient
         }
     }
 
@@ -606,24 +699,10 @@ final class CommandSubmitter: ObservableObject {
         }
     }
 
-    /// 对话里在 `since` 之后新出现的 commandId（用于把审批结果认领回来）。
-    private func latestCommandID(device: ManagedDevice, conversationID: String, since: Date) async -> String? {
-        guard let request = BrewPingHTTP.request(
-            device: device, path: "/api/conversations/\(conversationID)", timeout: 10
-        ) else { return nil }
-        do {
-            let (data, response) = try await BrewPingHTTP.session.data(for: request)
-            guard (response as? HTTPURLResponse)?.statusCode == 200,
-                  let decoded = try? JSONDecoder().decode(ConversationCommandProbe.self, from: data),
-                  let messages = decoded.conversation?.messages else { return nil }
-            let cutoff = since.addingTimeInterval(-2).timeIntervalSince1970 * 1000
-            return messages
-                .filter { ($0.createdAtMs ?? 0) >= cutoff }
-                .compactMap { $0.commandId }
-                .last
-        } catch {
-            return nil
-        }
+    /// 审批是否仍挂起。nil = 查不到（网络问题 / 该桌面端没有这个端点）。
+    private func isApprovalStillPending(approvalID: String, device: ManagedDevice) async -> Bool? {
+        guard let pending = await fetchPendingApprovalIDs(device: device) else { return nil }
+        return pending.contains(approvalID)
     }
 
     private func finish(_ text: String, raw: Bool, decoded: CommandStatusResponse, fromWatch: Bool) {
