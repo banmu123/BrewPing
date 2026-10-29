@@ -130,7 +130,7 @@ BrewPing 与 Lody 的结构差异，直接决定了简化幅度：
 
 ### 2.2 路由与鉴权现状
 
-`http_server.rs:241-262` 的 `build_router`，全部 14 条路由：
+`http_server.rs:241-262` 的 `build_router`，全部路由：
 
 | 方法 | 路径 | 鉴权 |
 | --- | --- | --- |
@@ -144,6 +144,7 @@ BrewPing 与 Lody 的结构差异，直接决定了简化幅度：
 | `GET` | `/api/message/{id}` | Bearer |
 | `GET` / `POST` | `/api/approvals/mode` | Bearer / Bearer + Nonce |
 | `GET` | `/api/approvals` | Bearer |
+| `GET` | `/api/approvals/{id}` | Bearer（审批终态：`pending` / `approved` + `commandId` / `denied` / `expired` / `failed`；404 = 结果不可用） |
 | `POST` | `/api/approvals/{id}` | Bearer + Nonce |
 | `POST` | `/api/session/start` \| `/api/session/stop` | Bearer + Nonce |
 | `POST` | `/api/discovery/refresh` | Bearer + Nonce |

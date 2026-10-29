@@ -68,8 +68,8 @@ Unit tests live next to the code they cover and run **without a device or emulat
 
 | Suite | Where | Count (methods) | How to run |
 |---|---|---|---|
-| Swift core | `Tests/BrewPingCoreTests/` | **144** | `swift test` (macOS) |
-| Windows desktop (Rust) | `Sources/BrewPingwinDesktop/src-tauri` | **318** | `cargo test --locked` |
+| Swift core | `Tests/BrewPingCoreTests/` | **169** | `swift test` (macOS) |
+| Windows desktop (Rust) | `Sources/BrewPingwinDesktop/src-tauri` | **327** | `cargo test --locked` |
 | Android (`:core` + `:app`) | `Android/core/src/test`, `Android/app/src/test` | **109** | `cd Android && ./gradlew test` |
 
 CI — [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) — runs on every push and PR, plus a
@@ -89,8 +89,9 @@ before it breaks someone's pull request.
 `ci.yml` is the authoritative record — the jobs listed above are exactly what it executes.
 
 > Honesty note: the Swift and Android counts above are method counts of the committed test files.
-> The Swift suite was last executed by the maintainer on macOS; the Android suite and the Rust suite
-> were executed on Windows. CI re-runs all three on public runners — check the badge on the README
+> The Rust count is the Windows figure — six cases are `#[cfg(windows)]`-only, so a macOS run reports
+> six fewer. The Swift suite was last executed by the maintainer on macOS; the Android suite and the
+> full Rust suite were executed on Windows. CI re-runs all three on public runners — check the badge on the README
 > for the authoritative result.
 
 ## 4. Maintenance
