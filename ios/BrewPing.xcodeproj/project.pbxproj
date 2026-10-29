@@ -46,6 +46,7 @@
 		AA0000010000000000000502 /* ConversationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000503 /* ConversationStore.swift */; };
 		AA0000010000000000000504 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000505 /* ConversationListView.swift */; };
 		AA0000010000000000000506 /* ConversationDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000507 /* ConversationDetailView.swift */; };
+		CC0000010000000000000002 /* CommandLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0000010000000000000001 /* CommandLifecycle.swift */; };
 		BB0000010000000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000010000000000000002 /* ContentView.swift */; };
 		BB0000010000000000000003 /* WatchSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000010000000000000004 /* WatchSessionManager.swift */; };
 		BB0000010000000000000008 /* VoiceCommandView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000010000000000000009 /* VoiceCommandView.swift */; };
@@ -128,6 +129,7 @@
 		BB0000010000000000000009 /* VoiceCommandView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCommandView.swift; sourceTree = "<group>"; };
 		BB000001000000000000000A /* WatchAudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAudioRecorder.swift; sourceTree = "<group>"; };
 		BB0000010000000000000010 /* BrewPing Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "BrewPing Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC0000010000000000000001 /* CommandLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandLifecycle.swift; sourceTree = "<group>"; };
 		BB000001000000000000001A /* BrewPingProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrewPingProtocol.swift; sourceTree = "<group>"; };
 		BB000001000000000000001B /* Device.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Device.swift; sourceTree = "<group>"; };
 		BB000001000000000000001C /* Agent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Agent.swift; sourceTree = "<group>"; };
@@ -251,6 +253,7 @@
 				BB000001000000000000001D /* Session.swift */,
 				BB000001000000000000001E /* Conversation.swift */,
 				BB000001000000000000001F /* Event.swift */,
+				CC0000010000000000000001 /* CommandLifecycle.swift */,
 			);
 			path = ../Sources/Protocol;
 			sourceTree = "<group>";
@@ -397,6 +400,7 @@
 				AA0000010000000000000504 /* ConversationListView.swift in Sources */,
 				AA0000010000000000000506 /* ConversationDetailView.swift in Sources */,
 				AA0000010000000000000013 /* Event.swift in Sources */,
+				CC0000010000000000000002 /* CommandLifecycle.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

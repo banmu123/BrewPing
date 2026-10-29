@@ -18,6 +18,8 @@ struct QRScannerView: View {
     /// 相机错误是否属于「权限被拒」—— 只有这种情况才给「打开系统设置」出口
     /// （无相机 / 不支持是设备能力问题，去设置里也解决不了）。
     @State private var cameraDenied = false
+    /// 重试：换一个 identity 让 representable 重建，等于重新走一遍配置流程。
+    @State private var captureID = UUID()
 
     var body: some View {
         NavigationStack {
@@ -32,6 +34,7 @@ struct QRScannerView: View {
                             cameraDenied = $1
                         }
                     )
+                    .id(captureID)
                     .ignoresSafeArea()
                     reticle
                 }
@@ -87,6 +90,17 @@ struct QRScannerView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Color.bpPrimary)
+            } else {
+                // 非权限错误（相机被占用 / 初始化失败）：给一次原地重试，不必退出去重进。
+                Button {
+                    cameraError = nil
+                    captureID = UUID()
+                } label: {
+                    Label(L("Try Again"), systemImage: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.bpPrimary)
             }
             Text("You can still enter the 6-digit pairing code manually.")
                 .font(.footnote)
@@ -115,14 +129,23 @@ private struct QRCaptureRepresentable: UIViewControllerRepresentable {
 }
 
 /// 纯 AVFoundation 的扫码控制器。
+///
+/// 并发约定（这是本文件最容易出错的地方）：
+///  - `AVCaptureSession` 的配置 / 启动 / 停止**全部**在 `sessionQueue` 上执行。
+///    `startRunning()` / `stopRunning()` 是同步阻塞调用，放主线程会卡界面，
+///    放不同队列并发调用则可能与配置过程竞争（崩溃或黑屏）。
+///  - 元数据回调也投递到同一条队列：`stopRunning()` 与 `hasScanned` 的读写因此天然串行。
+///  - 只有 UI（预览层、回调）回主线程。
 final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     var onScanned: ((String) -> Void)?
     var onError: ((String, Bool) -> Void)?
 
     private let session = AVCaptureSession()
+    /// 相机状态的唯一归属队列。
+    private let sessionQueue = DispatchQueue(label: "com.brewping.qr.session")
     private var previewLayer: AVCaptureVideoPreviewLayer?
+    /// 以下三个只在 `sessionQueue` 上读写。
     private var didConfigure = false
-    /// 只上报一次，避免同一个二维码连续触发。
     private var hasScanned = false
 
     override func viewDidLoad() {
@@ -137,10 +160,12 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        // 页面退出时务必停掉 session，否则相机会一直占用（发热、耗电）。
-        if session.isRunning {
-            DispatchQueue.global(qos: .userInitiated).async { [session] in
-                session.stopRunning()
+        // 页面退出时务必停掉 session，否则相机会一直占用（发热、耗电、绿点常亮）。
+        // 放到专用队列执行：stopRunning 是阻塞调用，放主线程会卡住转场动画。
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            if self.session.isRunning {
+                self.session.stopRunning()
             }
         }
     }
@@ -151,7 +176,6 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
     }
 
     private func requestAccessAndConfigure() {
-        guard !didConfigure else { return }
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             configureSession()
@@ -175,37 +199,65 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
     }
 
     private func configureSession() {
-        guard !didConfigure else { return }
-        didConfigure = true
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            // 重复进入（同一控制器多次 appear）只重启，不重复添加输入输出。
+            if self.didConfigure {
+                if !self.hasScanned, !self.session.isRunning {
+                    self.session.startRunning()
+                }
+                return
+            }
+            self.didConfigure = true
 
-        guard let device = AVCaptureDevice.default(for: .video),
-              let input = try? AVCaptureDeviceInput(device: device),
-              session.canAddInput(input) else {
-            // 模拟器没有相机设备，会走到这里。（非权限问题，不给「打开系统设置」）
-            onError?(L("Camera is not available on this device."), false)
+            guard let device = AVCaptureDevice.default(for: .video),
+                  let input = try? AVCaptureDeviceInput(device: device),
+                  self.session.canAddInput(input) else {
+                // 模拟器没有相机设备，会走到这里。（非权限问题，不给「打开系统设置」）
+                self.report(L("Camera is not available on this device."), denied: false)
+                return
+            }
+
+            self.session.beginConfiguration()
+            self.session.addInput(input)
+
+            let output = AVCaptureMetadataOutput()
+            guard self.session.canAddOutput(output) else {
+                self.session.commitConfiguration()
+                self.report(L("Camera is not available on this device."), denied: false)
+                return
+            }
+            self.session.addOutput(output)
+            // 只认二维码；Mac 端渲染的是 QR。必须在 commit 之前设置。
+            output.metadataObjectTypes = [.qr]
+            // 回调也投递到 sessionQueue：stopRunning / hasScanned 就不需要再加锁。
+            output.setMetadataObjectsDelegate(self, queue: self.sessionQueue)
+            self.session.commitConfiguration()
+
+            // 预览层属于 UIKit，只能在主线程创建与挂载。
+            DispatchQueue.main.async { [weak self] in
+                self?.attachPreview()
+            }
+            self.session.startRunning()
+        }
+    }
+
+    private func attachPreview() {
+        guard previewLayer == nil else {
+            previewLayer?.frame = view.bounds
             return
         }
-        session.addInput(input)
-
-        let output = AVCaptureMetadataOutput()
-        guard session.canAddOutput(output) else {
-            onError?(L("Camera is not available on this device."), false)
-            return
-        }
-        session.addOutput(output)
-        output.setMetadataObjectsDelegate(self, queue: .main)
-        // 只认二维码；Mac 端渲染的是 QR。
-        output.metadataObjectTypes = [.qr]
-
         let preview = AVCaptureVideoPreviewLayer(session: session)
-        preview.frame = view.bounds
         preview.videoGravity = .resizeAspectFill
+        preview.frame = view.bounds
         view.layer.addSublayer(preview)
         previewLayer = preview
+    }
 
-        // startRunning 是阻塞调用，必须放后台队列，否则会卡住主线程（表现为打开就卡死）。
-        DispatchQueue.global(qos: .userInitiated).async { [session] in
-            session.startRunning()
+    /// 错误统一从后台队列回主线程，避免在非主线程改 SwiftUI 状态。
+    private func report(_ message: String, denied: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            self?.onError?(message, denied)
         }
     }
 
@@ -214,6 +266,7 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
         didOutput metadataObjects: [AVMetadataObject],
         from connection: AVCaptureConnection
     ) {
+        // 本方法固定在 sessionQueue 上执行。
         guard !hasScanned,
               let object = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
               let value = object.stringValue, !value.isEmpty else { return }
@@ -221,6 +274,8 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
         if session.isRunning {
             session.stopRunning()
         }
-        onScanned?(value)
+        DispatchQueue.main.async { [weak self] in
+            self?.onScanned?(value)
+        }
     }
 }

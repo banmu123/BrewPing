@@ -36,6 +36,10 @@ struct ConversationDetailView: View {
     @State private var draftAgentID: String?
     /// 草稿态选定的授权档位（nil = 跟随桌面端全局默认），随首条消息固化。
     @State private var draftApprovalMode: String?
+    /// 草稿物化（创建对话）进行中：这段时间也要挡住重复点击。
+    @State private var isPreparingSend = false
+    /// 本次提交对应的草稿文本：只有它被服务端受理后才清空，避免"失败也把字吃掉"。
+    @State private var pendingDraftClear: String?
 
     /// 生效对话 id：路由参数（既有对话）或草稿物化后的 id。
     private var activeConversationID: String? { conversationId ?? materializedID }
@@ -50,6 +54,7 @@ struct ConversationDetailView: View {
             Divider().overlay(Color.bpBorder.opacity(0.6))
             messageScroll
             workdirBar
+            approvalHint
             composer
         }
         .background(Color.bpBackground)
@@ -86,6 +91,9 @@ struct ConversationDetailView: View {
             )
         }
         .onChange(of: submitter.phase) { _, newPhase in
+            // 草稿只在"桌面端确实受理了这条命令"之后才清（投递成功或进入审批等待）。
+            // 发送失败时保留原文，用户可以直接改了重发。
+            clearDraftIfAccepted(newPhase)
             // 命令结束后：清掉本地挂起项 + 重取权威转录（助手条目此时已落库）
             if !newPhase.inFlight { settle() }
         }
@@ -389,7 +397,12 @@ struct ConversationDetailView: View {
     // MARK: - Composer
 
     private var canSend: Bool {
-        online && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // 通道被占用（发送中 / 等审批 / 执行中）时也禁用：并发规则由 CommandSubmitter 兜底，
+        // 这里只负责让按钮如实反映"现在不能发"。
+        online
+            && !submitter.isBusy
+            && !isPreparingSend
+            && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var composer: some View {
@@ -414,13 +427,21 @@ struct ConversationDetailView: View {
             Button {
                 send()
             } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(canSend ? Color.bpPrimaryForeground : Color.bpMutedForeground)
-                    .frame(width: 32, height: 32)
-                    .background(
-                        Circle().fill(canSend ? Color.bpPrimary : Color.bpMuted)
-                    )
+                if submitter.isBusy {
+                    // 忙碌态：发送中 / 等审批 / 执行中都不可再发。
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(Color.bpMuted))
+                } else {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(canSend ? Color.bpPrimaryForeground : Color.bpMutedForeground)
+                        .frame(width: 32, height: 32)
+                        .background(
+                            Circle().fill(canSend ? Color.bpPrimary : Color.bpMuted)
+                        )
+                }
             }
             .disabled(!canSend)
             .accessibilityLabel(Text("Send"))
@@ -439,6 +460,38 @@ struct ConversationDetailView: View {
         .padding(.bottom, 10)
     }
 
+    /// 等审批 / 关窗后继续跟踪：说明"为什么现在发不了"，而不是把按钮藏起来。
+    /// 放在 composer 上方而不是叠在输入框上 —— 叠加会压住正在编辑的文字。
+    @ViewBuilder
+    private var approvalHint: some View {
+        if submitter.phase.isAwaitingDecision {
+            Button {
+                // 关窗后仍可点回来（命令还在桌面端挂着，通道也仍被占用）。
+                if submitter.phase == .trackingApproval {
+                    submitter.reopenPendingApproval()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "hand.raised.fill")
+                        .font(.system(size: 10))
+                    Text(submitter.phase == .awaitingApproval
+                         ? LocalizedStringKey("Waiting for approval on your Mac…")
+                         : LocalizedStringKey("Still waiting for the desktop to finish the previous command…"))
+                        .font(.system(size: 11))
+                    if submitter.phase == .trackingApproval {
+                        Image(systemName: "chevron.up")
+                            .font(.system(size: 9, weight: .semibold))
+                    }
+                }
+                .foregroundStyle(Color.bpMutedForeground)
+            }
+            .buttonStyle(.plain)
+            .disabled(submitter.phase == .awaitingApproval)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 2)
+        }
+    }
+
     // MARK: - Actions
 
     private func load() async {
@@ -449,26 +502,48 @@ struct ConversationDetailView: View {
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        draft = ""
-        pendingUserText = text
+        // 兜底：按钮已按 isBusy 禁用，但 Watch 可能在点击瞬间抢占通道。
+        guard !submitter.isBusy, !isPreparingSend else { return }
+
         // 新对话草稿：先物化（Agent / 授权档位随创建固化），再按新对话 id 提交。
         // 不再落到桌面端「当前激活对话」—— 那会把消息发进别的对话里。
         if isDraft {
+            isPreparingSend = true
             Task {
-                if let newID = await store.createConversation(
+                defer { isPreparingSend = false }
+                guard let newID = await store.createConversation(
                     device: device,
                     agentID: draftResolvedAgentID,
                     approvalMode: draftApprovalMode
-                ) {
-                    materializedID = newID
-                    submitter.submit(text: text, fromWatch: false, conversationId: newID)
-                } else {
-                    pendingUserText = nil
-                    draft = text
+                ) else { return }   // 创建失败：保留草稿，用户可直接重试
+                materializedID = newID
+                // 🚨 只有提交被通道接受后才登记待清草稿；被拒绝（并发/离线）时原样保留，
+                // 否则用户辛苦打的字会凭空消失。
+                if submitter.submit(text: text, fromWatch: false, conversationId: newID) {
+                    pendingUserText = text
+                    pendingDraftClear = text
                 }
             }
-        } else {
-            submitter.submit(text: text, fromWatch: false, conversationId: activeConversationID)
+        } else if submitter.submit(text: text, fromWatch: false, conversationId: activeConversationID) {
+            pendingUserText = text
+            pendingDraftClear = text
+        }
+    }
+
+    /// 被服务端受理（投递成功 / 进入审批等待）后才清草稿；终态失败则解除绑定保留原文。
+    private func clearDraftIfAccepted(_ phase: CommandPhase) {
+        guard let pending = pendingDraftClear else { return }
+        switch phase {
+        case .delivered, .awaitingApproval:
+            // 只清"这一条"的草稿：期间用户可能已经改过输入框。
+            if draft == pending { draft = "" }
+            pendingDraftClear = nil
+        case .failed, .completed, .completedRaw, .idle:
+            // 没走到受理就结束了（例如 401 / 网络失败）：保留草稿，解除绑定，
+            // 避免下一条命令的 delivered 把这段文字误清掉。
+            pendingDraftClear = nil
+        default:
+            break
         }
     }
 

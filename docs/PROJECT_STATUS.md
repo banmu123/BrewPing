@@ -68,7 +68,7 @@ Unit tests live next to the code they cover and run **without a device or emulat
 
 | Suite | Where | Count (methods) | How to run |
 |---|---|---|---|
-| Swift core | `Tests/BrewPingCoreTests/` | **119** | `swift test` (macOS) |
+| Swift core | `Tests/BrewPingCoreTests/` | **144** | `swift test` (macOS) |
 | Windows desktop (Rust) | `Sources/BrewPingwinDesktop/src-tauri` | **318** | `cargo test --locked` |
 | Android (`:core` + `:app`) | `Android/core/src/test`, `Android/app/src/test` | **109** | `cd Android && ./gradlew test` |
 

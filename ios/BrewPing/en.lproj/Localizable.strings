@@ -168,6 +168,16 @@
 "Deny" = "Deny";
 "Command was denied." = "Command was denied.";
 
+/* MARK: - Command channel (concurrency feedback) */
+"Another command is still running. Try again after it finishes." = "Another command is still running. Try again after it finishes.";
+"Waiting for approval" = "Waiting for approval";
+"Waiting for approval on your Mac…" = "Waiting for approval on your Mac…";
+"Waiting for the desktop to finish" = "Waiting for the desktop to finish";
+"Still waiting for the desktop to finish the previous command…" = "Still waiting for the desktop to finish the previous command…";
+"Approval ended without a result. Check the conversation on your Mac." = "Approval ended without a result. Check the conversation on your Mac.";
+"Approval timed out. Check the conversation on your Mac." = "Approval timed out. Check the conversation on your Mac.";
+"Try Again" = "Try Again";
+
 "danger.rm_root" = "Delete root directory";
 "danger.recursive_delete" = "Recursive delete";
 "danger.force_push" = "Force push";

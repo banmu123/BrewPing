@@ -1298,6 +1298,22 @@ struct ContentView: View {
                 Spacer()
                 ProgressView()
             }
+        case .awaitingApproval:
+            HStack(spacing: 8) {
+                Image(systemName: "hand.raised.fill").foregroundStyle(Color.bpWarning)
+                Text("Waiting for approval")
+                    .font(.callout)
+                Spacer()
+                ProgressView()
+            }
+        case .trackingApproval:
+            HStack(spacing: 8) {
+                Image(systemName: "hand.raised.fill").foregroundStyle(Color.bpWarning)
+                Text("Waiting for the desktop to finish")
+                    .font(.callout)
+                Spacer()
+                ProgressView()
+            }
         case .working:
             HStack(spacing: 8) {
                 Circle().fill(Color.bpWarning).frame(width: 10, height: 10)
@@ -1577,10 +1593,13 @@ struct ContentView: View {
     private func send() {
         guard let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty,
               sessionState == .running else { return }
-        clearDraftWhenDelivered = true
         Task {
             await refreshStatus()
-            submitter.submit(text: text, fromWatch: false)
+            // 只有提交被通道接受后才标记"投递成功后清草稿"，
+            // 否则被拒绝时草稿会被下一条命令的 delivered 误清。
+            if submitter.submit(text: text, fromWatch: false) {
+                clearDraftWhenDelivered = true
+            }
         }
     }
 }

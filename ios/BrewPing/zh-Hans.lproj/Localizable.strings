@@ -166,6 +166,16 @@
 "Deny" = "拒绝";
 "Command was denied." = "命令已被拒绝。";
 
+/* MARK: - 命令通道（并发反馈） */
+"Another command is still running. Try again after it finishes." = "还有一条命令正在执行，等它结束后再试。";
+"Waiting for approval" = "等待确认";
+"Waiting for approval on your Mac…" = "正在等待你在电脑上确认…";
+"Waiting for the desktop to finish" = "等待电脑完成";
+"Still waiting for the desktop to finish the previous command…" = "仍在等待电脑完成上一条命令…";
+"Approval ended without a result. Check the conversation on your Mac." = "审批已结束，但没有拿到执行结果。请到电脑上查看该对话。";
+"Approval timed out. Check the conversation on your Mac." = "审批超时。请到电脑上查看该对话。";
+"Try Again" = "重试";
+
 "danger.rm_root" = "删除根目录";
 "danger.recursive_delete" = "递归删除文件";
 "danger.force_push" = "强制推送";

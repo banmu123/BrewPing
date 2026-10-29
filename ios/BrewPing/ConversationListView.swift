@@ -19,8 +19,15 @@ struct ConversationListView: View {
     let agentNames: [String: String]
 
     @ObservedObject private var store = ConversationStore.shared
+    @Environment(\.scenePhase) private var scenePhase
     /// 折叠的目录组（仅视觉折叠，不改变过滤）。
     @State private var collapsed: Set<String> = []
+
+    /// 前台低频同步间隔：只拉摘要列表（不含转录），25 秒一次足够感知桌面端的变化。
+    private static let foregroundRefreshInterval: UInt64 = 25_000_000_000
+
+    /// `.task(id:)` 的重启键：前后台切换或在线状态变化都要重建同步任务。
+    private var refreshKey: String { "\(scenePhase)-\(online)" }
 
     var body: some View {
         List {
@@ -47,6 +54,14 @@ struct ConversationListView: View {
                         Text(verbatim: message)
                             .font(.system(size: 12))
                             .foregroundStyle(Color.bpMutedForeground)
+                        Spacer(minLength: 4)
+                        // 失败保留旧数据，同时给一个明确的恢复动作（下拉刷新也行，但要有按钮）。
+                        Button("Retry") {
+                            Task { await store.refresh(device: device, force: true) }
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.bpPrimary)
                     }
                     .listRowBackground(Color.bpCard)
                 }
@@ -155,7 +170,18 @@ struct ConversationListView: View {
         .background(Color.bpBackground)
         .tint(Color.bpPrimary)
         .refreshable { await store.refresh(device: device, force: true) }
-        .task { await store.refresh(device: device) }
+        // 前台周期同步：进后台由 `.task(id:)` 直接取消，不发无效请求。
+        // id 里带上 online：设备离线时任务重建后直接返回，不会每 25 秒刷一次错误。
+        .task(id: refreshKey) {
+            guard scenePhase == .active, online else { return }
+            // 回前台 / 首次进入先补一次，别让用户等满一个周期。
+            await store.refresh(device: device, force: true)
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.foregroundRefreshInterval)
+                guard !Task.isCancelled else { return }
+                await store.refresh(device: device, force: true)
+            }
+        }
         .onChange(of: online) { _, isOnline in
             // 重新连上时补一次刷新（离线期间的变更补齐）
             if isOnline { Task { await store.refresh(device: device, force: true) } }

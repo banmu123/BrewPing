@@ -142,11 +142,17 @@ final class ConversationStore: ObservableObject {
 
     /// 缓存键 = deviceID：同设备已加载过就不重复打接口（`force: true` 强制刷新）。
     private var loadedKey: String?
+    /// 刷新世代：切设备 / 清空时自增，用来丢弃过期响应（防止列表串台）。
+    private var refreshGeneration = 0
+    /// 同一时刻只允许一次在飞请求：列表页出现、下拉、定时器、命令结束都会触发刷新。
+    private var isRefreshing = false
 
     private init() {}
 
     /// 切设备时清空（由 ContentView.resetState 调用）。
     func invalidate() {
+        // 让仍在飞的刷新回包失效：它属于上一台设备，不能写进新设备的列表。
+        refreshGeneration &+= 1
         loadedKey = nil
         conversations = []
         loadError = nil
@@ -184,9 +190,16 @@ final class ConversationStore: ObservableObject {
             return
         }
         if !force, loadedKey == device.id, !conversations.isEmpty { return }
+        // 同一时刻只跑一次：并发触发时后到者直接返回，避免同一屏打三四个一样的请求。
+        guard !isRefreshing else { return }
 
+        let generation = refreshGeneration
+        isRefreshing = true
         loading = true
-        defer { loading = false }
+        defer {
+            isRefreshing = false
+            loading = false
+        }
 
         guard let request = BrewPingHTTP.request(
             device: device,
@@ -199,6 +212,8 @@ final class ConversationStore: ObservableObject {
 
         do {
             let (data, response) = try await BrewPingHTTP.session.data(for: request)
+            // 切过设备 / 被 invalidate 过：这份回包已经过期，不能落到 UI。
+            guard generation == refreshGeneration else { return }
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
 
             if BrewPingHTTP.isUnauthorized(response) {
@@ -224,13 +239,15 @@ final class ConversationStore: ObservableObject {
 
             let decoded = try JSONDecoder().decode(ListConversationsResponse.self, from: data)
             // 🚨 切设备窗口：await 期间用户可能已切到别的 Mac，旧回包不能写入 UI
-            //（失败分支本来就有 loadedKey 校验，成功分支漏了）。
-            guard DeviceStore.shared.activeDevice?.id == device.id else { return }
+            // （失败分支本来就有 loadedKey 校验，成功分支漏了）。
+            guard generation == refreshGeneration,
+                  DeviceStore.shared.activeDevice?.id == device.id else { return }
             conversations = decoded.conversations ?? []
             unsupported = false
             loadError = nil
             loadedKey = device.id
         } catch {
+            guard generation == refreshGeneration else { return }
             // 失败保留旧列表（网络抖动不该让列表消失）；换过设备则必须清空
             if loadedKey != device.id {
                 conversations = []
