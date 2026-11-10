@@ -41,7 +41,7 @@ repository; it does **not** mean the surface is publicly available.
 |---|---|---|---|
 | macOS desktop | **Released** | `v1.0.0` GitHub Release — Universal / Apple Silicon / Intel DMG, Developer ID signed, notarized, stapled | GitHub Release, or build from source |
 | Windows desktop | **Released** | `v1.0.0` GitHub Release — `setup.exe` + `.msi` | GitHub Release, or `npm run tauri dev` |
-| iPhone / Apple Watch | **Available** — App Store | The iPhone app, with its Apple Watch app, distributed through the App Store | [App Store](https://apps.apple.com/us/app/brewping/id6812269598) |
+| iPhone / Apple Watch | **Available** — App Store (v1.1, free, released 2026-10-29) | The iPhone app, with its Apple Watch app, distributed through the App Store | [App Store](https://apps.apple.com/us/app/brewping/id6812269598) |
 | Android phone | **Built and ready — not submitted** to Google Play | `./gradlew assembleDebug` and the release bundle build cleanly; already targets API 36 as Google Play requires | Build from source |
 | Wear OS watch | **Not released** | `Android/wear` module builds and is covered by CI | Build from source; on no store |
 
@@ -50,13 +50,20 @@ App Store listing. The Android and Wear OS rows come from the maintainer's own r
 there is **no Google Play listing** at the time of writing. No store install numbers, download counts,
 or tester counts are claimed anywhere in this repository.
 
+App Store facts, verified via iTunes Lookup (`id=6812269598`, checked 2026-11-10): listing shows
+**v1.1**, free, minimum iOS 18.6, released 2026-10-29. The shipped build was produced from this
+repository as `1.0.1` (build 2, `MinimumOSVersion 18.6`, maintainer archive of 2026-10-29); the local
+archive trail ends there, so the store listing is the authoritative version of record. Practical
+consequence: the next App Store submission must use an app version **higher than 1.1** (e.g. 1.2) —
+uploading `1.0.1` again is rejected as lower than the previously approved version.
+
 ## 2. Supported platforms
 
 | Platform | Requirement | Notes |
 |---|---|---|
 | macOS desktop | macOS 13.0+ | Universal binary (Apple Silicon + Intel); signed, notarized, stapled |
 | Windows desktop | Windows 10/11 + WebView2 | Tauri 2 + axum; ships as `setup.exe` / `.msi` |
-| iPhone | iOS 17.0+ | `com.brewping.ios` · **[available on the App Store](https://apps.apple.com/us/app/brewping/id6812269598)** |
+| iPhone | iOS 18.6+ | `com.brewping.ios` · store listing **v1.1** (free) · **[available on the App Store](https://apps.apple.com/us/app/brewping/id6812269598)** |
 | Apple Watch | watchOS 11.6+ | Paired with the iPhone app; voice dictation + reply reading · **available on the App Store** |
 | Android phone | Android 8.0+ (minSdk 26) | Jetpack Compose; `targetSdk`/`compileSdk` 36 · **built, not submitted to Google Play** |
 | Wear OS watch | Wear OS 3.0+ (minSdk 30) | **In repository, not released yet** — see limitations |

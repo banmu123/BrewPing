@@ -28,7 +28,7 @@ work stays on your machine: no account, no analytics, no server of ours in the p
 
 ![macOS](https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=F0F0F0)
 
-![iOS](https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=F0F0F0)
+![iOS](https://img.shields.io/badge/iOS-18.6%2B-000000?logo=apple&logoColor=F0F0F0)
 
 ![watchOS](https://img.shields.io/badge/watchOS-11.6%2B-000000?logo=apple&logoColor=F0F0F0)
 
@@ -41,10 +41,11 @@ core, iOS + watchOS compile, Windows Rust, Android and repository hygiene — ru
 pull request**, plus a nightly run to catch runner toolchain drift. This is a real
 test-on-every-push CI, not a packaging-only workflow.
 
-> **Which version is this README about?** It describes `main`. The App Store build, the `v1.0.0`
-> desktop installers, and the Android / Wear OS sources are **not the same snapshot**: iOS, watchOS,
-> macOS and Windows are shipped; Android and Wear OS are not; the experimental relay path is disabled
-> and its iPhone entry point is not exposed. The dated, canonical record is
+> **Which version is this README about?** It describes `main`. The App Store build (listing shows
+> **v1.1**, free, released 2026-10-29 — minimum iOS 18.6), the `v1.0.0` desktop installers, and the
+> Android / Wear OS sources are **not the same snapshot**: iOS, watchOS, macOS and Windows are
+> shipped; Android and Wear OS are not; the experimental relay path is disabled and its iPhone
+> entry point is not exposed. The dated, canonical record is
 > [Platform status](#-platform-status) and [docs/PROJECT\_STATUS.md](docs/PROJECT_STATUS.md).
 
 ## ⬇️ Download

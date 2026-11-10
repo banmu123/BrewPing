@@ -26,7 +26,7 @@ BrewPing 让你在自己的 Mac 或 Windows 上监控、操作并审批正在运
 
 ![macOS](https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=F0F0F0)
 
-![iOS](https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=F0F0F0)
+![iOS](https://img.shields.io/badge/iOS-18.6%2B-000000?logo=apple&logoColor=F0F0F0)
 
 ![watchOS](https://img.shields.io/badge/watchOS-11.6%2B-000000?logo=apple&logoColor=F0F0F0)
 
@@ -36,8 +36,9 @@ BrewPing 让你在自己的 Mac 或 Windows 上监控、操作并审批正在运
 
 `CI` 徽章指向 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)：五个 job —— Swift 核心、iOS + watchOS 编译、Windows Rust、Android、仓库卫生检查 —— 在**每次 push 和 PR** 都会跑，另有每日定时运行捕捉 runner 工具链漂移。这是真正「每次推送都跑测试」的 CI，不是只在打 tag 时打包的工作流。
 
-> **这份 README 讲的是哪个版本？** 讲的是 `main`。App Store 上的构建、`v1.0.0` 桌面安装包，
-> 以及 Android / Wear OS 源码，**并不是同一个快照**：iOS、watchOS、macOS、Windows 已发布；
+> **这份 README 讲的是哪个版本？** 讲的是 `main`。App Store 上的构建（商店显示 **v1.1**，免费，
+> 2026-10-29 发布，最低 iOS 18.6）、`v1.0.0` 桌面安装包，以及 Android / Wear OS 源码，
+> **并不是同一个快照**：iOS、watchOS、macOS、Windows 已发布；
 > Android 与 Wear OS 未发布；实验性中继路径默认关闭，iPhone 入口也未暴露。带日期的权威记录见
 > [平台状态](#-平台状态)与 [docs/PROJECT\_STATUS.md](docs/PROJECT_STATUS.md)。
 
