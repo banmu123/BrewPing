@@ -17,15 +17,29 @@ BrewPing 让你在自己的 Mac 或 Windows 上监控、操作并审批正在运
 <div align="center">
 
 [![CI](https://github.com/banmu123/BrewPing/actions/workflows/ci.yml/badge.svg)](https://github.com/banmu123/BrewPing/actions/workflows/ci.yml)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 [![GitHub Stars](https://img.shields.io/github/stars/banmu123/BrewPing?style=social)](https://github.com/banmu123/BrewPing/stargazers)
+
 [![App Store](https://img.shields.io/badge/App%20Store-Download-0D96F6?logo=appstore&logoColor=white)](https://apps.apple.com/us/app/brewping/id6812269598)
+
 ![macOS](https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=F0F0F0)
+
 ![iOS](https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=F0F0F0)
+
 ![watchOS](https://img.shields.io/badge/watchOS-11.6%2B-000000?logo=apple&logoColor=F0F0F0)
+
 ![Android](https://img.shields.io/badge/Android-8%2B-3DDC84?logo=android&logoColor=white)
 
 </div>
+
+`CI` 徽章指向 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)：五个 job —— Swift 核心、iOS + watchOS 编译、Windows Rust、Android、仓库卫生检查 —— 在**每次 push 和 PR** 都会跑，另有每日定时运行捕捉 runner 工具链漂移。这是真正「每次推送都跑测试」的 CI，不是只在打 tag 时打包的工作流。
+
+> **这份 README 讲的是哪个版本？** 讲的是 `main`。App Store 上的构建、`v1.0.0` 桌面安装包，
+> 以及 Android / Wear OS 源码，**并不是同一个快照**：iOS、watchOS、macOS、Windows 已发布；
+> Android 与 Wear OS 未发布；实验性中继路径默认关闭，iPhone 入口也未暴露。带日期的权威记录见
+> [平台状态](#-平台状态)与 [docs/PROJECT\_STATUS.md](docs/PROJECT_STATUS.md)。
 
 ## ⬇️ 下载
 
@@ -34,10 +48,12 @@ BrewPing 让你在自己的 Mac 或 Windows 上监控、操作并审批正在运
 | **iPhone / Apple Watch** | **[前往 App Store 下载](https://apps.apple.com/us/app/brewping/id6812269598)** |
 | **macOS** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) —— 已签名并公证的 DMG · 或走[官网下载页](https://www.commitbrew.com/#download) |
 | **Windows** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) —— `setup.exe` / `.msi` |
-| **Android** | 源码构建 —— `cd Android && ./gradlew assembleDebug` |
+| **Android** | 源码构建 —— `cd Android && ./gradlew assembleDebug` · **暂无公开安装包** |
+| **Wear OS** | 无产物。`:wear` 模块在 CI 中构建，但从未做过真机测试，也未提交商店。 |
 | **源码** | `git clone https://github.com/banmu123/BrewPing.git` |
 
-Release 页上的 macOS / Windows 安装包与本仓库 `v1.0.0` tag 的代码一致。哪些端已发布、哪些只在仓库里、哪些还没开始，见下方[平台状态](#-平台状态)；包含系统要求、测试数量与已知限制的权威表格在
+Release 页上的 macOS / Windows 安装包与本仓库 `v1.0.0` tag 的代码一致。Android 与 Wear OS 两行是源码构建，
+不是我们无法兑现的下载链接。哪些端已发布、哪些只在仓库里、哪些还没开始，见下方[平台状态](#-平台状态)；包含系统要求、测试数量与已知限制的权威表格在
 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)。
 
 ## 📸 截图
@@ -47,8 +63,11 @@ Release 页上的 macOS / Windows 安装包与本仓库 `v1.0.0` tag 的代码�
   <img src="docs/screenshots/ios-main.png" alt="BrewPing iPhone" width="19%" />
 </p>
 <p align="center">
-  <sub><b>macOS 桌面端</b> &nbsp;·&nbsp; <b>iPhone</b></sub>
+  <sub><b>macOS 桌面端</b> &nbsp;·&nbsp; <b>iPhone</b> —— 已发布的桌面端 / iOS 界面产品图</sub>
 </p>
+
+这两张展示的是**已发布的桌面端与 iPhone 客户端**。Apple Watch App、Windows 桌面端以及 Android / Wear OS 客户端不在图中，
+后两者更是尚未分发。两张图都放在 [`docs/screenshots/`](docs/screenshots/)，是仓库里唯一作为产品展示图保留的截图。
 
 ## BrewPing 是什么，不是什么
 
@@ -56,12 +75,23 @@ Release 页上的 macOS / Windows 安装包与本仓库 `v1.0.0` tag 的代码�
 
 它是**给「已经运行在你自己电脑上」的编程 Agent 用的远程界面**。真正干活的是 Agent；BrewPing 让你不必守在那台机器前，也能看到它在做什么、指挥它、并在它动手之前批准或拒绝。
 
-```
-编程 Agent   →  真正干活的部分      （OpenCode / Claude Code / Codex CLI / pi）
-BrewPing     →  让你远程监控、操作、审批这些工作
+```mermaid
+flowchart LR
+  subgraph computer["你的 Mac / Windows"]
+    agent["编程 Agent<br/>OpenCode · Claude Code<br/>Codex CLI · pi"]
+    desktop["BrewPing Desktop<br/>HTTP API · 审批闸门 · 执行状态"]
+  end
+  subgraph devices["同一个局域网"]
+    phone["iPhone · Apple Watch<br/>Android · Wear OS"]
+  end
+  agent <-->|"真正干活的部分"| desktop
+  desktop <-->|"配对一次 · 监控 · 下指令 · 审批"| phone
 ```
 
-BrewPing 不带 Agent、不带模型。它发现你装好的 CLI Agent，读取它们已有的配置，按原样驱动 —— 你的订阅、凭据、设置全部留在原处。
+Android 与 Wear OS 出现在图里，是因为客户端模块确实存在于仓库中，但它们**并未分发**。BrewPing 不带 Agent、不带模型。
+它发现你装好的 CLI Agent，读取它们已有的配置，按原样驱动 —— 你的订阅、凭据、设置全部留在原处。
+
+**明确不做**：托管服务与官方公网中继、替换你现有的 Agent 配置、把模型放到云端跑，以及把审批闸门当成 Agent 的沙箱。
 
 ## 🎯 适合谁用
 
@@ -84,19 +114,51 @@ BrewPing 不带 Agent、不带模型。它发现你装好的 CLI Agent，读取�
 
 ## ✨ 功能
 
+下面这份清单描述的是**已发布**的 iOS / watchOS / macOS / Windows 构建。Android 手机端与 Wear OS 模块只存在于 `main`，
+虽然进了 CI，但**尚未分发**；实验性中继路径默认关闭，iPhone 入口未暴露。
+
+### 📡 监控与操作
+
 - **远程监控** —— 手机上实时看到 Agent 状态与流式输出，按 Markdown 渲染。
 - **远程操作** —— 启停会话、发指令、切换当前 Agent 与模型。
-- **审批闸门** —— 危险命令会挂起等你确认；挂起的请求**超时即视为拒绝**，沉默永远不等于同意。
-- **本地优先** —— 指令与输出只在你手机和你配对过的那台电脑之间流动。
-- **不需要账号** —— 配对是一次性的 6 位码，不是登录。
-- **自动发现** —— Bonjour/mDNS 找到同一 Wi-Fi 下的电脑；手动填 host 与 port 永远可用作兜底。
-- **四个 Agent，一套界面** —— OpenCode、Claude Code、Codex CLI、pi，并支持按 Agent 切换模型（[详见](#-支持的-agent)）。
-- **iPhone / Apple Watch / Android** —— 手表支持语音口述指令并直接看回复；Android 端流程与 iPhone 一致。
-- **对话与工作目录绑定** —— 对话按绑定目录组织，文件操作就发生在对话所在的目录；Agent、模型、授权档位都是**对话级**设置。
+- **权威执行状态** —— 桌面端推导 `queued` / `thinking` / `streaming` / `stalled` / `completed` / `failed`
+  各阶段，客户端只负责展示，绝不自己猜「是不是卡住了」。
+
+### 🛡 审批闸门
+
+- **危险命令会挂起等你确认**；挂起的请求**超时即视为拒绝**，沉默永远不等于同意。
+- **三档** —— safe / askAll / auto，按对话固化。它是针对**你的指令**的护栏，不是给 Agent 用的隔离：
+  Agent 自己后续派生的 shell 命令不在覆盖范围内。
+
+### 💬 对话与工作目录
+
+- **对话按绑定目录组织**，文件操作就发生在对话所在的目录。
+- **对话级设置** —— Agent、模型、授权档位都是**按对话**设置，不是全局开关。
+
+### 📱 客户端
+
+- **iPhone / Apple Watch** —— 手表支持语音口述指令并直接看回复。
+- **Android（在仓库内，未分发）** —— 手机端流程与 iPhone 一致；Wear OS 模块进了 CI，但没有商店发布版本。
 - **多设备** —— 配对多台电脑，在设备栏里直接切换。
 - **双语界面** —— 英文 / 简体中文，应用内切换即时生效。
 
+### 🖥 桌面端、Agent 与本地优先
+
+- **四个 Agent，一套界面** —— OpenCode、Claude Code、Codex CLI、pi，并支持按 Agent 切换模型（[详见](#-支持的-agent)）。
+- **自动发现** —— Bonjour/mDNS 找到同一 Wi-Fi 下的电脑；手动填 host 与 port 永远可用作兜底。
+- **本地优先** —— 指令与输出只在你手机和你配对过的那台电脑之间流动。
+- **不需要账号** —— 配对是一次性的 6 位码，不是登录。
+
 ## 🔄 工作原理
+
+有四条边界值得分开看：
+
+| 边界 | 流过什么 | 怎么走 |
+|---|---|---|
+| **本机执行** | 你的代码、提示词、Agent 输出与转录 | Agent 进程由 BrewPing Desktop 托管，这些内容不上传到任何地方。 |
+| **局域网** | 指令、审批决定、流式输出 | 局域网**明文 HTTP**。每次调用带 bearer token；写操作另带时间戳与 nonce（120 秒防重放窗口）。 |
+| **配对** | 一次性 6 位码 → 长期 token | 单次有效、10 分钟过期。token 存于 iPhone Keychain / `~/.brewping/pairing.json`（`0600`）。 |
+| **跨网络（未发布）** | 默认什么都没有 | 没有官方中继。若你需要，那是你自己那一侧的网络方案，例如 Tailscale、WireGuard 这类 VPN 组网。 |
 
 ```
 ┌──────────────────────────────────────┐
@@ -121,6 +183,10 @@ BrewPing 不带 Agent、不带模型。它发现你装好的 CLI Agent，读取�
 2. BrewPing Desktop 跑在它旁边，对外提供局域网 HTTP API，并托管 Agent 进程。
 3. 手机或手表在同一网络内发现这台电脑，用一次性配对码完成配对。
 4. 之后就能监控、下指令、审批 —— 全程不出局域网。
+
+**本地优先不等于已加密。** 局域网这一段是**明文 HTTP**：bearer token、时间戳与 nonce 用于身份校验和防重放，
+**不加密载荷**。请在你信任的网络里完成配对和日常使用。TLS 设计见
+[安全传输方案](docs/design/BrewPing-安全传输方案.md)，那是提案，尚未落地。
 
 ## 📦 平台状态
 
@@ -197,13 +263,11 @@ npm install -g @earendil-works/pi-coding-agent
 2. 手机扫码，或点 **Add Device** 手动输入配对码；
 3. 两端必须处于**同一个局域网**。
 
-配对码一次性有效、10 分钟过期。
+配对码一次性有效、10 分钟过期。完整配置说明（包括多播被拦时如何手动填 host:port）见 [docs/](docs/) 与 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ### 4. 接上你的 Agent
 
 BrewPing 会列出电脑上发现的 Agent。选一个、挑好工作目录，发出第一条指令即可 —— 之后随时可以按对话切换 Agent 与模型。
-
-完整配置说明（包括多播被拦时如何手动填 host:port）见 [docs/](docs/) 与 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ### ⌨️ 从命令行使用
 
@@ -215,9 +279,10 @@ swift run BrewPing attach                       # 接入正在运行的会话（
 swift run BrewPing stop                         # 结束会话
 ```
 
-## 🔒 安全与隐私
+## 🔒 隐私与安全
 
 - **只在局域网内。** 没有账号、没有 analytics、没有第三方 SDK，链路上也没有我们运营的服务器。你发的指令、Agent 返回的输出、以及被转写的语音，只在你的手机（或手表）与你配对的那台电脑之间流动。完整说明见[隐私政策](docs/privacy.html)。
+- **局域网这一段是明文 HTTP，尚无 TLS。** Bearer token、时间戳与 nonce 用于身份校验和防重放，**不加密载荷**。请在你信任的网络里完成配对和日常使用。
 - **配对，而不是登录。** 一次性 6 位配对码（单次有效、10 分钟过期）换一个长期 token。所有 `/api/*` 请求带 `Authorization: Bearer <token>`；写操作额外带 `X-BrewPing-Timestamp` 与 `X-BrewPing-Nonce`，构成 120 秒防重放窗口。
 - **这个 token 等价于在那台机器上执行命令。** 桌面端以 `0600` 权限存在 `~/.brewping/pairing.json`，iOS 端存在 Keychain。
 - **审批闸门是安全网，不是沙箱。** 它在命令**进入 Agent 之前**拦截；Agent 自己后续派生的 shell 命令不在覆盖范围内。请把它当作针对**你的指令**的护栏，而不是给 Agent 用的隔离。
@@ -226,6 +291,8 @@ swift run BrewPing stop                         # 结束会话
 本地状态都在 `~/.brewping/`：`device.json`（设备身份）、`pairing.json`（token，`0600`）、`approval.json`（授权档位与 always-allow 规则，`0600`）、`config.json`（Agent 与模型偏好）、`session.json`（当前会话）。
 
 完整安全模型与明确的「不在范围内」清单见 [SECURITY.md](SECURITY.md)。
+
+*「本地优先」说的是数据放在哪里、由谁掌控，不是「链路已加密」的承诺。*
 
 ## 🏗️ 架构
 
@@ -254,43 +321,85 @@ docs/                     # 权威状态、设计文档、审计记录、隐私�
 
 ## 📚 文档
 
-客观事实 —— 平台要求、发布状态、测试数量、已知限制 —— 只写在 **[项目状态](docs/PROJECT_STATUS.md)** 一处。
+客观事实 —— 平台要求、发布状态、测试数量、已知限制 —— 只写在
+**[项目状态](docs/PROJECT_STATUS.md)** 一处。其余文档入口：
 
-- **[隐私政策](docs/privacy.html)** —— BrewPing 碰什么、不碰什么
-- **设计文档**（在 [`docs/design/`](docs/design/)）
-  - [iOS 端结构与模块划分](docs/design/BrewPing-iOS端结构与模块划分.md) —— iPhone 端布局与状态流
-  - [Windows 端多对话管理实现方案](docs/design/BrewPing-Windows端多对话管理实现方案.md) —— 桌面端对话模型
-  - [Provider 管理](docs/design/BrewPing-Provider管理-Lody新建Provider迁移方案.md) —— 配置内部实现
-  - [获取文件夹落地方案](docs/design/BrewPing-获取文件夹-Windows落地方案.md) —— 工作目录绑定
-  - [安全传输方案](docs/design/BrewPing-安全传输方案.md) —— 局域网传输设计（提案）
-  - [设备授权与撤销方案](docs/design/BrewPing-设备授权与撤销方案.md) —— 设备凭据设计（提案）
-- **审计记录**（在 [`docs/audits/`](docs/audits/)）—— [安全审计](docs/audits/BrewPing-安全审计-第二批.md)、
-  [代码审查](docs/audits/BrewPing-代码审查-Phase1-审计.md)、发布验证报告
-- **[商标](TRADEMARKS.md)** —— 仅用于说明兼容性的第三方名称
+| 主题 | 文档 |
+|---|---|
+| **项目状态（权威）** | [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) |
+| **文档索引** | [docs/OVERVIEW.md](docs/OVERVIEW.md) |
+| **隐私政策** | [docs/privacy.html](docs/privacy.html) |
+| **安全模型** | [SECURITY.md](SECURITY.md) |
+| **贡献指南** | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| **路线图** | [ROADMAP.md](ROADMAP.md) |
+| **商标说明** | [TRADEMARKS.md](TRADEMARKS.md) |
+| iOS 端结构与模块划分 | [docs/design/BrewPing-iOS端结构与模块划分.md](docs/design/BrewPing-iOS端结构与模块划分.md) |
+| Windows 端多对话管理实现方案 | [docs/design/BrewPing-Windows端多对话管理实现方案.md](docs/design/BrewPing-Windows端多对话管理实现方案.md) |
+| Provider 管理 | [docs/design/BrewPing-Provider管理-Lody新建Provider迁移方案.md](docs/design/BrewPing-Provider管理-Lody新建Provider迁移方案.md) |
+| 获取文件夹落地方案 | [docs/design/BrewPing-获取文件夹-Windows落地方案.md](docs/design/BrewPing-获取文件夹-Windows落地方案.md) |
+| WearOS 端开发准备清单 | [docs/design/BrewPing-WearOS端开发准备清单.md](docs/design/BrewPing-WearOS端开发准备清单.md) |
+| 安全传输方案（提案） | [docs/design/BrewPing-安全传输方案.md](docs/design/BrewPing-安全传输方案.md) |
+| 设备授权与撤销方案（提案） | [docs/design/BrewPing-设备授权与撤销方案.md](docs/design/BrewPing-设备授权与撤销方案.md) |
+| 安全审计（第二批） | [docs/audits/BrewPing-安全审计-第二批.md](docs/audits/BrewPing-安全审计-第二批.md) |
+| 代码审查（Phase 1） | [docs/audits/BrewPing-代码审查-Phase1-审计.md](docs/audits/BrewPing-代码审查-Phase1-审计.md) |
+| Android / iOS 功能对齐审查 | [docs/audits/BrewPing-Android-iOS-功能对齐审查.md](docs/audits/BrewPing-Android-iOS-功能对齐审查.md) |
+| App Store 提审前检查 | [docs/audits/AppStore-PreSubmission-Review.md](docs/audits/AppStore-PreSubmission-Review.md) |
+| TestFlight 验证报告 | [docs/audits/TestFlight-Validation-Report.md](docs/audits/TestFlight-Validation-Report.md) |
+| TestFlight 自动发现诊断 | [docs/audits/BrewPing-iOS-TestFlight-自动发现-诊断.md](docs/audits/BrewPing-iOS-TestFlight-自动发现-诊断.md) |
+| 截图 | [docs/screenshots/](docs/screenshots/) |
 
-## 🤝 参与贡献与开发
+## 🤝 开发与贡献
 
-欢迎提 issue 与 PR。构建命令、CI 会跑什么、以及仓库约定见 **[CONTRIBUTING.md](CONTRIBUTING.md)**；安全问题请走 **[SECURITY.md](SECURITY.md)**。
-
-提 PR 前的自检 —— 所有测试都不需要设备或模拟器：
+**环境要求**：Swift 核心与 iOS / watchOS 需要 macOS + Xcode；Windows 桌面端需要 Rust 工具链（Tauri 2 + axum）；
+Android 需要 JDK 17 + Android SDK platform 36；Windows 前端需要 Node。
 
 ```bash
-swift test --disable-sandbox                       # Swift 核心（macOS）
-cargo test --locked                                # Rust（Sources/BrewPingwinDesktop/src-tauri）
-cd Android && ./gradlew test                       # Android（:core + :app）
+# Swift 核心 —— 构建与测试（macOS）
+swift build --disable-sandbox
+swift test --disable-sandbox
+
+# iOS / watchOS —— 关闭签名编译
+xcodebuild -project ios/BrewPing.xcodeproj -scheme BrewPing \
+  -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project ios/BrewPing.xcodeproj -scheme 'BrewPing Watch App' \
+  -destination 'generic/platform=watchOS' CODE_SIGNING_ALLOWED=NO build
+
+# Windows 桌面端 —— Rust 测试 + 前端类型检查（从仓库根目录执行）
+(cd Sources/BrewPingwinDesktop/src-tauri && cargo test --locked)
+(cd Sources/BrewPingwinDesktop && npx tsc)
+
+# Android —— JVM 测试 + 手机 / Wear 构建
+(cd Android && ./gradlew test assembleDebug :wear:assembleDebug)
+
+# 本地化 —— 校验中英字符串表
+python3 ios/Scripts/check_localization.py
 ```
 
-各套件当前用例数见 [PROJECT_STATUS.md §3](docs/PROJECT_STATUS.md#3-test--ci-status)。
+提 PR 前的自检 —— 所有测试都不需要设备或模拟器。各套件当前用例数记在
+[PROJECT_STATUS.md §3](docs/PROJECT_STATUS.md#3-test--ci-status)，这里刻意不重复。
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) 在每次 push / PR 上运行上述全部内容，另加 iOS + watchOS 编译与仓库卫生检查；还有每日定时运行以捕捉 runner 工具链漂移。
+**当前 CI**：[`.github/workflows/ci.yml`](.github/workflows/ci.yml) 在每次 push / PR 上运行上述全部内容，
+另加仓库卫生检查；还有每日定时运行以捕捉 runner 工具链漂移。共五个 job，全部跑在公共 runner 上。
+
+**贡献方式**：欢迎提 issue 与 PR。构建命令、CI 会跑什么、以及仓库约定见 **[CONTRIBUTING.md](CONTRIBUTING.md)**；
+安全问题请走 **[SECURITY.md](SECURITY.md)**。面向用户的文案 iOS 走 `L()`、Android 走字符串表，两种语言必须同步。
 
 ## 🗺️ 路线图
 
-方向而已，不是承诺 —— 以下都**尚未发布**：
+方向而已，不是承诺。
 
+**已发布**：iPhone + Apple Watch（App Store）、macOS / Windows 桌面端（`v1.0.0`）、四个 Agent 接入、
+审批闸门、绑定工作目录的对话与对话级 Agent / 模型 / 授权设置、Bonjour 自动发现、双语界面、CLI，
+以及每次推送都跑的 CI。
+
+**进行中**
 - **接入更多 Agent。** Agent 目录本来就是为了扩展而设计的，当前支持四个。
 - **Wear OS 客户端。** 模块已在仓库内并进了 CI，但尚未发布，也未过真机测试与商店提交。
 - **更顺的多设备体验。** 多台电脑配对已经可用；下一步是每设备上下文与更快的切换。
+
+**计划中（提案，尚未落地）**
+- [安全传输方案](docs/design/BrewPing-安全传输方案.md) —— 为局域网这一段加 TLS，配对时绑定证书指纹。
+- [设备授权与撤销方案](docs/design/BrewPing-设备授权与撤销方案.md) —— 每台设备一份可单独吊销的凭据，并在桌面端展示已配对设备。
 
 **不做**：托管服务与官方公网中继。跨网络访问仍由用户自己那一侧的网络方案解决。
 
@@ -306,8 +415,10 @@ BrewPing 不打包、不再分发任何第三方 Agent，只检测并调用你�
 
 ## 🙏 致谢
 
-- [Swift](https://www.swift.org/) + SwiftUI / AppKit —— 核心服务与 macOS 端
-- [Tauri](https://tauri.app/) —— Windows 桌面端外壳
+- [Swift](https://www.swift.org/) + SwiftUI / AppKit / Network.framework —— 核心服务与 macOS 端
+- [Tauri](https://tauri.app/)、Rust 与 [axum](https://github.com/tokio-rs/axum) —— Windows 桌面端外壳与 HTTP API
 - [Jetpack Compose](https://developer.android.com/jetpack/compose) —— Android 端
 - [shields.io](https://shields.io/) —— README 徽章
 - OpenCode、Claude Code、Codex CLI、pi —— BrewPing 驱动的 Agent（非官方，见商标声明）
+
+BrewPing 不附带任何 Agent 二进制与模型；它驱动的 CLI 工具始终是你自己装好、自己配置在你机器上的那些。

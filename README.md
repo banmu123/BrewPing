@@ -19,15 +19,33 @@ work stays on your machine: no account, no analytics, no server of ours in the p
 <div align="center">
 
 [![CI](https://github.com/banmu123/BrewPing/actions/workflows/ci.yml/badge.svg)](https://github.com/banmu123/BrewPing/actions/workflows/ci.yml)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 [![GitHub Stars](https://img.shields.io/github/stars/banmu123/BrewPing?style=social)](https://github.com/banmu123/BrewPing/stargazers)
+
 [![App Store](https://img.shields.io/badge/App%20Store-Download-0D96F6?logo=appstore&logoColor=white)](https://apps.apple.com/us/app/brewping/id6812269598)
+
 ![macOS](https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=F0F0F0)
+
 ![iOS](https://img.shields.io/badge/iOS-17%2B-000000?logo=apple&logoColor=F0F0F0)
+
 ![watchOS](https://img.shields.io/badge/watchOS-11.6%2B-000000?logo=apple&logoColor=F0F0F0)
+
 ![Android](https://img.shields.io/badge/Android-8%2B-3DDC84?logo=android&logoColor=white)
 
 </div>
+
+The `CI` badge points to [`.github/workflows/ci.yml`](.github/workflows/ci.yml): five jobs — Swift
+core, iOS + watchOS compile, Windows Rust, Android and repository hygiene — run on **every push and
+pull request**, plus a nightly run to catch runner toolchain drift. This is a real
+test-on-every-push CI, not a packaging-only workflow.
+
+> **Which version is this README about?** It describes `main`. The App Store build, the `v1.0.0`
+> desktop installers, and the Android / Wear OS sources are **not the same snapshot**: iOS, watchOS,
+> macOS and Windows are shipped; Android and Wear OS are not; the experimental relay path is disabled
+> and its iPhone entry point is not exposed. The dated, canonical record is
+> [Platform status](#-platform-status) and [docs/PROJECT\_STATUS.md](docs/PROJECT_STATUS.md).
 
 ## ⬇️ Download
 
@@ -36,11 +54,13 @@ work stays on your machine: no account, no analytics, no server of ours in the p
 | **iPhone / Apple Watch** | **[Download on the App Store](https://apps.apple.com/us/app/brewping/id6812269598)** |
 | **macOS** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) — signed & notarized DMG · or the [download page](https://www.commitbrew.com/#download) |
 | **Windows** | [GitHub Release](https://github.com/banmu123/BrewPing/releases/tag/v1.0.0) — `setup.exe` / `.msi` |
-| **Android** | Build from source — `cd Android && ./gradlew assembleDebug` |
+| **Android** | Build from source — `cd Android && ./gradlew assembleDebug` · **no public installer** |
+| **Wear OS** | No artifact. The `:wear` module builds in CI but has never been through device testing or store submission. |
 | **Source** | `git clone https://github.com/banmu123/BrewPing.git` |
 
 The macOS and Windows builds on the release page are the same code as this repository at tag `v1.0.0`.
-Which surfaces are shipped, in-repo-but-unreleased, or not started is summarised in
+The Android and Wear OS rows are source builds, not download links we cannot stand behind. Which
+surfaces are shipped, in-repo-but-unreleased, or not started is summarised in
 [Platform status](#-platform-status); the canonical table — with requirements, test counts, and known
 limitations — is [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
 
@@ -51,8 +71,13 @@ limitations — is [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md).
   <img src="docs/screenshots/ios-main.png" alt="BrewPing on iPhone" width="19%" />
 </p>
 <p align="center">
-  <sub><b>macOS desktop</b> &nbsp;·&nbsp; <b>iPhone</b></sub>
+  <sub><b>macOS desktop</b> &nbsp;·&nbsp; <b>iPhone</b> — product imagery for the shipped desktop / iOS interface</sub>
 </p>
+
+These two frames show the **shipped desktop and iPhone clients**. The Apple Watch app, the Windows
+desktop and the Android / Wear OS clients are not pictured; the latter two are not distributed at all.
+Both images live in [`docs/screenshots/`](docs/screenshots/) and are the only screenshots kept as
+product imagery.
 
 ## What BrewPing is — and what it is not
 
@@ -63,14 +88,26 @@ It is a **remote interface for coding agents that are already running on your ow
 agent does the actual work; BrewPing is how you watch it, steer it, and approve what it is about to do
 — without sitting at that machine.
 
-```
-Coding agent   →  does the actual coding work   (OpenCode / Claude Code / Codex CLI / pi)
-BrewPing       →  lets you monitor, control, and approve that work remotely
+```mermaid
+flowchart LR
+  subgraph computer["Your Mac / Windows"]
+    agent["Coding agent<br/>OpenCode · Claude Code<br/>Codex CLI · pi"]
+    desktop["BrewPing Desktop<br/>HTTP API · approval gate · run status"]
+  end
+  subgraph devices["Same local network"]
+    phone["iPhone · Apple Watch<br/>Android · Wear OS"]
+  end
+  agent <-->|"does the actual coding work"| desktop
+  desktop <-->|"pair once · monitor · instruct · approve"| phone
 ```
 
-BrewPing ships no agent and no model. It detects the CLI agents you installed, reads the
-configuration they already have, and drives them exactly as they are — your subscriptions,
+Android and Wear OS appear here because the client modules exist in the repository; they are
+**not distributed**. BrewPing ships no agent and no model. It detects the CLI agents you installed,
+reads the configuration they already have, and drives them exactly as they are — your subscriptions,
 credentials, and settings stay where they are.
+
+**Not in scope:** a hosted service or an official public relay, replacing your agent's configuration,
+running models in the cloud, or treating the approval gate as a sandbox around the agent.
 
 ## 🎯 Who is it for?
 
@@ -96,25 +133,60 @@ not replace them), or you are looking for a hosted coding agent that runs in the
 
 ## ✨ Features
 
+Everything below describes the **shipped** iOS / watchOS / macOS / Windows builds. The Android phone
+app and the Wear OS module exist in `main` and are covered by CI, but are **not distributed**; the
+experimental relay path is disabled and its iPhone entry point is not exposed.
+
+### 📡 Monitor & control
+
 - **Remote monitoring** — live agent status and streaming output, rendered as Markdown, on your phone
   or watch.
 - **Remote control** — start and stop sessions, send instructions, switch the active agent and model.
-- **Approval gate** — dangerous commands are held until you approve them; a pending request times out
-  as *denied*, never as approved.
-- **Local-first** — commands and output travel only between your phone and the computer you paired.
-- **No account, no sign-up** — pairing is a one-time 6-digit code, not a login.
-- **Automatic discovery** — Bonjour/mDNS finds computers on the current Wi-Fi; manual host and port is
-  always available as a fallback.
-- **Four agents, one interface** — OpenCode, Claude Code, Codex CLI, and pi, with per-agent model
-  switching ([details](#-supported-coding-agents)).
-- **iPhone, Apple Watch, Android** — the Watch app takes voice-dictated instructions and shows the
-  reply; the Android app shares the same flow.
-- **Conversations and working folders** — conversations are bound to a folder, so file operations
-  happen where the conversation lives. Agent, model, and approval level are set **per conversation**.
+- **Authoritative run status** — the desktop derives the execution phase
+  (`queued` / `thinking` / `streaming` / `stalled` / `completed` / `failed`); clients display it and
+  never guess whether a run is stuck.
+
+### 🛡 Approval gate
+
+- **Dangerous commands are held** until you approve them; a pending request times out as *denied*,
+  never as approved.
+- **Three levels** — safe / ask-all / auto, fixed per conversation. This is a guard for **your**
+  instructions, not isolation for the agent: a shell command the agent spawns on its own is not
+  covered.
+
+### 💬 Conversations & working folders
+
+- **Conversations are bound to a folder**, so file operations happen where the conversation lives.
+- **Per-conversation settings** — agent, model, and approval level are set **per conversation**, not
+  globally.
+
+### 📱 Clients
+
+- **iPhone and Apple Watch** — the Watch app takes voice-dictated instructions and shows the reply.
+- **Android (in repository, not distributed)** — the phone app shares the same flow; the Wear OS
+  module builds in CI but has no store release.
 - **Multi-device** — pair several computers and switch between them from the device bar.
 - **Bilingual UI** — English and Simplified Chinese, switchable in-app without a restart.
 
+### 🖥 Desktop, agents & local-first
+
+- **Four agents, one interface** — OpenCode, Claude Code, Codex CLI, and pi, with per-agent model
+  switching ([details](#-supported-coding-agents)).
+- **Automatic discovery** — Bonjour/mDNS finds computers on the current Wi-Fi; manual host and port is
+  always available as a fallback.
+- **Local-first** — commands and output travel only between your phone and the computer you paired.
+- **No account, no sign-up** — pairing is a one-time 6-digit code, not a login.
+
 ## 🔄 How it works
+
+Four boundaries are worth keeping separate:
+
+| Boundary | What crosses it | How |
+|---|---|---|
+| **On the computer** | Your code, prompts, agent output and transcripts | The agent process is supervised by BrewPing Desktop; none of it is uploaded anywhere. |
+| **Local network** | Instructions, approval decisions, streaming output | Plain HTTP on the LAN. Bearer token on every call; writes also carry a timestamp and nonce (120-second replay window). |
+| **Pairing** | One-time 6-digit code → long-lived token | Single use, 10-minute expiry. Token lives in the iPhone Keychain / `~/.brewping/pairing.json` (`0600`). |
+| **Cross-network (not shipped)** | Nothing by default | No official relay. If you need it, that is a network setup on your side — for example a VPN overlay such as Tailscale or WireGuard. |
 
 ```
 ┌──────────────────────────────────────┐
@@ -139,6 +211,11 @@ not replace them), or you are looking for a hosted coding agent that runs in the
 2. BrewPing Desktop sits next to it, exposes a local HTTP API, and supervises the agent process.
 3. Your phone or watch discovers the computer on the same network and pairs with a one-time code.
 4. From there you monitor, instruct, and approve — the network never leaves your LAN.
+
+**Local-first is not the same as encrypted.** The LAN leg is **plaintext HTTP**: the bearer token,
+timestamp and nonce authenticate requests and prevent replay, but they do **not** encrypt the
+payload. Treat pairing as something to do on a network you trust. A TLS design exists in
+[Secure transport plan](docs/design/BrewPing-安全传输方案.md); it is a proposal, not shipped.
 
 ## 📦 Platform status
 
@@ -219,15 +296,13 @@ Product names and trademarks belong to their respective owners — see [TRADEMAR
 2. On your phone, scan the QR code, or tap **Add Device** and type the code.
 3. Both devices must be on the **same local network**.
 
-The pairing code is single-use and expires after 10 minutes.
+The pairing code is single-use and expires after 10 minutes. Full setup detail, including manual
+host/port entry when multicast is blocked, is in [docs/](docs/) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### 4. Point it at an agent
 
 BrewPing lists the agents it found on the computer. Pick one, choose a working folder, and send your
 first instruction — you can switch agent and model at any time, per conversation.
-
-Full setup detail, including manual host/port entry when multicast is blocked, is in
-[docs/](docs/) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### ⌨️ Use BrewPing from the CLI
 
@@ -239,11 +314,14 @@ swift run BrewPing attach                       # attach to the running session 
 swift run BrewPing stop                         # stop the session
 ```
 
-## 🔒 Security & privacy
+## 🔒 Privacy & security
 
 - **Local network only.** No account, no analytics, no third-party SDKs, and no server operated by us
   is in the request path. Commands, agent output, and transcribed speech travel only between your
   phone (or watch) and the computer you paired. Full text: [privacy policy](docs/privacy.html).
+- **The LAN leg is plaintext HTTP.** There is no TLS yet. Bearer tokens, timestamps and nonces
+  authenticate requests and prevent replay; they do **not** encrypt the payload. Treat pairing and
+  daily use as something to do on a network you trust.
 - **Pairing, not login.** A one-time 6-digit code (single use, 10-minute expiry) is exchanged for a
   long-lived token. Every `/api/*` request carries `Authorization: Bearer <token>`; writes also carry
   `X-BrewPing-Timestamp` and `X-BrewPing-Nonce`, giving a 120-second replay-protected window.
@@ -261,6 +339,9 @@ Local state lives in `~/.brewping/`: `device.json` (identity), `pairing.json` (t
 preferences), `session.json` (current session).
 
 See [SECURITY.md](SECURITY.md) for the full security model and what is explicitly out of scope.
+
+*"Local-first" describes where your data lives and who controls it. It is not a promise that the link
+is encrypted.*
 
 ## 🏗️ Architecture
 
@@ -302,48 +383,93 @@ docs/                     # canonical status, design notes, audit records, priva
 ## 📚 Documentation
 
 Objective state — platform requirements, distribution status, test counts, known limitations — lives
-in **[Project status](docs/PROJECT_STATUS.md)** and nowhere else.
+in **[Project status](docs/PROJECT_STATUS.md)** and nowhere else. Everything else is here:
 
-- **[Privacy policy](docs/privacy.html)** — what BrewPing does and does not touch
-- **Design notes** (in [`docs/design/`](docs/design/))
-  - [iOS structure & modules](docs/design/BrewPing-iOS端结构与模块划分.md) — iPhone app layout and state flow
-  - [Windows multi-conversation design](docs/design/BrewPing-Windows端多对话管理实现方案.md) — desktop conversation model
-  - [Provider management](docs/design/BrewPing-Provider管理-Lody新建Provider迁移方案.md) — provider config internals
-  - [Folder browsing](docs/design/BrewPing-获取文件夹-Windows落地方案.md) — working-folder binding
-  - [Secure transport plan](docs/design/BrewPing-安全传输方案.md) — LAN transport design (proposal)
-  - [Per-device authorization plan](docs/design/BrewPing-设备授权与撤销方案.md) — device credentials (proposal)
-- **Audit records** (in [`docs/audits/`](docs/audits/)) — [security audit](docs/audits/BrewPing-安全审计-第二批.md),
-  [code review](docs/audits/BrewPing-代码审查-Phase1-审计.md), release validation reports
-- **[Trademarks](TRADEMARKS.md)** — third-party names used to describe compatibility
+| Topic | Document |
+|---|---|
+| **Project status (authoritative)** | [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) |
+| **Documentation map** | [docs/OVERVIEW.md](docs/OVERVIEW.md) |
+| **Privacy policy** | [docs/privacy.html](docs/privacy.html) |
+| **Security model** | [SECURITY.md](SECURITY.md) |
+| **Contributing guide** | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| **Roadmap** | [ROADMAP.md](ROADMAP.md) |
+| **Trademarks** | [TRADEMARKS.md](TRADEMARKS.md) |
+| iOS structure & modules | [docs/design/BrewPing-iOS端结构与模块划分.md](docs/design/BrewPing-iOS端结构与模块划分.md) |
+| Windows multi-conversation design | [docs/design/BrewPing-Windows端多对话管理实现方案.md](docs/design/BrewPing-Windows端多对话管理实现方案.md) |
+| Provider management | [docs/design/BrewPing-Provider管理-Lody新建Provider迁移方案.md](docs/design/BrewPing-Provider管理-Lody新建Provider迁移方案.md) |
+| Folder browsing | [docs/design/BrewPing-获取文件夹-Windows落地方案.md](docs/design/BrewPing-获取文件夹-Windows落地方案.md) |
+| Wear OS preparation checklist | [docs/design/BrewPing-WearOS端开发准备清单.md](docs/design/BrewPing-WearOS端开发准备清单.md) |
+| Secure transport plan (proposal) | [docs/design/BrewPing-安全传输方案.md](docs/design/BrewPing-安全传输方案.md) |
+| Per-device authorization plan (proposal) | [docs/design/BrewPing-设备授权与撤销方案.md](docs/design/BrewPing-设备授权与撤销方案.md) |
+| Security audit (batch 2) | [docs/audits/BrewPing-安全审计-第二批.md](docs/audits/BrewPing-安全审计-第二批.md) |
+| Code review (Phase 1) | [docs/audits/BrewPing-代码审查-Phase1-审计.md](docs/audits/BrewPing-代码审查-Phase1-审计.md) |
+| Android ↔ iOS feature parity audit | [docs/audits/BrewPing-Android-iOS-功能对齐审查.md](docs/audits/BrewPing-Android-iOS-功能对齐审查.md) |
+| App Store pre-submission review | [docs/audits/AppStore-PreSubmission-Review.md](docs/audits/AppStore-PreSubmission-Review.md) |
+| TestFlight validation report | [docs/audits/TestFlight-Validation-Report.md](docs/audits/TestFlight-Validation-Report.md) |
+| TestFlight auto-discovery diagnosis | [docs/audits/BrewPing-iOS-TestFlight-自动发现-诊断.md](docs/audits/BrewPing-iOS-TestFlight-自动发现-诊断.md) |
+| Screenshots | [docs/screenshots/](docs/screenshots/) |
 
-## 🤝 Contributing & development
+## 🤝 Development & contributing
 
-Issues and pull requests are welcome. Build commands, CI expectations, and repository conventions live
-in **[CONTRIBUTING.md](CONTRIBUTING.md)**; security reports go through **[SECURITY.md](SECURITY.md)**.
-
-Sanity check before opening a PR — every suite runs without a device or emulator:
+**Requirements:** macOS with Xcode for the Swift core and the iOS / watchOS targets; a Rust toolchain
+for the Windows desktop (Tauri 2 + axum); JDK 17 + Android SDK platform 36 for the Android modules;
+Node for the Windows frontend.
 
 ```bash
-swift test --disable-sandbox                       # Swift core (macOS)
-cargo test --locked                                # Rust (Sources/BrewPingwinDesktop/src-tauri)
-cd Android && ./gradlew test                       # Android (:core + :app)
+# Swift core — build + tests (macOS)
+swift build --disable-sandbox
+swift test --disable-sandbox
+
+# iOS / watchOS — compile with signing disabled
+xcodebuild -project ios/BrewPing.xcodeproj -scheme BrewPing \
+  -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project ios/BrewPing.xcodeproj -scheme 'BrewPing Watch App' \
+  -destination 'generic/platform=watchOS' CODE_SIGNING_ALLOWED=NO build
+
+# Windows desktop — Rust tests + frontend typecheck (from repo root)
+(cd Sources/BrewPingwinDesktop/src-tauri && cargo test --locked)
+(cd Sources/BrewPingwinDesktop && npx tsc)
+
+# Android — JVM tests + phone / Wear builds
+(cd Android && ./gradlew test assembleDebug :wear:assembleDebug)
+
+# Localization — verify the en / zh string tables
+python3 ios/Scripts/check_localization.py
 ```
 
-Current counts per suite: [PROJECT_STATUS.md §3](docs/PROJECT_STATUS.md#3-test--ci-status).
+Sanity check before opening a PR — every suite runs without a device or emulator. Current counts per
+suite are recorded in [PROJECT_STATUS.md §3](docs/PROJECT_STATUS.md#3-test--ci-status) and are
+deliberately not duplicated here.
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs all of the above plus an iOS + watchOS
-compile and repository-hygiene checks on every push and pull request, with a nightly schedule to catch
-runner toolchain drift.
+**CI today:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs all of the above plus
+repository-hygiene checks on every push and pull request, with a nightly schedule to catch runner
+toolchain drift. Five jobs, all on public runners.
+
+**Contributing:** issues and pull requests are welcome. Build commands, CI expectations, and repository
+conventions live in **[CONTRIBUTING.md](CONTRIBUTING.md)**; security reports go through
+**[SECURITY.md](SECURITY.md)**. Localised user-facing strings must go through `L()` (iOS) / the
+Android string tables, with both languages kept in sync.
 
 ## 🗺️ Roadmap
 
-Direction, not commitments — nothing here is shipped yet:
+Direction, not commitments.
 
+**Already shipped:** iPhone + Apple Watch on the App Store; macOS and Windows desktop at `v1.0.0`;
+four agent integrations; the approval gate; conversations with working folders, per-conversation
+agent / model / approval settings; Bonjour discovery; bilingual UI; the CLI; and CI on every push.
+
+**In progress**
 - **More agent integrations.** The agent catalog is built to be extended beyond the four supported today.
 - **Wear OS client.** The module is in the repository and builds in CI, but it is not released and has
   not been through device testing or store submission.
 - **Smoother multi-device workflows.** Pairing several computers works today; per-device context and
   faster switching are the next step.
+
+**Planned (proposals, not shipped)**
+- [Secure transport](docs/design/BrewPing-安全传输方案.md) — TLS for the LAN leg, with pairing-bound
+  certificate pinning.
+- [Per-device credentials & revocation](docs/design/BrewPing-设备授权与撤销方案.md) — one revocable
+  credential per paired device, with a managed-device list.
 
 **Not planned:** a hosted service or an official public relay. Cross-network access stays a user-side
 network setup.
@@ -363,8 +489,11 @@ command-line tools you have already installed on your own computer.
 
 ## 🙏 Credits
 
-- [Swift](https://www.swift.org/) + SwiftUI / AppKit — the core service and the macOS app
-- [Tauri](https://tauri.app/) — the Windows desktop shell
+- [Swift](https://www.swift.org/) + SwiftUI / AppKit / Network.framework — the core service and the macOS app
+- [Tauri](https://tauri.app/), Rust and [axum](https://github.com/tokio-rs/axum) — the Windows desktop shell and HTTP API
 - [Jetpack Compose](https://developer.android.com/jetpack/compose) — the Android app
 - [shields.io](https://shields.io/) — README badges
 - OpenCode, Claude Code, Codex CLI and pi — the agents BrewPing drives (unofficial, see Trademarks)
+
+BrewPing ships no agent binary and no model; the CLI tools it drives remain yours, installed and
+configured on your own machine.
